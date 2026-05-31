@@ -64,9 +64,8 @@ struct DiscordMemberService: MemberServiceProtocol {
         req.setValue("application/json", forHTTPHeaderField: "Content-Type")
         req.httpBody = try JSONEncoder().encode(body)
 
-        let (data, response) = try await session.data(for: req)
+        let (_, response) = try await session.data(for: req)
         guard let http = response as? HTTPURLResponse, (200..<300).contains(http.statusCode) else {
-            let msg = String(data: data, encoding: .utf8) ?? "Unknown error"
             throw ServiceError.networkError
         }
     }

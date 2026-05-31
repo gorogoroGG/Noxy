@@ -80,8 +80,8 @@ actor MockEmbedService: EmbedServiceProtocol {
 // MARK: - Guild
 
 actor MockGuildService: GuildServiceProtocol {
-    private let guilds = MockData.guilds
-    private let channels = MockData.channels
+    nonisolated(unsafe) private let guilds = MockData.guilds
+    nonisolated(unsafe) private let channels = MockData.channels
 
     func fetchAll() async throws -> [Guild] {
         try await mockDelay()
@@ -103,7 +103,7 @@ actor MockGuildService: GuildServiceProtocol {
 // MARK: - Member
 
 actor MockMemberService: MemberServiceProtocol {
-    private var members = MockData.members
+    nonisolated(unsafe) private var members = MockData.members
 
     func fetchMembers(guildId: String) async throws -> [Member] {
         try await mockDelay()
@@ -155,7 +155,7 @@ actor MockMemberService: MemberServiceProtocol {
 // MARK: - Ticket
 
 actor MockTicketService: TicketServiceProtocol {
-    private var tickets = MockData.tickets
+    nonisolated(unsafe) private var tickets = MockData.tickets
 
     func fetchAll(guildId: String) async throws -> [Ticket] {
         try await mockDelay()
@@ -199,7 +199,7 @@ actor MockTicketService: TicketServiceProtocol {
 // MARK: - AutoResponse
 
 actor MockAutoResponseService: AutoResponseServiceProtocol {
-    private var items = MockData.autoResponses
+    nonisolated(unsafe) private var items = MockData.autoResponses
 
     func fetchAll(guildId: String) async throws -> [AutoResponse] {
         try await mockDelay()
@@ -299,7 +299,7 @@ struct MockAuditLogService: AuditLogServiceProtocol {
 // MARK: - Notification
 
 actor MockNotificationService: NotificationServiceProtocol {
-    private var notifications = MockData.notifications
+    nonisolated(unsafe) private var notifications = MockData.notifications
 
     func fetchAll() async throws -> [AppNotification] {
         try await mockDelay()
@@ -334,7 +334,7 @@ struct MockAnalyticsService: AnalyticsServiceProtocol {
 actor MockBotService: BotServiceProtocol {
 
     func fetchStatus() async throws -> BotStatus {
-        let workerURL = DiscordConfig.workerURL
+        let workerURL = await MainActor.run { DiscordConfig.workerURL }
         var isOnline = false
         var latency = 0
         var guildCount = 0
@@ -361,7 +361,9 @@ actor MockBotService: BotServiceProtocol {
         try await Task.sleep(for: .seconds(1))
     }
 
-    func fetchCommands() async throws -> [SlashCommand] { MockData.slashCommands }
+    func fetchCommands() async throws -> [SlashCommand] {
+        await MainActor.run { MockData.slashCommands }
+    }
     func toggleCommand(id: String, enabled: Bool) async throws { }
 }
 
@@ -370,7 +372,7 @@ actor MockBotService: BotServiceProtocol {
 actor MockAuthService: AuthServiceProtocol {
     func login() async throws -> User {
         try await Task.sleep(for: .seconds(1))
-        return MockData.currentUser
+        return await MainActor.run { MockData.currentUser }
     }
 
     func logout() async throws {
@@ -379,6 +381,6 @@ actor MockAuthService: AuthServiceProtocol {
 
     func currentUser() async throws -> User? {
         try await mockDelay()
-        return MockData.currentUser
+        return await MainActor.run { MockData.currentUser }
     }
 }

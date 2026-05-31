@@ -62,6 +62,9 @@ struct APIMemberService: MemberServiceProtocol {
     func ban(memberId: String, guildId: String, reason: String?) async throws {
         // TODO: 実装予定
     }
+    func timeout(memberId: String, guildId: String, until: Date) async throws {
+        // TODO: 実装予定
+    }
     func addRole(memberId: String, guildId: String, roleId: String) async throws {
         // TODO: 実装予定
     }

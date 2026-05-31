@@ -12,14 +12,7 @@ struct SupabaseGreetingService: GreetingServiceProtocol {
     }
 
     func save(_ settings: GreetingSettings) async throws -> GreetingSettings {
-        // upsert: 存在すれば更新、なければ挿入
-        let path = "/rest/v1/greeting_settings?guild_id=eq.\(settings.guildId)"
-        let bodyData = try SupabaseClient.encoder.encode(settings)
-
-        // まず PUT（upsert）
-        var req = URLRequest(url: URL(string: SupabaseConfig.baseURL + path)!)
-        req.httpMethod = "GET"
-        // 存在チェック: fetch して存在すれば PATCH、なければ POST
+        // 存在チェック: fetch して存在すれば PATCH、なければ POST（upsert）
         let existing: [GreetingSettings] = try await client.get(
             "greeting_settings",
             query: ["guild_id": "eq.\(settings.guildId)"]
