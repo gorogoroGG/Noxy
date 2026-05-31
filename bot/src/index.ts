@@ -5,6 +5,8 @@ import { client } from './client';
 // 新しいイベントファイルを追加したらここに import を足す
 import './events/ready';
 import './events/messageCreate';
+import './events/reactionAdd';
+import './events/reactionRemove';
 
 const token = process.env.DISCORD_BOT_TOKEN;
 if (!token) {
