@@ -53,7 +53,8 @@ function supabaseFetch(path: string, options?: RequestInit): Promise<Response> {
 // env 経由版（HTTP ハンドラ用）
 function makeSupabaseFetch(env: Env) {
   return (path: string, options?: RequestInit): Promise<Response> => {
-    const url = `${env.SUPABASE_URL}/rest/v1${path}`;
+    const baseUrl = env.SUPABASE_URL.replace(/\/$/, ''); // 末尾スラッシュを除去
+    const url = `${baseUrl}/rest/v1${path}`;
     return fetch(url, {
       ...options,
       headers: {
