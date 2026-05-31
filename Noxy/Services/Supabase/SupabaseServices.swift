@@ -22,11 +22,11 @@ struct SupabaseEmbedService: EmbedServiceProtocol {
     }
 
     func create(_ embed: EmbedModel) async throws -> EmbedModel {
-        try await client.post("embeds", body: embed)
+        try await client.postFirst("embeds", body: embed)
     }
 
     func update(_ embed: EmbedModel) async throws -> EmbedModel {
-        try await client.patchWithResponse("embeds", body: embed, where: "id", equals: embed.id)
+        try await client.patchFirst("embeds", body: embed, where: "id", equals: embed.id)
     }
 
     func delete(id: String) async throws {
@@ -45,7 +45,7 @@ struct SupabaseEmbedService: EmbedServiceProtocol {
             status: .pending,
             endDate: nil
         )
-        _ = try await client.post("scheduled_messages", body: body) as ScheduledMessage
+        try await client.postVoid("scheduled_messages", body: body)
     }
 }
 
@@ -65,11 +65,11 @@ struct SupabaseScheduledMessageService: ScheduledMessageServiceProtocol {
     }
 
     func create(_ message: ScheduledMessage) async throws -> ScheduledMessage {
-        try await client.post("scheduled_messages", body: message)
+        try await client.postFirst("scheduled_messages", body: message)
     }
 
     func update(_ message: ScheduledMessage) async throws -> ScheduledMessage {
-        try await client.patchWithResponse("scheduled_messages", body: message, where: "id", equals: message.id)
+        try await client.patchFirst("scheduled_messages", body: message, where: "id", equals: message.id)
     }
 
     func cancel(id: String) async throws {

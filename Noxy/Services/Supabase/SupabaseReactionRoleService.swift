@@ -8,11 +8,11 @@ struct SupabaseReactionRoleService: ReactionRoleServiceProtocol {
     }
 
     func create(_ item: ReactionRoleItem) async throws -> ReactionRoleItem {
-        try await client.post("reaction_roles", body: item)
+        try await client.postFirst("reaction_roles", body: item)
     }
 
     func update(_ item: ReactionRoleItem) async throws -> ReactionRoleItem {
-        try await client.patchWithResponse("reaction_roles", body: item, where: "id", equals: item.id)
+        try await client.patchFirst("reaction_roles", body: item, where: "id", equals: item.id)
     }
 
     func delete(id: String) async throws {

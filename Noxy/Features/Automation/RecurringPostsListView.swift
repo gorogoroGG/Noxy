@@ -24,6 +24,7 @@ struct RecurringPostsListView: View {
     @State private var viewMode: ViewMode = .list
     @State private var calendarDate = Date()
     @State private var selectedDayPosts: DayPosts? = nil
+    @State private var editingMessage: ScheduledMessage? = nil
     @State private var displayCount = pageSize
 
     enum ViewMode: String, CaseIterable { case list, calendar }
@@ -124,7 +125,17 @@ struct RecurringPostsListView: View {
             }
         }
         .sheet(item: $selectedDayPosts) { dayPosts in
-            DayPostsSheet(posts: dayPosts.posts, embeds: embeds)
+            DayPostsSheet(posts: dayPosts.posts, embeds: embeds) { msg in
+                editingMessage = msg
+            }
+        }
+        .sheet(item: $editingMessage) { msg in
+            RecurringPostEditSheet(message: msg, embeds: embeds) { updated in
+                if let idx = allMessages.firstIndex(where: { $0.id == updated.id }) {
+                    allMessages[idx] = updated
+                }
+                toast = ToastMessage(type: .success, message: "定期投稿を更新しました")
+            }
         }
         .toast($toast)
         .task { await load() }
@@ -136,12 +147,17 @@ struct RecurringPostsListView: View {
     private var listView: some View {
         List {
             ForEach(displayedMessages) { msg in
-                RecurringPostRow(message: msg, embeds: embeds)
-                    .onAppear {
-                        if msg.id == displayedMessages.last?.id && hasMore {
-                            displayCount = min(displayCount + pageSize, recurringMessages.count)
-                        }
+                Button {
+                    editingMessage = msg
+                } label: {
+                    RecurringPostRow(message: msg, embeds: embeds)
+                }
+                .buttonStyle(.plain)
+                .onAppear {
+                    if msg.id == displayedMessages.last?.id && hasMore {
+                        displayCount = min(displayCount + pageSize, recurringMessages.count)
                     }
+                }
             }
             .onDelete { indexSet in
                 let toDelete = indexSet.map { displayedMessages[$0] }
@@ -396,6 +412,7 @@ private struct DayPosts: Identifiable {
 private struct DayPostsSheet: View {
     let posts: [ScheduledMessage]
     let embeds: [EmbedModel]
+    let onEdit: (ScheduledMessage) -> Void
     @Environment(\.dismiss) private var dismiss
 
     private var date: Date? { posts.first?.scheduledFor }
@@ -424,22 +441,36 @@ private struct DayPostsSheet: View {
                             }
                         }
                         ForEach(posts) { post in
-                            VStack(alignment: .leading, spacing: .spacing4) {
-                                Text(post.title.isEmpty ? (embeds.first(where: { $0.id == post.embedId })?.name ?? "無題") : post.title)
-                                    .font(.bodySmall)
-                                    .fontWeight(.medium)
-                                    .foregroundStyle(Color.textPrimary)
-                                HStack(spacing: .spacing6) {
-                                    if let e = embeds.first(where: { $0.id == post.embedId }) {
-                                        Text(e.name)
-                                    }
-                                    Text("·")
-                                    Text(repeatDisplayName(post.repeatRule))
+                            Button {
+                                dismiss()
+                                DispatchQueue.main.asyncAfter(deadline: .now() + 0.3) {
+                                    onEdit(post)
                                 }
-                                .font(.captionSmall)
-                                .foregroundStyle(Color.textTertiary)
+                            } label: {
+                                HStack {
+                                    VStack(alignment: .leading, spacing: .spacing4) {
+                                        Text(post.title.isEmpty ? (embeds.first(where: { $0.id == post.embedId })?.name ?? "無題") : post.title)
+                                            .font(.bodySmall)
+                                            .fontWeight(.medium)
+                                            .foregroundStyle(Color.textPrimary)
+                                        HStack(spacing: .spacing6) {
+                                            if let e = embeds.first(where: { $0.id == post.embedId }) {
+                                                Text(e.name)
+                                            }
+                                            Text("·")
+                                            Text(repeatDisplayName(post.repeatRule))
+                                        }
+                                        .font(.captionSmall)
+                                        .foregroundStyle(Color.textTertiary)
+                                    }
+                                    Spacer()
+                                    Image(systemName: "chevron.right")
+                                        .font(.captionSmall)
+                                        .foregroundStyle(Color.textTertiary)
+                                }
+                                .padding(.vertical, .spacing4)
                             }
-                            .padding(.vertical, .spacing4)
+                            .buttonStyle(.plain)
                         }
                     }
                     .listStyle(.plain)
@@ -749,6 +780,153 @@ private func japaneseFormattedDate(_ date: Date) -> String {
     f.locale = Locale(identifier: "ja_JP")
     f.dateFormat = "yyyy年MM月dd日 HH:mm"
     return f.string(from: date)
+}
+
+// MARK: - RecurringPostEditSheet
+
+private struct RecurringPostEditSheet: View {
+    @Environment(\.services) private var services
+    @Environment(\.dismiss) private var dismiss
+
+    let message: ScheduledMessage
+    let embeds: [EmbedModel]
+    let onSave: (ScheduledMessage) -> Void
+
+    @State private var scheduledDate: Date
+    @State private var repeatRule: RepeatRule
+    @State private var hasEndDate: Bool
+    @State private var endDate: Date
+    @State private var isSaving = false
+
+    private var embed: EmbedModel? {
+        embeds.first(where: { $0.id == message.embedId })
+    }
+
+    init(message: ScheduledMessage, embeds: [EmbedModel], onSave: @escaping (ScheduledMessage) -> Void) {
+        self.message = message
+        self.embeds = embeds
+        self.onSave = onSave
+        _scheduledDate = State(initialValue: message.scheduledFor)
+        _repeatRule = State(initialValue: message.repeatRule)
+        _hasEndDate = State(initialValue: message.endDate != nil)
+        _endDate = State(initialValue: message.endDate ?? Date.now.addingTimeInterval(86400 * 30))
+    }
+
+    var body: some View {
+        NavigationStack {
+            ScrollView {
+                VStack(alignment: .leading, spacing: .spacing20) {
+                    if let e = embed {
+                        VStack(alignment: .leading, spacing: .spacing8) {
+                            Text("コンテンツ")
+                                .font(.captionSmall)
+                                .foregroundStyle(Color.textTertiary)
+                                .textCase(.uppercase)
+                            EmbedPreviewCard(embed: .from(e))
+                        }
+                        .padding(.horizontal)
+                    }
+
+                    Divider().background(Color.border).padding(.horizontal)
+
+                    VStack(alignment: .leading, spacing: .spacing4) {
+                        Text("次回送信日時")
+                            .font(.captionSmall)
+                            .foregroundStyle(Color.textTertiary)
+                            .textCase(.uppercase)
+                        DatePicker("", selection: $scheduledDate, displayedComponents: [.date, .hourAndMinute])
+                            .labelsHidden()
+                            .tint(Color.accentIndigo)
+                    }
+                    .padding(.horizontal)
+
+                    VStack(alignment: .leading, spacing: .spacing8) {
+                        Text("繰り返し")
+                            .font(.captionSmall)
+                            .foregroundStyle(Color.textTertiary)
+                            .textCase(.uppercase)
+                        Picker("", selection: $repeatRule) {
+                            ForEach([RepeatRule.daily, .weekly, .monthly], id: \.self) { r in
+                                Text(repeatDisplayName(r)).tag(r)
+                            }
+                        }
+                        .pickerStyle(.segmented)
+
+                        VStack(alignment: .leading, spacing: .spacing4) {
+                            Text("直近5回の送信予定")
+                                .font(.captionSmall)
+                                .foregroundStyle(Color.textTertiary)
+                            ForEach(Array(nextOccurrences(from: scheduledDate, rule: repeatRule, count: 5).enumerated()), id: \.offset) { _, date in
+                                HStack(spacing: .spacing6) {
+                                    Circle()
+                                        .fill(Color.accentIndigo.opacity(0.4))
+                                        .frame(width: 5, height: 5)
+                                    Text(japaneseFormattedDate(date))
+                                        .font(.captionRegular)
+                                        .foregroundStyle(Color.textSecondary)
+                                }
+                            }
+                        }
+                    }
+                    .padding(.horizontal)
+
+                    Divider().background(Color.border).padding(.horizontal)
+
+                    VStack(alignment: .leading, spacing: .spacing8) {
+                        Toggle("終了日を設定する", isOn: $hasEndDate)
+                            .font(.bodySmall)
+                            .foregroundStyle(Color.textPrimary)
+                            .tint(Color.accentIndigo)
+                        if hasEndDate {
+                            DatePicker("", selection: $endDate, displayedComponents: [.date])
+                                .labelsHidden()
+                                .tint(Color.accentIndigo)
+                        }
+                    }
+                    .padding(.horizontal)
+
+                    PrimaryButton("変更を保存", style: .filled, size: .large) {
+                        save()
+                    }
+                    .padding(.horizontal)
+                    .disabled(isSaving)
+                }
+                .padding(.vertical)
+            }
+            .background(Color.bgPrimary)
+            .navigationTitle("定期投稿を編集")
+            .navigationBarTitleDisplayMode(.inline)
+            .toolbar {
+                ToolbarItem(placement: .topBarLeading) {
+                    Button("閉じる") { dismiss() }
+                        .foregroundStyle(Color.textSecondary)
+                }
+            }
+        }
+    }
+
+    private func save() {
+        isSaving = true
+        Task {
+            var updated = message
+            updated.scheduledFor = scheduledDate
+            updated.repeatRule = repeatRule
+            updated.endDate = hasEndDate ? endDate : nil
+            let saved = (try? await services.scheduledMessages.update(updated)) ?? updated
+            onSave(saved)
+            isSaving = false
+            dismiss()
+        }
+    }
+
+    private func repeatDisplayName(_ rule: RepeatRule) -> String {
+        switch rule {
+        case .none: "なし"
+        case .daily: "毎日"
+        case .weekly: "毎週"
+        case .monthly: "毎月"
+        }
+    }
 }
 
 #Preview {

@@ -117,6 +117,44 @@ struct SupabaseClient: Sendable {
         return try decode(R.self, from: data)
     }
 
+    // MARK: - Supabase は配列でレスポンスを返すため、先頭要素を返す系メソッド
+
+    /// INSERT → レスポンス配列の先頭を返す
+    func postFirst<T: Encodable, R: Decodable>(_ table: String, body: T) async throws -> R {
+        let bodyData = try Self.encoder.encode(body)
+        let path = "/rest/v1/\(table)"
+        let data = try await request(method: "POST", path: path, body: bodyData)
+        let array: [R] = try decode([R].self, from: data)
+        guard let first = array.first else {
+            throw SupabaseError.httpError(statusCode: 0, message: "Empty response from Supabase")
+        }
+        return first
+    }
+
+    /// PATCH → レスポンス配列の先頭を返す
+    func patchFirst<T: Encodable, R: Decodable>(
+        _ table: String,
+        body: T,
+        where column: String,
+        equals value: String
+    ) async throws -> R {
+        let bodyData = try Self.encoder.encode(body)
+        let path = "/rest/v1/\(table)?\(column)=eq.\(value)"
+        let data = try await request(method: "PATCH", path: path, body: bodyData)
+        let array: [R] = try decode([R].self, from: data)
+        guard let first = array.first else {
+            throw SupabaseError.httpError(statusCode: 0, message: "Empty response from Supabase")
+        }
+        return first
+    }
+
+    /// INSERT してレスポンスを無視する（送信のみ）
+    func postVoid<T: Encodable>(_ table: String, body: T) async throws {
+        let bodyData = try Self.encoder.encode(body)
+        let path = "/rest/v1/\(table)"
+        _ = try await request(method: "POST", path: path, body: bodyData)
+    }
+
     func delete(
         _ table: String,
         where column: String,

@@ -65,7 +65,7 @@ struct ScheduledMessagesListView: View {
     // Pre-fill params for ScheduleMessageView (reuse)
     @State private var prefillEmbedId: String? = nil
     @State private var prefillChannelId: String? = nil
-    @State private var prefillRepeatRule: RepeatRule? = nil
+    // prefillRepeatRule 削除済み（予約投稿は繰り返しなし）
 
     enum ScheduledViewMode { case list, calendar }
 
@@ -186,8 +186,7 @@ struct ScheduledMessagesListView: View {
             ScheduleMessageView(
                 embeds: embeds,
                 prefillEmbedId: prefillEmbedId,
-                prefillChannelId: prefillChannelId,
-                prefillRepeatRule: prefillRepeatRule
+                prefillChannelId: prefillChannelId
             ) { msg in
                 messages.insert(msg, at: 0)
                 displayCount = min(displayCount + 1, messages.count)
@@ -222,7 +221,6 @@ struct ScheduledMessagesListView: View {
                     detailMessage = nil
                     prefillEmbedId = reusedMsg.embedId
                     prefillChannelId = reusedMsg.channelId
-                    prefillRepeatRule = reusedMsg.repeatRule
                     DispatchQueue.main.asyncAfter(deadline: .now() + 0.3) {
                         showScheduler = true
                     }
@@ -271,7 +269,6 @@ struct ScheduledMessagesListView: View {
     private func clearPrefill() {
         prefillEmbedId = nil
         prefillChannelId = nil
-        prefillRepeatRule = nil
     }
 
     private func cancelMessage(_ msg: ScheduledMessage) {
@@ -341,12 +338,7 @@ private struct ScheduledMessageRow: View {
                     Text(japaneseFormattedDate(message.scheduledFor))
                         .font(.captionRegular)
                         .foregroundStyle(Color.textSecondary)
-                    if message.repeatRule != .none {
-                        Text("·")
-                        Image(systemName: "repeat")
-                            .font(.system(size: 8))
-                        Text(repeatDisplayName(message.repeatRule))
-                    }
+                    // 繰り返し表示は予約投稿では非表示
                 }
                 .font(.captionSmall)
                 .foregroundStyle(Color.textTertiary)
@@ -375,7 +367,6 @@ private struct ScheduledMessageDetailView: View {
     let onReuse: (ScheduledMessage) -> Void
 
     @State private var scheduledDate: Date
-    @State private var repeatRule: RepeatRule
     @State private var isSaving = false
 
     private var embed: EmbedModel? {
@@ -392,7 +383,6 @@ private struct ScheduledMessageDetailView: View {
         self.onCancel = onCancel
         self.onReuse = onReuse
         _scheduledDate = State(initialValue: message.scheduledFor)
-        _repeatRule = State(initialValue: message.repeatRule)
     }
 
     private var isPending: Bool { message.status == .pending }
@@ -438,47 +428,6 @@ private struct ScheduledMessageDetailView: View {
                             Text(japaneseFormattedDate(message.scheduledFor))
                                 .font(.bodySmall)
                                 .foregroundStyle(Color.textPrimary)
-                        }
-                    }
-                    .padding(.horizontal)
-
-                    Divider().background(Color.border).padding(.horizontal)
-
-                    VStack(alignment: .leading, spacing: .spacing8) {
-                        Text("繰り返し")
-                            .font(.captionSmall)
-                            .foregroundStyle(Color.textTertiary)
-                            .textCase(.uppercase)
-                        if isPending {
-                            Picker("", selection: $repeatRule) {
-                                ForEach([RepeatRule.none, .daily, .weekly, .monthly], id: \.self) { r in
-                                    Text(repeatDisplayName(r)).tag(r)
-                                }
-                            }
-                            .pickerStyle(.segmented)
-                        } else {
-                            Text(repeatDisplayName(message.repeatRule))
-                                .font(.bodySmall)
-                                .foregroundStyle(Color.textPrimary)
-                        }
-
-                        if repeatRule != .none {
-                            VStack(alignment: .leading, spacing: .spacing4) {
-                                Text("直近の送信予定")
-                                    .font(.captionSmall)
-                                    .foregroundStyle(Color.textTertiary)
-                                ForEach(Array(nextOccurrences(from: scheduledDate, rule: repeatRule, count: 5).enumerated()), id: \.offset) { _, date in
-                                    HStack(spacing: .spacing6) {
-                                        Circle()
-                                            .fill(Color.accentIndigo.opacity(0.4))
-                                            .frame(width: 6, height: 6)
-                                        Text(japaneseFormattedDate(date))
-                                            .font(.captionRegular)
-                                            .foregroundStyle(Color.textSecondary)
-                                    }
-                                }
-                            }
-                            .padding(.leading, .spacing4)
                         }
                     }
                     .padding(.horizontal)
@@ -531,7 +480,6 @@ private struct ScheduledMessageDetailView: View {
         Task {
             var updated = message
             updated.scheduledFor = scheduledDate
-            updated.repeatRule = repeatRule
             let saved = (try? await services.scheduledMessages.update(updated)) ?? updated
             onUpdate(saved)
             isSaving = false
@@ -562,18 +510,14 @@ struct ScheduleMessageView: View {
     var initialEmbeds: [EmbedModel]? = nil
     var prefillEmbedId: String? = nil
     var prefillChannelId: String? = nil
-    var prefillRepeatRule: RepeatRule? = nil
-
     init(embeds: [EmbedModel]? = nil,
          prefillEmbedId: String? = nil,
          prefillChannelId: String? = nil,
-         prefillRepeatRule: RepeatRule? = nil,
          onSchedule: @escaping (ScheduledMessage) -> Void,
          onCreateTemplate: @escaping () -> Void) {
         self.initialEmbeds = embeds
         self.prefillEmbedId = prefillEmbedId
         self.prefillChannelId = prefillChannelId
-        self.prefillRepeatRule = prefillRepeatRule
         self.onSchedule = onSchedule
         self.onCreateTemplate = onCreateTemplate
     }
@@ -584,7 +528,7 @@ struct ScheduleMessageView: View {
     @State private var selectedChannelId = ""
     @State private var channels: [Channel] = []
     @State private var scheduledDate = Date.now.addingTimeInterval(3600)
-    @State private var recurrence: RepeatRule = .none
+    // recurrence 削除済み（予約投稿は繰り返しなし）
     @State private var isModified = false
     @State private var showCancelAlert = false
     @State private var showValidationAlert = false
@@ -711,42 +655,6 @@ struct ScheduleMessageView: View {
                             .onChange(of: scheduledDate) { isModified = true }
                     }
 
-                    // 繰り返し
-                    VStack(alignment: .leading, spacing: .spacing8) {
-                        Text("繰り返し")
-                            .font(.captionSmall)
-                            .foregroundStyle(Color.textTertiary)
-                            .textCase(.uppercase)
-                            .padding(.horizontal)
-                        Picker("", selection: $recurrence) {
-                            ForEach([RepeatRule.none, .daily, .weekly, .monthly], id: \.self) { r in
-                                Text(repeatDisplayName(r)).tag(r)
-                            }
-                        }
-                        .pickerStyle(.segmented)
-                        .padding(.horizontal)
-                        .onChange(of: recurrence) { isModified = true }
-
-                        if recurrence != .none {
-                            VStack(alignment: .leading, spacing: .spacing4) {
-                                Text("直近5回の送信予定")
-                                    .font(.captionSmall)
-                                    .foregroundStyle(Color.textTertiary)
-                                ForEach(Array(nextOccurrences(from: scheduledDate, rule: recurrence, count: 5).enumerated()), id: \.offset) { _, date in
-                                    HStack(spacing: .spacing6) {
-                                        Circle()
-                                            .fill(Color.accentIndigo.opacity(0.4))
-                                            .frame(width: 5, height: 5)
-                                        Text(japaneseFormattedDate(date))
-                                            .font(.captionRegular)
-                                            .foregroundStyle(Color.textSecondary)
-                                    }
-                                }
-                            }
-                            .padding(.horizontal)
-                        }
-                    }
-
                     // 予約ボタン
                     PrimaryButton("予約する", style: .filled, size: .large) {
                         if isValid {
@@ -803,9 +711,7 @@ struct ScheduleMessageView: View {
             if let prefillCh = prefillChannelId, textChannels.contains(where: { $0.id == prefillCh }) {
                 selectedChannelId = prefillCh
             }
-            if let prefillRule = prefillRepeatRule {
-                recurrence = prefillRule
-            }
+            // prefillRepeatRule 削除済み
         }
     }
 
@@ -818,7 +724,7 @@ struct ScheduleMessageView: View {
             embedId: embed.id,
             title: title.trimmingCharacters(in: .whitespaces),
             scheduledFor: scheduledDate,
-            repeatRule: recurrence,
+            repeatRule: .none,
             status: .pending
         )
         Task {
