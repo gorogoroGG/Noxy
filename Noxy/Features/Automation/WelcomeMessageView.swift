@@ -13,10 +13,9 @@ struct WelcomeMessageView: View {
     @State private var isSaving = false
     @State private var toast: ToastMessage? = nil
 
-    private let welcomeVariables = ["{user.mention}", "{user.name}", "{server.name}", "{member.count}"]
-    private let goodbyeVariables = ["{user.name}", "{server.name}", "{member.count}"]
+    private let welcomeVars = ["{user.mention}", "{user.name}", "{server.name}", "{member.count}"]
+    private let goodbyeVars = ["{user.name}", "{server.name}", "{member.count}"]
 
-    // ── 入室ステート ─────────────────────────────────────────
     @State private var welcomeEnabled = false
     @State private var welcomeChannelId = ""
     @State private var welcomeChannelName = ""
@@ -27,7 +26,6 @@ struct WelcomeMessageView: View {
     @State private var welcomeRoleId = ""
     @State private var welcomeRoleName = ""
 
-    // ── 退室ステート ─────────────────────────────────────────
     @State private var goodbyeEnabled = false
     @State private var goodbyeChannelId = ""
     @State private var goodbyeChannelName = ""
@@ -36,156 +34,165 @@ struct WelcomeMessageView: View {
     @State private var goodbyeDmMessage = ""
 
     var body: some View {
-        List {
+        ScrollView {
+            VStack(spacing: .spacing20) {
 
-            // ══════════════════════════════════════════════════
-            // MARK: 入室メッセージ
-            // ══════════════════════════════════════════════════
+                // ══════════════════════════════════════
+                // MARK: 入室カード（緑）
+                // ══════════════════════════════════════
+                GreetingCard(color: Color.accentGreen) {
 
-            Section {
-                HStack(spacing: .spacing10) {
-                    Image(systemName: "arrow.right.circle.fill")
-                        .foregroundStyle(Color.accentGreen)
-                    Text("入室メッセージ")
-                        .font(.bodyRegular).fontWeight(.semibold)
-                    Spacer()
-                    Toggle("", isOn: $welcomeEnabled.animation())
-                        .tint(Color.accentGreen)
-                        .labelsHidden()
-                }
-            }
-
-            if welcomeEnabled {
-                // 送信先チャンネル
-                Section {
-                    channelPicker(id: $welcomeChannelId, name: $welcomeChannelName)
-                } header: { Text("送信先チャンネル") }
-                  footer: { Text("新メンバーが参加したときにメッセージを送るチャンネルです。") }
-
-                // チャンネルメッセージ
-                Section {
-                    messageEditor(text: $welcomeMessage, placeholder: "入室メッセージを入力...")
-                    variableChips(for: $welcomeMessage, variables: welcomeVariables, color: .accentGreen)
-                } header: { Text("チャンネルメッセージ") }
-
-                // チャンネルプレビュー
-                Section {
-                    channelPreview(
-                        text: highlight(welcomeMessage, variables: welcomeVariables,
-                                        replacements: welcomeReplacements, color: .accentGreen),
-                        gradient: LinearGradient(colors: [.accentIndigo, .accentPurple],
-                                                 startPoint: .topLeading, endPoint: .bottomTrailing),
-                        icon: "bolt.fill"
+                    // ── カードヘッダー ──
+                    GreetingCardHeader(
+                        icon: "arrow.right.circle.fill",
+                        title: "入室メッセージ",
+                        subtitle: "新メンバーが参加したときに送信",
+                        color: Color.accentGreen,
+                        isEnabled: $welcomeEnabled
                     )
-                } header: { Text("プレビュー") }
 
-                // DM
-                Section {
-                    Toggle("新メンバーにDMを送信", isOn: $welcomeDmEnabled.animation())
-                        .tint(Color.accentGreen)
-                    if welcomeDmEnabled {
-                        messageEditor(text: $welcomeDmMessage, placeholder: "DMメッセージを入力...")
-                        variableChips(for: $welcomeDmMessage, variables: welcomeVariables, color: .accentGreen)
+                    if welcomeEnabled {
+                        Divider().background(Color.accentGreen.opacity(0.2))
+
+                        // チャンネル
+                        GreetingRow(label: "送信先チャンネル", icon: "number", color: Color.accentGreen) {
+                            channelPicker(id: $welcomeChannelId, name: $welcomeChannelName)
+                        }
+
+                        Divider().padding(.leading, 48)
+
+                        // メッセージ
+                        GreetingRow(label: "チャンネルメッセージ", icon: "text.bubble.fill", color: Color.accentGreen) {
+                            VStack(alignment: .leading, spacing: .spacing8) {
+                                messageEditor(text: $welcomeMessage, placeholder: "入室メッセージを入力...", color: Color.accentGreen)
+                                variableChips(for: $welcomeMessage, variables: welcomeVars, color: Color.accentGreen)
+                            }
+                        }
+
+                        Divider().padding(.leading, 48)
+
+                        // プレビュー
+                        GreetingRow(label: "プレビュー", icon: "eye.fill", color: Color.accentGreen) {
+                            channelPreview(
+                                text: highlight(welcomeMessage, map: welcomeMap, color: Color.accentGreen),
+                                gradient: LinearGradient(colors: [.accentIndigo, .accentPurple], startPoint: .topLeading, endPoint: .bottomTrailing),
+                                icon: "bolt.fill"
+                            )
+                        }
+
+                        Divider().padding(.leading, 48)
+
+                        // DM
+                        GreetingRow(label: "ダイレクトメッセージ", icon: "envelope.fill", color: Color.accentGreen) {
+                            VStack(alignment: .leading, spacing: .spacing10) {
+                                Toggle("新メンバーにDMを送信", isOn: $welcomeDmEnabled.animation())
+                                    .tint(Color.accentGreen)
+                                    .font(.bodySmall)
+
+                                if welcomeDmEnabled {
+                                    messageEditor(text: $welcomeDmMessage, placeholder: "DMメッセージを入力...", color: Color.accentGreen)
+                                    variableChips(for: $welcomeDmMessage, variables: welcomeVars, color: Color.accentGreen)
+                                    dmPreview(
+                                        text: highlight(welcomeDmMessage, map: welcomeMap, color: Color.accentGreen),
+                                        gradient: LinearGradient(colors: [.accentIndigo, .accentPurple], startPoint: .topLeading, endPoint: .bottomTrailing),
+                                        icon: "bolt.fill",
+                                        accentColor: Color.accentGreen
+                                    )
+                                }
+                            }
+                        }
+
+                        Divider().padding(.leading, 48)
+
+                        // ロール付与
+                        GreetingRow(label: "参加時ロール付与", icon: "person.badge.plus.fill", color: Color.accentGreen) {
+                            VStack(alignment: .leading, spacing: .spacing10) {
+                                Toggle("参加時にロールを付与", isOn: $welcomeRoleEnabled.animation())
+                                    .tint(Color.accentGreen)
+                                    .font(.bodySmall)
+
+                                if welcomeRoleEnabled {
+                                    rolePicker(id: $welcomeRoleId, name: $welcomeRoleName)
+                                    if !welcomeRoleName.isEmpty {
+                                        Label("全参加者に @\(welcomeRoleName) を付与します", systemImage: "checkmark.circle.fill")
+                                            .font(.captionSmall)
+                                            .foregroundStyle(Color.accentGreen)
+                                    }
+                                }
+                            }
+                        }
                     }
-                } header: { Text("ダイレクトメッセージ") }
-                  footer: { welcomeDmEnabled ? Text("{user.mention} はDMでは使用できません。") : nil }
-
-                if welcomeDmEnabled {
-                    Section {
-                        dmPreview(
-                            text: highlight(welcomeDmMessage, variables: welcomeVariables,
-                                            replacements: welcomeReplacements, color: .accentGreen),
-                            gradient: LinearGradient(colors: [.accentIndigo, .accentPurple],
-                                                     startPoint: .topLeading, endPoint: .bottomTrailing),
-                            icon: "bolt.fill",
-                            accentColor: .accentGreen
-                        )
-                    } header: { Text("DM プレビュー") }
                 }
 
-                // ロール付与（入室のみ）
-                Section {
-                    Toggle("参加時にロールを付与", isOn: $welcomeRoleEnabled.animation())
-                        .tint(Color.accentGreen)
-                    if welcomeRoleEnabled {
-                        rolePicker(id: $welcomeRoleId, name: $welcomeRoleName)
-                    }
-                } header: { Text("参加時ロール付与") }
-                  footer: {
-                      welcomeRoleEnabled && !welcomeRoleName.isEmpty
-                        ? Text("参加した全メンバーに @\(welcomeRoleName) を自動で付与します。")
-                        : nil
-                  }
-            }
+                // ══════════════════════════════════════
+                // MARK: 退室カード（ピンク）
+                // ══════════════════════════════════════
+                GreetingCard(color: Color.accentPink) {
 
-            // ══════════════════════════════════════════════════
-            // MARK: 退室メッセージ
-            // ══════════════════════════════════════════════════
-
-            Section {
-                HStack(spacing: .spacing10) {
-                    Image(systemName: "arrow.left.circle.fill")
-                        .foregroundStyle(Color.accentPink)
-                    Text("退室メッセージ")
-                        .font(.bodyRegular).fontWeight(.semibold)
-                    Spacer()
-                    Toggle("", isOn: $goodbyeEnabled.animation())
-                        .tint(Color.accentPink)
-                        .labelsHidden()
-                }
-            }
-
-            if goodbyeEnabled {
-                // 送信先チャンネル
-                Section {
-                    channelPicker(id: $goodbyeChannelId, name: $goodbyeChannelName)
-                } header: { Text("送信先チャンネル") }
-                  footer: { Text("メンバーが退室したときにメッセージを送るチャンネルです。") }
-
-                // チャンネルメッセージ
-                Section {
-                    messageEditor(text: $goodbyeMessage, placeholder: "退室メッセージを入力...")
-                    variableChips(for: $goodbyeMessage, variables: goodbyeVariables, color: .accentPink)
-                } header: { Text("チャンネルメッセージ") }
-                  footer: { Text("退室時は {user.mention} は使用できません。") }
-
-                // チャンネルプレビュー
-                Section {
-                    channelPreview(
-                        text: highlight(goodbyeMessage, variables: goodbyeVariables,
-                                        replacements: goodbyeReplacements, color: .accentPink),
-                        gradient: LinearGradient(colors: [.accentPink, .accentPurple],
-                                                 startPoint: .topLeading, endPoint: .bottomTrailing),
-                        icon: "hand.wave.fill"
+                    GreetingCardHeader(
+                        icon: "arrow.left.circle.fill",
+                        title: "退室メッセージ",
+                        subtitle: "メンバーが退室したときに送信",
+                        color: Color.accentPink,
+                        isEnabled: $goodbyeEnabled
                     )
-                } header: { Text("プレビュー") }
 
-                // DM
-                Section {
-                    Toggle("退室前にDMを送信", isOn: $goodbyeDmEnabled.animation())
-                        .tint(Color.accentPink)
-                    if goodbyeDmEnabled {
-                        messageEditor(text: $goodbyeDmMessage, placeholder: "DMメッセージを入力...")
-                        variableChips(for: $goodbyeDmMessage, variables: goodbyeVariables, color: .accentPink)
+                    if goodbyeEnabled {
+                        Divider().background(Color.accentPink.opacity(0.2))
+
+                        GreetingRow(label: "送信先チャンネル", icon: "number", color: Color.accentPink) {
+                            channelPicker(id: $goodbyeChannelId, name: $goodbyeChannelName)
+                        }
+
+                        Divider().padding(.leading, 48)
+
+                        GreetingRow(label: "チャンネルメッセージ", icon: "text.bubble.fill", color: Color.accentPink) {
+                            VStack(alignment: .leading, spacing: .spacing8) {
+                                messageEditor(text: $goodbyeMessage, placeholder: "退室メッセージを入力...", color: Color.accentPink)
+                                variableChips(for: $goodbyeMessage, variables: goodbyeVars, color: Color.accentPink)
+                                Text("{user.mention} は退室時には使用できません")
+                                    .font(.captionSmall)
+                                    .foregroundStyle(Color.textTertiary)
+                            }
+                        }
+
+                        Divider().padding(.leading, 48)
+
+                        GreetingRow(label: "プレビュー", icon: "eye.fill", color: Color.accentPink) {
+                            channelPreview(
+                                text: highlight(goodbyeMessage, map: goodbyeMap, color: Color.accentPink),
+                                gradient: LinearGradient(colors: [.accentPink, .accentPurple], startPoint: .topLeading, endPoint: .bottomTrailing),
+                                icon: "hand.wave.fill"
+                            )
+                        }
+
+                        Divider().padding(.leading, 48)
+
+                        GreetingRow(label: "ダイレクトメッセージ", icon: "envelope.fill", color: Color.accentPink) {
+                            VStack(alignment: .leading, spacing: .spacing10) {
+                                Toggle("退室前にDMを送信", isOn: $goodbyeDmEnabled.animation())
+                                    .tint(Color.accentPink)
+                                    .font(.bodySmall)
+
+                                if goodbyeDmEnabled {
+                                    messageEditor(text: $goodbyeDmMessage, placeholder: "DMメッセージを入力...", color: Color.accentPink)
+                                    variableChips(for: $goodbyeDmMessage, variables: goodbyeVars, color: Color.accentPink)
+                                    dmPreview(
+                                        text: highlight(goodbyeDmMessage, map: goodbyeMap, color: Color.accentPink),
+                                        gradient: LinearGradient(colors: [.accentPink, .accentPurple], startPoint: .topLeading, endPoint: .bottomTrailing),
+                                        icon: "hand.wave.fill",
+                                        accentColor: Color.accentPink
+                                    )
+                                }
+                            }
+                        }
                     }
-                } header: { Text("ダイレクトメッセージ") }
-                  footer: { goodbyeDmEnabled ? Text("退室処理前に本人へDMで送信されます。") : nil }
-
-                if goodbyeDmEnabled {
-                    Section {
-                        dmPreview(
-                            text: highlight(goodbyeDmMessage, variables: goodbyeVariables,
-                                            replacements: goodbyeReplacements, color: .accentPink),
-                            gradient: LinearGradient(colors: [.accentPink, .accentPurple],
-                                                     startPoint: .topLeading, endPoint: .bottomTrailing),
-                            icon: "hand.wave.fill",
-                            accentColor: .accentPink
-                        )
-                    } header: { Text("DM プレビュー") }
                 }
             }
+            .padding(.horizontal, .spacing16)
+            .padding(.vertical, .spacing20)
         }
-        .listStyle(.insetGrouped)
+        .background(Color(.systemGroupedBackground))
         .navigationTitle("入退室メッセージ")
         .navigationBarTitleDisplayMode(.large)
         .toolbar {
@@ -204,35 +211,34 @@ struct WelcomeMessageView: View {
         .redacted(reason: isLoading ? .placeholder : [])
     }
 
-    // MARK: - プレビュー用変数マッピング
+    // MARK: - プレビューマップ
 
-    private var welcomeReplacements: [(String, String)] {[
+    private var welcomeMap: [(String, String)] {[
         ("{user.mention}", "@NewMember"),
         ("{user.name}",    "NewMember"),
         ("{server.name}",  appState.selectedGuild?.name ?? "サーバー"),
         ("{member.count}", "1,234"),
     ]}
-
-    private var goodbyeReplacements: [(String, String)] {[
+    private var goodbyeMap: [(String, String)] {[
         ("{user.name}",    "OldMember"),
         ("{server.name}",  appState.selectedGuild?.name ?? "サーバー"),
         ("{member.count}", "1,233"),
     ]}
 
-    // MARK: - 共通UI部品
+    // MARK: - UI 部品
 
     @ViewBuilder
     private func channelPicker(id: Binding<String>, name: Binding<String>) -> some View {
         if channels.isEmpty {
-            ProgressView("チャンネルを読み込み中...").frame(maxWidth: .infinity)
+            ProgressView().frame(maxWidth: .infinity)
         } else {
             Picker("チャンネル", selection: id) {
                 Text("チャンネルを選択").tag("")
                 ForEach(channels.filter { $0.type == .text || $0.type == .announcement }) { ch in
-                    Label("#\(ch.name)", systemImage: ch.type == .announcement ? "megaphone" : "number")
-                        .tag(ch.id)
+                    Label("#\(ch.name)", systemImage: ch.type == .announcement ? "megaphone" : "number").tag(ch.id)
                 }
             }
+            .pickerStyle(.menu)
             .onChange(of: id.wrappedValue) { newId in
                 name.wrappedValue = channels.first(where: { $0.id == newId })?.name ?? ""
             }
@@ -242,14 +248,15 @@ struct WelcomeMessageView: View {
     @ViewBuilder
     private func rolePicker(id: Binding<String>, name: Binding<String>) -> some View {
         if roles.isEmpty {
-            ProgressView("ロールを読み込み中...").frame(maxWidth: .infinity)
+            ProgressView().frame(maxWidth: .infinity)
         } else {
-            Picker("付与するロール", selection: id) {
+            Picker("ロール", selection: id) {
                 Text("ロールを選択").tag("")
                 ForEach(roles.filter { $0.name != "@everyone" && !$0.managed }) { role in
                     Text("@\(role.name)").tag(role.id)
                 }
             }
+            .pickerStyle(.menu)
             .onChange(of: id.wrappedValue) { newId in
                 name.wrappedValue = roles.first(where: { $0.id == newId })?.name ?? ""
             }
@@ -257,88 +264,94 @@ struct WelcomeMessageView: View {
     }
 
     @ViewBuilder
-    private func messageEditor(text: Binding<String>, placeholder: String) -> some View {
+    private func messageEditor(text: Binding<String>, placeholder: String, color: Color) -> some View {
         ZStack(alignment: .topLeading) {
             if text.wrappedValue.isEmpty {
-                Text(placeholder)
-                    .foregroundStyle(Color.textTertiary).font(.bodyRegular)
-                    .padding(.top, 8).padding(.leading, 4)
-                    .allowsHitTesting(false)
+                Text(placeholder).foregroundStyle(Color.textTertiary).font(.bodySmall)
+                    .padding(.top, 8).padding(.leading, 4).allowsHitTesting(false)
             }
             TextEditor(text: text)
-                .font(.bodyRegular).frame(minHeight: 72)
+                .font(.bodySmall).frame(minHeight: 64)
                 .scrollContentBackground(.hidden)
+                .tint(color)
         }
+        .padding(10)
+        .background(color.opacity(0.05))
+        .clipShape(RoundedRectangle(cornerRadius: 8))
+        .overlay(RoundedRectangle(cornerRadius: 8).strokeBorder(color.opacity(0.2), lineWidth: 1))
     }
 
     private func variableChips(for text: Binding<String>, variables: [String], color: Color) -> some View {
         ScrollView(.horizontal, showsIndicators: false) {
-            HStack(spacing: .spacing8) {
+            HStack(spacing: .spacing6) {
+                Text("変数:").font(.captionSmall).foregroundStyle(Color.textTertiary)
                 ForEach(variables, id: \.self) { v in
                     Button { text.wrappedValue += v } label: {
-                        Text(v)
-                            .font(.caption).fontWeight(.medium)
+                        Text(v).font(.system(size: 11, weight: .semibold))
                             .foregroundStyle(color)
-                            .padding(.horizontal, .spacing8).padding(.vertical, 4)
+                            .padding(.horizontal, 8).padding(.vertical, 4)
                             .background(color.opacity(0.12)).clipShape(Capsule())
-                            .overlay(Capsule().strokeBorder(color.opacity(0.3), lineWidth: 1))
                     }.buttonStyle(.plain)
                 }
-            }.padding(.vertical, 2)
+            }
         }
     }
 
     private func channelPreview(text: AttributedString, gradient: LinearGradient, icon: String) -> some View {
-        HStack(alignment: .top, spacing: .spacing12) {
+        HStack(alignment: .top, spacing: .spacing10) {
             ZStack {
-                Circle().fill(gradient).frame(width: 36, height: 36)
-                Image(systemName: icon).font(.system(size: 14, weight: .semibold)).foregroundStyle(.white)
+                Circle().fill(gradient).frame(width: 32, height: 32)
+                Image(systemName: icon).font(.system(size: 12, weight: .semibold)).foregroundStyle(.white)
             }
-            VStack(alignment: .leading, spacing: 4) {
-                HStack(spacing: .spacing6) {
-                    Text("Noxy").font(.bodySmall).fontWeight(.semibold).foregroundStyle(Color.textPrimary)
-                    Text("BOT").font(.system(size: 9, weight: .bold)).foregroundStyle(.white)
-                        .padding(.horizontal, 4).padding(.vertical, 2)
-                        .background(Color.accentIndigo).clipShape(RoundedRectangle(cornerRadius: 3))
+            VStack(alignment: .leading, spacing: 3) {
+                HStack(spacing: 6) {
+                    Text("Noxy").font(.captionRegular).fontWeight(.semibold).foregroundStyle(Color.textPrimary)
+                    Text("BOT").font(.system(size: 8, weight: .bold)).foregroundStyle(.white)
+                        .padding(.horizontal, 4).padding(.vertical, 2).background(Color.accentIndigo)
+                        .clipShape(RoundedRectangle(cornerRadius: 3))
                 }
-                Text(text).font(.bodySmall).foregroundStyle(Color.textPrimary)
+                Text(text).font(.captionRegular).foregroundStyle(Color.textPrimary)
             }
-        }.padding(.vertical, .spacing4)
+        }
+        .padding(.spacing10)
+        .background(Color(.secondarySystemGroupedBackground))
+        .clipShape(RoundedRectangle(cornerRadius: 8))
     }
 
     private func dmPreview(text: AttributedString, gradient: LinearGradient, icon: String, accentColor: Color) -> some View {
-        VStack(alignment: .leading, spacing: .spacing8) {
-            HStack(spacing: .spacing6) {
-                Image(systemName: "envelope.fill").font(.captionSmall).foregroundStyle(accentColor)
-                Text("ダイレクトメッセージ").font(.captionSmall).foregroundStyle(accentColor)
+        VStack(alignment: .leading, spacing: .spacing6) {
+            HStack(spacing: 5) {
+                Image(systemName: "envelope.fill").font(.system(size: 10)).foregroundStyle(accentColor)
+                Text("DMプレビュー").font(.system(size: 10, weight: .medium)).foregroundStyle(accentColor)
             }
             HStack(alignment: .top, spacing: .spacing10) {
                 ZStack {
-                    Circle().fill(gradient).frame(width: 32, height: 32)
-                    Image(systemName: icon).font(.system(size: 12, weight: .semibold)).foregroundStyle(.white)
+                    Circle().fill(gradient).frame(width: 28, height: 28)
+                    Image(systemName: icon).font(.system(size: 10, weight: .semibold)).foregroundStyle(.white)
                 }
-                VStack(alignment: .leading, spacing: 4) {
-                    Text("Noxy").font(.captionRegular).fontWeight(.semibold).foregroundStyle(Color.textPrimary)
-                    Text(text).font(.captionRegular).foregroundStyle(Color.textPrimary)
+                VStack(alignment: .leading, spacing: 3) {
+                    Text("Noxy").font(.system(size: 11, weight: .semibold)).foregroundStyle(Color.textPrimary)
+                    Text(text).font(.system(size: 11)).foregroundStyle(Color.textPrimary)
                 }
                 .padding(.horizontal, .spacing10).padding(.vertical, .spacing8)
-                .background(Color.bgElevated).clipShape(RoundedRectangle(cornerRadius: 8))
+                .background(Color(.tertiarySystemGroupedBackground))
+                .clipShape(RoundedRectangle(cornerRadius: 8))
             }
-        }.padding(.vertical, .spacing4)
+        }
     }
 
     // MARK: - 変数ハイライト
 
-    private func highlight(_ raw: String, variables: [String], replacements: [(String, String)], color: Color) -> AttributedString {
+    private func highlight(_ raw: String, map: [(String, String)], color: Color) -> AttributedString {
         var result = AttributedString()
         var remaining = raw
         while !remaining.isEmpty {
             var matched = false
-            for (variable, replacement) in replacements {
+            for (variable, replacement) in map {
                 if remaining.hasPrefix(variable) {
                     var chunk = AttributedString(replacement)
                     chunk.foregroundColor = UIColor(color)
-                    chunk.font = UIFont.boldSystemFont(ofSize: UIFont.systemFontSize)
+                    chunk.font = UIFont.boldSystemFont(ofSize: UIFont.systemFontSize * 0.85)
                     result.append(chunk)
                     remaining = String(remaining.dropFirst(variable.count))
                     matched = true; break
@@ -356,54 +369,121 @@ struct WelcomeMessageView: View {
         async let sTask = services.greeting.fetch(guildId: appState.selectedGuildId)
         async let cTask = services.guilds.fetchChannels(guildId: appState.selectedGuildId)
         async let rTask = DiscordService().fetchRoles(guildId: appState.selectedGuildId)
-
         let s = (try? await sTask) ?? GreetingSettings.defaultSettings(guildId: appState.selectedGuildId)
         channels = (try? await cTask) ?? []
         roles    = (try? await rTask) ?? []
-
-        welcomeEnabled     = s.welcomeEnabled
-        welcomeChannelId   = s.welcomeChannelId
-        welcomeChannelName = s.welcomeChannelName
-        welcomeMessage     = s.welcomeMessage
-        welcomeDmEnabled   = s.welcomeDmEnabled
-        welcomeDmMessage   = s.welcomeDmMessage
-        welcomeRoleEnabled = s.welcomeRoleEnabled
-        welcomeRoleId      = s.welcomeRoleId
-        welcomeRoleName    = s.welcomeRoleName
-
-        goodbyeEnabled     = s.goodbyeEnabled
-        goodbyeChannelId   = s.goodbyeChannelId
-        goodbyeChannelName = s.goodbyeChannelName
-        goodbyeMessage     = s.goodbyeMessage
-        goodbyeDmEnabled   = s.goodbyeDmEnabled
-        goodbyeDmMessage   = s.goodbyeDmMessage
-
-        settings  = s
-        isLoading = false
+        welcomeEnabled = s.welcomeEnabled; welcomeChannelId = s.welcomeChannelId
+        welcomeChannelName = s.welcomeChannelName; welcomeMessage = s.welcomeMessage
+        welcomeDmEnabled = s.welcomeDmEnabled; welcomeDmMessage = s.welcomeDmMessage
+        welcomeRoleEnabled = s.welcomeRoleEnabled; welcomeRoleId = s.welcomeRoleId
+        welcomeRoleName = s.welcomeRoleName
+        goodbyeEnabled = s.goodbyeEnabled; goodbyeChannelId = s.goodbyeChannelId
+        goodbyeChannelName = s.goodbyeChannelName; goodbyeMessage = s.goodbyeMessage
+        goodbyeDmEnabled = s.goodbyeDmEnabled; goodbyeDmMessage = s.goodbyeDmMessage
+        settings = s; isLoading = false
     }
 
     private func save() async {
         isSaving = true
         var s = settings ?? GreetingSettings.defaultSettings(guildId: appState.selectedGuildId)
-        s.welcomeEnabled     = welcomeEnabled
-        s.welcomeChannelId   = welcomeChannelId
-        s.welcomeChannelName = welcomeChannelName
-        s.welcomeMessage     = welcomeMessage
-        s.welcomeDmEnabled   = welcomeDmEnabled
-        s.welcomeDmMessage   = welcomeDmMessage
-        s.welcomeRoleEnabled = welcomeRoleEnabled
-        s.welcomeRoleId      = welcomeRoleId
-        s.welcomeRoleName    = welcomeRoleName
-        s.goodbyeEnabled     = goodbyeEnabled
-        s.goodbyeChannelId   = goodbyeChannelId
-        s.goodbyeChannelName = goodbyeChannelName
-        s.goodbyeMessage     = goodbyeMessage
-        s.goodbyeDmEnabled   = goodbyeDmEnabled
-        s.goodbyeDmMessage   = goodbyeDmMessage
+        s.welcomeEnabled = welcomeEnabled; s.welcomeChannelId = welcomeChannelId
+        s.welcomeChannelName = welcomeChannelName; s.welcomeMessage = welcomeMessage
+        s.welcomeDmEnabled = welcomeDmEnabled; s.welcomeDmMessage = welcomeDmMessage
+        s.welcomeRoleEnabled = welcomeRoleEnabled; s.welcomeRoleId = welcomeRoleId
+        s.welcomeRoleName = welcomeRoleName
+        s.goodbyeEnabled = goodbyeEnabled; s.goodbyeChannelId = goodbyeChannelId
+        s.goodbyeChannelName = goodbyeChannelName; s.goodbyeMessage = goodbyeMessage
+        s.goodbyeDmEnabled = goodbyeDmEnabled; s.goodbyeDmMessage = goodbyeDmMessage
         let saved = (try? await services.greeting.save(s)) ?? s
-        settings = saved
-        isSaving = false
+        settings = saved; isSaving = false
         toast = ToastMessage(type: .success, message: "保存しました")
+    }
+}
+
+// MARK: - カード外枠
+
+private struct GreetingCard<Content: View>: View {
+    let color: Color
+    @ViewBuilder let content: Content
+
+    var body: some View {
+        VStack(spacing: 0) {
+            content
+        }
+        .background(Color(.secondarySystemGroupedBackground))
+        .clipShape(RoundedRectangle(cornerRadius: 16))
+        .overlay(
+            RoundedRectangle(cornerRadius: 16)
+                .strokeBorder(color.opacity(0.35), lineWidth: 1.5)
+        )
+        .shadow(color: color.opacity(0.08), radius: 8, x: 0, y: 2)
+    }
+}
+
+// MARK: - カードヘッダー（トグル付き）
+
+private struct GreetingCardHeader: View {
+    let icon: String
+    let title: String
+    let subtitle: String
+    let color: Color
+    @Binding var isEnabled: Bool
+
+    var body: some View {
+        HStack(spacing: .spacing12) {
+            ZStack {
+                RoundedRectangle(cornerRadius: 10)
+                    .fill(color.opacity(0.15))
+                    .frame(width: 44, height: 44)
+                Image(systemName: icon)
+                    .font(.system(size: 20, weight: .semibold))
+                    .foregroundStyle(color)
+            }
+            VStack(alignment: .leading, spacing: 2) {
+                Text(title)
+                    .font(.bodyRegular).fontWeight(.bold)
+                    .foregroundStyle(Color.textPrimary)
+                Text(subtitle)
+                    .font(.captionSmall)
+                    .foregroundStyle(Color.textTertiary)
+            }
+            Spacer()
+            Toggle("", isOn: $isEnabled.animation())
+                .tint(color)
+                .labelsHidden()
+        }
+        .padding(.spacing16)
+        .background(color.opacity(0.06))
+    }
+}
+
+// MARK: - 各行
+
+private struct GreetingRow<Content: View>: View {
+    let label: String
+    let icon: String
+    let color: Color
+    @ViewBuilder let content: Content
+
+    var body: some View {
+        HStack(alignment: .top, spacing: .spacing12) {
+            Image(systemName: icon)
+                .font(.system(size: 14, weight: .semibold))
+                .foregroundStyle(color)
+                .frame(width: 24)
+                .padding(.top, 2)
+
+            VStack(alignment: .leading, spacing: .spacing8) {
+                Text(label)
+                    .font(.captionSmall).fontWeight(.semibold)
+                    .foregroundStyle(Color.textTertiary)
+                    .textCase(.uppercase)
+                content
+            }
+            .frame(maxWidth: .infinity, alignment: .leading)
+        }
+        .padding(.horizontal, .spacing16)
+        .padding(.vertical, .spacing12)
     }
 }
 
