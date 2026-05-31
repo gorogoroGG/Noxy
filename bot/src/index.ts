@@ -7,6 +7,8 @@ import './events/ready';
 import './events/messageCreate';
 import './events/reactionAdd';
 import './events/reactionRemove';
+import './events/guildMemberAdd';
+import './events/guildMemberRemove';
 
 const token = process.env.DISCORD_BOT_TOKEN;
 if (!token) {

@@ -17,6 +17,7 @@ final class ServiceContainer {
     let bot:                any BotServiceProtocol
     let auth:               any AuthServiceProtocol
     let reactionRoles:      any ReactionRoleServiceProtocol
+    let greeting:           any GreetingServiceProtocol
 
     private init(
         embeds:            any EmbedServiceProtocol,
@@ -30,7 +31,8 @@ final class ServiceContainer {
         analytics:         any AnalyticsServiceProtocol,
         bot:               any BotServiceProtocol,
         auth:              any AuthServiceProtocol,
-        reactionRoles:     any ReactionRoleServiceProtocol
+        reactionRoles:     any ReactionRoleServiceProtocol,
+        greeting:          any GreetingServiceProtocol
     ) {
         self.embeds = embeds
         self.guilds = guilds
@@ -44,6 +46,7 @@ final class ServiceContainer {
         self.bot = bot
         self.auth = auth
         self.reactionRoles = reactionRoles
+        self.greeting = greeting
     }
 
     /// 本番用（Supabase）
@@ -60,7 +63,8 @@ final class ServiceContainer {
             analytics:         MockAnalyticsService(),
             bot:               MockBotService(),
             auth:              SupabaseAuthService(),
-            reactionRoles:     SupabaseReactionRoleService()
+            reactionRoles:     SupabaseReactionRoleService(),
+            greeting:          SupabaseGreetingService()
         )
     }
 }

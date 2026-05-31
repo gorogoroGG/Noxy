@@ -9,6 +9,7 @@ export const client = new Client({
     GatewayIntentBits.MessageContent,
     GatewayIntentBits.GuildMembers,
     GatewayIntentBits.GuildMessageReactions, // リアクションロールに必要
+    GatewayIntentBits.GuildMembers,          // 入退室イベントに必要（Privileged Intent）
   ],
   partials: [Partials.Message, Partials.Channel, Partials.Reaction], // 古いメッセージへの対応
 });

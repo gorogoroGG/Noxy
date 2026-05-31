@@ -55,7 +55,30 @@ CREATE TABLE IF NOT EXISTS channels (
     bot_can_send    BOOLEAN NOT NULL DEFAULT TRUE
 );
 
--- 5. reaction_roles（リアクションロール設定）
+-- 5. greeting_settings（入退室メッセージ設定）
+CREATE TABLE IF NOT EXISTS greeting_settings (
+    guild_id             TEXT PRIMARY KEY,
+    -- Welcome
+    welcome_enabled      BOOLEAN NOT NULL DEFAULT FALSE,
+    welcome_channel_id   TEXT NOT NULL DEFAULT '',
+    welcome_channel_name TEXT NOT NULL DEFAULT '',
+    welcome_message      TEXT NOT NULL DEFAULT '{user.mention} が {server.name} に参加しました！🎉',
+    welcome_dm_enabled   BOOLEAN NOT NULL DEFAULT FALSE,
+    welcome_dm_message   TEXT NOT NULL DEFAULT '',
+    welcome_role_enabled BOOLEAN NOT NULL DEFAULT FALSE,
+    welcome_role_id      TEXT NOT NULL DEFAULT '',
+    welcome_role_name    TEXT NOT NULL DEFAULT '',
+    -- Goodbye
+    goodbye_enabled      BOOLEAN NOT NULL DEFAULT FALSE,
+    goodbye_channel_id   TEXT NOT NULL DEFAULT '',
+    goodbye_channel_name TEXT NOT NULL DEFAULT '',
+    goodbye_message      TEXT NOT NULL DEFAULT '{user.name} が {server.name} から退室しました。👋',
+    goodbye_dm_enabled   BOOLEAN NOT NULL DEFAULT FALSE,
+    goodbye_dm_message   TEXT NOT NULL DEFAULT '',
+    updated_at           TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
+
+-- 6. reaction_roles（リアクションロール設定）
 CREATE TABLE IF NOT EXISTS reaction_roles (
     id           TEXT PRIMARY KEY,
     guild_id     TEXT NOT NULL,

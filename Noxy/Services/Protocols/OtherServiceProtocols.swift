@@ -48,3 +48,8 @@ protocol AuthServiceProtocol: Sendable {
     func logout() async throws
     func currentUser() async throws -> User?
 }
+
+protocol GreetingServiceProtocol: Sendable {
+    func fetch(guildId: String) async throws -> GreetingSettings
+    func save(_ settings: GreetingSettings) async throws -> GreetingSettings
+}

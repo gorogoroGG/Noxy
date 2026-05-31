@@ -1,91 +1,84 @@
 import SwiftUI
 
 struct GoodbyeMessageView: View {
-    @State private var isEnabled = true
-    @State private var channelName = "general"
-    @State private var messageText = "{user.name} が {server.name} から退室しました。👋"
-    @State private var sendDMBeforeLeave = false
-    @State private var dmMessage = "{server.name} での参加ありがとうございました。またの機会をお待ちしています！"
+    @Environment(\.services) private var services
+    @Environment(AppState.self) private var appState
+
+    @State private var settings: GreetingSettings? = nil
+    @State private var channels: [Channel] = []
+    @State private var isLoading = true
+    @State private var isSaving = false
     @State private var toast: ToastMessage? = nil
 
-    private let mockChannels = ["general", "goodbye", "logs", "lobby"]
-    private let variables = ["{user.mention}", "{user.name}", "{server.name}", "{member.count}"]
+    private let variables = ["{user.name}", "{server.name}", "{member.count}"]
 
-    private var messagePreview: String {
-        messageText
-            .replacingOccurrences(of: "{user.mention}", with: "@OldMember")
-            .replacingOccurrences(of: "{user.name}", with: "OldMember")
-            .replacingOccurrences(of: "{server.name}", with: "Valorant JP")
-            .replacingOccurrences(of: "{member.count}", with: "1,233")
-    }
+    @State private var enabled = false
+    @State private var channelId = ""
+    @State private var channelName = ""
+    @State private var message = ""
+    @State private var dmEnabled = false
+    @State private var dmMessage = ""
 
     var body: some View {
         List {
             Section {
-                Toggle("退室メッセージを有効にする", isOn: $isEnabled.animation())
-                    .tint(Color.accentGreen)
+                Toggle("退室メッセージを有効にする", isOn: $enabled.animation())
+                    .tint(Color.accentPink)
             }
 
-            if isEnabled {
-                Section("送信先") {
-                    Picker("チャンネル", selection: $channelName) {
-                        ForEach(mockChannels, id: \.self) { ch in
-                            Text("#\(ch)").tag(ch)
-                        }
-                    }
-                }
-
-                Section("メッセージ") {
-                    TextField("メッセージを入力...", text: $messageText, axis: .vertical)
-                        .font(.bodyRegular)
-                        .lineLimit(3...8)
-                    variableHints
-                }
-
-                Section("プレビュー") {
-                    HStack(alignment: .top, spacing: .spacing12) {
-                        ZStack {
-                            Circle()
-                                .fill(LinearGradient(
-                                    colors: [Color.accentPink, Color.accentPurple],
-                                    startPoint: .topLeading, endPoint: .bottomTrailing
-                                ))
-                                .frame(width: 36, height: 36)
-                            Image(systemName: "hand.wave.fill")
-                                .font(.system(size: 14, weight: .semibold))
-                                .foregroundStyle(.white)
-                        }
-                        VStack(alignment: .leading, spacing: 4) {
-                            HStack(spacing: .spacing6) {
-                                Text("Noxy")
-                                    .font(.bodySmall)
-                                    .fontWeight(.semibold)
-                                    .foregroundStyle(Color.textPrimary)
-                                Text("BOT")
-                                    .font(.system(size: 9, weight: .bold))
-                                    .foregroundStyle(.white)
-                                    .padding(.horizontal, 4)
-                                    .padding(.vertical, 2)
-                                    .background(Color.accentIndigo)
-                                    .clipShape(RoundedRectangle(cornerRadius: 3))
+            if enabled {
+                Section {
+                    if channels.isEmpty {
+                        ProgressView("チャンネルを読み込み中...").frame(maxWidth: .infinity)
+                    } else {
+                        Picker("チャンネル", selection: $channelId) {
+                            Text("チャンネルを選択").tag("")
+                            ForEach(channels.filter { $0.type == .text || $0.type == .announcement }) { ch in
+                                Label("#\(ch.name)", systemImage: ch.type == .announcement ? "megaphone" : "number").tag(ch.id)
                             }
-                            Text(messagePreview)
-                                .font(.bodySmall)
-                                .foregroundStyle(Color.textPrimary)
+                        }
+                        .onChange(of: channelId) { id in
+                            channelName = channels.first(where: { $0.id == id })?.name ?? ""
                         }
                     }
-                    .padding(.vertical, .spacing4)
-                }
+                } header: { Text("送信先チャンネル") }
+                  footer: { Text("メンバーが退室したときにメッセージを送るチャンネルです。") }
 
-                Section("オプション") {
-                    Toggle("退室前にDMを送信", isOn: $sendDMBeforeLeave.animation())
-                        .tint(Color.accentGreen)
-
-                    if sendDMBeforeLeave {
-                        TextField("DMメッセージ...", text: $dmMessage, axis: .vertical)
-                            .font(.bodyRegular)
-                            .lineLimit(2...6)
+                Section {
+                    ZStack(alignment: .topLeading) {
+                        if message.isEmpty {
+                            Text("メッセージを入力...").foregroundStyle(Color.textTertiary).font(.bodyRegular)
+                                .padding(.top, 8).padding(.leading, 4).allowsHitTesting(false)
+                        }
+                        TextEditor(text: $message).font(.bodyRegular).frame(minHeight: 80).scrollContentBackground(.hidden)
                     }
+                    variableChips(for: $message, color: .accentPink)
+                } header: { Text("チャンネルメッセージ") }
+                  footer: { Text("退室時は {user.mention} は使用できません。") }
+
+                Section {
+                    discordChannelPreview(text: buildHighlighted(message, color: .accentPink))
+                } header: { Text("チャンネルメッセージ プレビュー") }
+
+                Section {
+                    Toggle("退室前にDMを送信", isOn: $dmEnabled.animation()).tint(Color.accentPink)
+                    if dmEnabled {
+                        ZStack(alignment: .topLeading) {
+                            if dmMessage.isEmpty {
+                                Text("DMメッセージを入力...").foregroundStyle(Color.textTertiary).font(.bodyRegular)
+                                    .padding(.top, 8).padding(.leading, 4).allowsHitTesting(false)
+                            }
+                            TextEditor(text: $dmMessage).font(.bodyRegular).frame(minHeight: 60).scrollContentBackground(.hidden)
+                        }
+                        variableChips(for: $dmMessage, color: .accentPink)
+                    }
+                } header: { Text("ダイレクトメッセージ") }
+                  footer: { dmEnabled ? Text("退室処理前に本人へDMで送信されます。") : nil }
+
+                if dmEnabled {
+                    Section {
+                        dmPreview(text: buildHighlighted(dmMessage, color: .accentPink))
+                    } header: { Text("DM プレビュー") }
                 }
             }
         }
@@ -94,40 +87,131 @@ struct GoodbyeMessageView: View {
         .navigationBarTitleDisplayMode(.large)
         .toolbar {
             ToolbarItem(placement: .topBarTrailing) {
-                Button("保存") {
-                    toast = ToastMessage(type: .success, message: "保存しました")
+                Button { Task { await save() } } label: {
+                    if isSaving { ProgressView().scaleEffect(0.8) }
+                    else { Text("保存").fontWeight(.semibold) }
                 }
-                .fontWeight(.semibold)
-                .disabled(!isEnabled)
+                .disabled(isSaving)
             }
         }
         .toast($toast)
+        .task { await load() }
+        .redacted(reason: isLoading ? .placeholder : [])
     }
 
-    private var variableHints: some View {
+    private func variableChips(for text: Binding<String>, color: Color) -> some View {
         ScrollView(.horizontal, showsIndicators: false) {
             HStack(spacing: .spacing8) {
-                ForEach(variables, id: \.self) { variable in
-                    Button {
-                        messageText += variable
-                    } label: {
-                        Text(variable)
-                            .font(.caption)
-                            .foregroundStyle(Color.accentPink)
-                            .padding(.horizontal, .spacing8)
-                            .padding(.vertical, 4)
-                            .background(Color.accentPink.opacity(0.1))
-                            .clipShape(Capsule())
-                    }
-                    .buttonStyle(.plain)
+                ForEach(variables, id: \.self) { v in
+                    Button { text.wrappedValue += v } label: {
+                        Text(v).font(.caption).fontWeight(.medium).foregroundStyle(color)
+                            .padding(.horizontal, .spacing8).padding(.vertical, 4)
+                            .background(color.opacity(0.12)).clipShape(Capsule())
+                            .overlay(Capsule().strokeBorder(color.opacity(0.3), lineWidth: 1))
+                    }.buttonStyle(.plain)
+                }
+            }.padding(.vertical, 2)
+        }
+    }
+
+    private func discordChannelPreview(text: AttributedString) -> some View {
+        HStack(alignment: .top, spacing: .spacing12) {
+            ZStack {
+                Circle().fill(LinearGradient(colors: [.accentPink, .accentPurple], startPoint: .topLeading, endPoint: .bottomTrailing)).frame(width: 36, height: 36)
+                Image(systemName: "hand.wave.fill").font(.system(size: 14, weight: .semibold)).foregroundStyle(.white)
+            }
+            VStack(alignment: .leading, spacing: 4) {
+                HStack(spacing: .spacing6) {
+                    Text("Noxy").font(.bodySmall).fontWeight(.semibold).foregroundStyle(Color.textPrimary)
+                    Text("BOT").font(.system(size: 9, weight: .bold)).foregroundStyle(.white)
+                        .padding(.horizontal, 4).padding(.vertical, 2).background(Color.accentIndigo).clipShape(RoundedRectangle(cornerRadius: 3))
+                }
+                Text(text).font(.bodySmall).foregroundStyle(Color.textPrimary)
+            }
+        }.padding(.vertical, .spacing4)
+    }
+
+    private func dmPreview(text: AttributedString) -> some View {
+        VStack(alignment: .leading, spacing: .spacing8) {
+            HStack(spacing: .spacing6) {
+                Image(systemName: "envelope.fill").font(.captionSmall).foregroundStyle(Color.accentPink)
+                Text("ダイレクトメッセージ").font(.captionSmall).foregroundStyle(Color.accentPink)
+            }
+            HStack(alignment: .top, spacing: .spacing10) {
+                ZStack {
+                    Circle().fill(LinearGradient(colors: [.accentPink, .accentPurple], startPoint: .topLeading, endPoint: .bottomTrailing)).frame(width: 32, height: 32)
+                    Image(systemName: "hand.wave.fill").font(.system(size: 12, weight: .semibold)).foregroundStyle(.white)
+                }
+                VStack(alignment: .leading, spacing: 4) {
+                    Text("Noxy").font(.captionRegular).fontWeight(.semibold).foregroundStyle(Color.textPrimary)
+                    Text(text).font(.captionRegular).foregroundStyle(Color.textPrimary)
+                }
+                .padding(.horizontal, .spacing10).padding(.vertical, .spacing8)
+                .background(Color.bgElevated).clipShape(RoundedRectangle(cornerRadius: 8))
+            }
+        }.padding(.vertical, .spacing4)
+    }
+
+    private func buildHighlighted(_ raw: String, color: Color) -> AttributedString {
+        let map: [(String, String)] = [
+            ("{user.name}", "OldMember"),
+            ("{server.name}", appState.selectedGuild?.name ?? "サーバー"),
+            ("{member.count}", "1,233"),
+        ]
+        var result = AttributedString()
+        var remaining = raw
+        while !remaining.isEmpty {
+            var matched = false
+            for (variable, replacement) in map {
+                if remaining.hasPrefix(variable) {
+                    var chunk = AttributedString(replacement)
+                    chunk.foregroundColor = UIColor(color)
+                    chunk.font = UIFont.boldSystemFont(ofSize: UIFont.systemFontSize)
+                    result.append(chunk)
+                    remaining = String(remaining.dropFirst(variable.count))
+                    matched = true; break
                 }
             }
-            .padding(.vertical, 2)
+            if !matched { result.append(AttributedString(String(remaining.removeFirst()))) }
         }
+        return result
+    }
+
+    private func load() async {
+        guard !appState.selectedGuildId.isEmpty else { isLoading = false; return }
+        async let sTask = services.greeting.fetch(guildId: appState.selectedGuildId)
+        async let cTask = services.guilds.fetchChannels(guildId: appState.selectedGuildId)
+        let s = (try? await sTask) ?? GreetingSettings.defaultSettings(guildId: appState.selectedGuildId)
+        channels = (try? await cTask) ?? []
+        enabled     = s.goodbyeEnabled
+        channelId   = s.goodbyeChannelId
+        channelName = s.goodbyeChannelName
+        message     = s.goodbyeMessage
+        dmEnabled   = s.goodbyeDmEnabled
+        dmMessage   = s.goodbyeDmMessage
+        settings    = s
+        isLoading   = false
+    }
+
+    private func save() async {
+        isSaving = true
+        var s = settings ?? GreetingSettings.defaultSettings(guildId: appState.selectedGuildId)
+        s.goodbyeEnabled     = enabled
+        s.goodbyeChannelId   = channelId
+        s.goodbyeChannelName = channelName
+        s.goodbyeMessage     = message
+        s.goodbyeDmEnabled   = dmEnabled
+        s.goodbyeDmMessage   = dmMessage
+        let saved = (try? await services.greeting.save(s)) ?? s
+        settings = saved
+        isSaving = false
+        toast = ToastMessage(type: .success, message: "保存しました")
     }
 }
 
 #Preview {
     NavigationStack { GoodbyeMessageView() }
+        .environment(\.services, ServiceContainer.live())
+        .environment(AppState())
         .preferredColorScheme(.dark)
 }
