@@ -29,19 +29,10 @@ struct AutomationTabView: View {
                     NavigationLink {
                         WelcomeMessageView()
                     } label: {
-                        AutomationMenuRow(icon: "hand.wave.fill",
-                                          title: "ウェルカムメッセージ",
-                                          subtitle: "新メンバーへの挨拶",
+                        AutomationMenuRow(icon: "arrow.left.arrow.right.circle.fill",
+                                          title: "入退室メッセージ",
+                                          subtitle: "参加・退室時の自動メッセージ",
                                           color: .accentGreen)
-                    }
-
-                    NavigationLink {
-                        GoodbyeMessageView()
-                    } label: {
-                        AutomationMenuRow(icon: "hand.wave.slash.fill",
-                                          title: "退室メッセージ",
-                                          subtitle: "メンバー退室時の通知",
-                                          color: .accentPink)
                     }
 
 //                    NavigationLink {
