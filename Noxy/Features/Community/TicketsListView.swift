@@ -1,8 +1,286 @@
 import SwiftUI
 
-// MARK: - TicketsListView
+// MARK: - TicketsListView（外部から呼ばれるルートコンテナ）
 
 struct TicketsListView: View {
+    let guildId: String
+
+    enum Tab { case panels, tickets }
+    @State private var selectedTab: Tab = .panels
+
+    var body: some View {
+        VStack(spacing: 0) {
+            // ── タブ切り替えバー ──
+            HStack(spacing: 0) {
+                tabButton(title: "パネル", icon: "rectangle.stack.fill", tab: .panels)
+                tabButton(title: "チケット", icon: "ticket.fill", tab: .tickets)
+            }
+            .background(Color(.secondarySystemGroupedBackground))
+            .overlay(Divider(), alignment: .bottom)
+
+            // ── コンテンツ ──
+            switch selectedTab {
+            case .panels:
+                TicketPanelListView(guildId: guildId)
+            case .tickets:
+                TicketListInner(guildId: guildId)
+            }
+        }
+        .background(Color(.systemGroupedBackground))
+    }
+
+    private func tabButton(title: String, icon: String, tab: Tab) -> some View {
+        Button { withAnimation(.easeInOut(duration: 0.18)) { selectedTab = tab } } label: {
+            VStack(spacing: 4) {
+                HStack(spacing: 5) {
+                    Image(systemName: icon).font(.system(size: 12, weight: .semibold))
+                    Text(title).font(.captionRegular).fontWeight(.semibold)
+                }
+                .foregroundStyle(selectedTab == tab ? Color.accentIndigo : Color.textTertiary)
+                Capsule()
+                    .fill(selectedTab == tab ? Color.accentIndigo : Color.clear)
+                    .frame(height: 2)
+            }
+            .frame(maxWidth: .infinity)
+            .padding(.vertical, .spacing8)
+            .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
+    }
+}
+
+// MARK: - TicketPanelListView
+
+private struct TicketPanelListView: View {
+    let guildId: String
+    @Environment(\.services) private var services
+    @State private var panels: [TicketPanel] = []
+    @State private var isLoading = true
+    @State private var showCreate = false
+    @State private var editingPanel: TicketPanel? = nil
+    @State private var deployingId: String? = nil
+    @State private var toast: String? = nil
+    @State private var errorMessage: String? = nil
+
+    var body: some View {
+        ZStack(alignment: .bottom) {
+            List {
+                if isLoading {
+                    HStack { Spacer(); ProgressView(); Spacer() }
+                        .listRowBackground(Color(.systemGroupedBackground))
+                        .listRowSeparator(.hidden)
+                        .padding(.top, 40)
+                } else if panels.isEmpty {
+                    emptyPanelState
+                        .listRowBackground(Color(.systemGroupedBackground))
+                        .listRowSeparator(.hidden)
+                } else {
+                    ForEach(panels) { panel in
+                        PanelCard(
+                            panel: panel,
+                            isDeploying: deployingId == panel.id,
+                            onEdit: { editingPanel = panel },
+                            onDeploy: { Task { await deploy(panel) } }
+                        )
+                        .listRowInsets(EdgeInsets(top: 4, leading: 16, bottom: 4, trailing: 16))
+                        .listRowBackground(Color(.systemGroupedBackground))
+                        .listRowSeparator(.hidden)
+                    }
+                    .onDelete { offsets in
+                        let toDelete = offsets.map { panels[$0] }
+                        Task {
+                            for p in toDelete {
+                                try? await services.tickets.deletePanel(id: p.id)
+                            }
+                            panels.remove(atOffsets: offsets)
+                        }
+                    }
+                }
+                Color.clear.frame(height: 80)
+                    .listRowBackground(Color(.systemGroupedBackground))
+                    .listRowSeparator(.hidden)
+            }
+            .listStyle(.plain)
+            .background(Color(.systemGroupedBackground))
+            .refreshable { await load() }
+
+            // ── 作成ボタン（FAB）──
+            Button { showCreate = true } label: {
+                HStack(spacing: .spacing8) {
+                    Image(systemName: "plus").font(.system(size: 14, weight: .bold))
+                    Text("パネルを作成").font(.bodySmall).fontWeight(.semibold)
+                }
+                .foregroundStyle(.white)
+                .padding(.horizontal, .spacing20).padding(.vertical, .spacing12)
+                .background(Color.accentIndigo)
+                .clipShape(Capsule())
+                .shadow(color: Color.accentIndigo.opacity(0.4), radius: 8, y: 4)
+            }
+            .padding(.bottom, 24)
+
+            // Toast
+            if let toast {
+                Text(toast)
+                    .font(.captionRegular).fontWeight(.medium).foregroundStyle(.white)
+                    .padding(.horizontal, .spacing16).padding(.vertical, .spacing10)
+                    .background(Color(.systemGray2)).clipShape(Capsule())
+                    .padding(.bottom, 80)
+                    .transition(.move(edge: .bottom).combined(with: .opacity))
+            }
+        }
+        .sheet(isPresented: $showCreate) {
+            TicketPanelEditView(existingPanel: nil, guildId: guildId) { newPanel in
+                panels.insert(newPanel, at: 0)
+            }
+        }
+        .sheet(item: $editingPanel) { panel in
+            TicketPanelEditView(existingPanel: panel, guildId: guildId) { updated in
+                if let idx = panels.firstIndex(where: { $0.id == updated.id }) {
+                    panels[idx] = updated
+                }
+            }
+        }
+        .task { await load() }
+    }
+
+    private var emptyPanelState: some View {
+        VStack(spacing: .spacing12) {
+            Image(systemName: "rectangle.stack.badge.plus")
+                .font(.system(size: 40)).foregroundStyle(Color.textTertiary)
+            Text("パネルがありません")
+                .font(.titleMedium).foregroundStyle(Color.textPrimary)
+            Text("「パネルを作成」ボタンからチケットパネルを追加できます")
+                .font(.captionRegular).foregroundStyle(Color.textTertiary)
+                .multilineTextAlignment(.center)
+        }
+        .frame(maxWidth: .infinity).padding(.top, 60)
+    }
+
+    private func load() async {
+        isLoading = true
+        panels = (try? await services.tickets.fetchPanels(guildId: guildId)) ?? []
+        isLoading = false
+    }
+
+    private func deploy(_ panel: TicketPanel) async {
+        guard !panel.channelId.isEmpty else {
+            showToast("チャンネルが設定されていません")
+            return
+        }
+        deployingId = panel.id
+        do {
+            let updated = try await services.tickets.deployPanel(id: panel.id)
+            if let idx = panels.firstIndex(where: { $0.id == panel.id }) {
+                panels[idx] = updated
+            }
+            showToast("✅ デプロイ完了")
+        } catch {
+            showToast("❌ デプロイ失敗")
+        }
+        deployingId = nil
+    }
+
+    private func showToast(_ msg: String) {
+        withAnimation { toast = msg }
+        Task {
+            try? await Task.sleep(for: .seconds(2.5))
+            withAnimation { toast = nil }
+        }
+    }
+}
+
+// MARK: - PanelCard
+
+private struct PanelCard: View {
+    let panel: TicketPanel
+    let isDeploying: Bool
+    let onEdit: () -> Void
+    let onDeploy: () -> Void
+
+    var body: some View {
+        VStack(spacing: 0) {
+            // ── ヘッダー行 ──
+            HStack(spacing: .spacing12) {
+                // カラーアイコン
+                ZStack {
+                    RoundedRectangle(cornerRadius: 10)
+                        .fill(Color(uiColor: UIColor(hex: UInt32(panel.color))))
+                        .frame(width: 42, height: 42)
+                    Text(panel.buttonEmoji).font(.system(size: 20))
+                }
+
+                VStack(alignment: .leading, spacing: 3) {
+                    Text(panel.title)
+                        .font(.bodySmall).fontWeight(.semibold).foregroundStyle(Color.textPrimary)
+                    Text(panel.description)
+                        .font(.captionSmall).foregroundStyle(Color.textTertiary).lineLimit(1)
+                }
+
+                Spacer()
+
+                // ステータスバッジ
+                if panel.isDeployed {
+                    Label("デプロイ済", systemImage: "checkmark.circle.fill")
+                        .font(.system(size: 10, weight: .semibold))
+                        .foregroundStyle(Color.accentGreen)
+                        .padding(.horizontal, 8).padding(.vertical, 4)
+                        .background(Color.accentGreen.opacity(0.12))
+                        .clipShape(Capsule())
+                } else {
+                    Text("未デプロイ")
+                        .font(.system(size: 10, weight: .semibold))
+                        .foregroundStyle(Color.textTertiary)
+                        .padding(.horizontal, 8).padding(.vertical, 4)
+                        .background(Color(.tertiarySystemGroupedBackground))
+                        .clipShape(Capsule())
+                }
+            }
+            .padding(.spacing12)
+
+            Divider().padding(.horizontal, .spacing12)
+
+            // ── アクション行 ──
+            HStack(spacing: 0) {
+                // 編集
+                Button(action: onEdit) {
+                    Label("編集", systemImage: "pencil")
+                        .font(.captionRegular).fontWeight(.medium)
+                        .foregroundStyle(Color.accentIndigo)
+                        .frame(maxWidth: .infinity).padding(.vertical, .spacing10)
+                }
+                .buttonStyle(.plain)
+
+                Divider().frame(height: 20)
+
+                // デプロイ
+                Button(action: onDeploy) {
+                    if isDeploying {
+                        HStack(spacing: 5) {
+                            ProgressView().scaleEffect(0.7)
+                            Text("送信中").font(.captionRegular).foregroundStyle(Color.textTertiary)
+                        }
+                        .frame(maxWidth: .infinity).padding(.vertical, .spacing10)
+                    } else {
+                        Label(panel.isDeployed ? "再デプロイ" : "Discordに送信",
+                              systemImage: "paperplane.fill")
+                            .font(.captionRegular).fontWeight(.medium)
+                            .foregroundStyle(panel.isDeployed ? Color.accentOrange : Color.accentGreen)
+                            .frame(maxWidth: .infinity).padding(.vertical, .spacing10)
+                    }
+                }
+                .buttonStyle(.plain)
+                .disabled(isDeploying)
+            }
+            .background(Color(.tertiarySystemGroupedBackground))
+        }
+        .background(Color(.secondarySystemGroupedBackground))
+        .clipShape(RoundedRectangle(cornerRadius: 14))
+    }
+}
+
+// MARK: - TicketListInner（旧 TicketsListView の中身）
+
+private struct TicketListInner: View {
     let guildId: String
     @Environment(\.services) private var services
     @State private var tickets: [Ticket] = []

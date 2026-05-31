@@ -77,6 +77,50 @@ function mapTicketMessage(m: TicketMessageRow) {
   };
 }
 
+// ── チケットパネル型定義 ─────────────────────────────────────
+
+interface TicketPanelRow {
+  id: string;
+  guild_id: string;
+  channel_id: string;
+  message_id: string | null;
+  title: string;
+  description: string;
+  color: number;
+  button_label: string;
+  button_emoji: string;
+  support_role_id: string | null;
+  open_category_id: string | null;
+  closed_category_id: string | null;
+  ticket_msg_content: string | null;
+  ticket_embed_title: string;
+  ticket_embed_color: number;
+  max_open_per_user: number;
+  created_at: string;
+}
+
+function mapPanel(p: TicketPanelRow) {
+  return {
+    id:               p.id,
+    guildId:          p.guild_id,
+    channelId:        p.channel_id,
+    messageId:        p.message_id ?? null,
+    title:            p.title,
+    description:      p.description,
+    color:            p.color,
+    buttonLabel:      p.button_label,
+    buttonEmoji:      p.button_emoji,
+    supportRoleId:    p.support_role_id ?? null,
+    openCategoryId:   p.open_category_id ?? null,
+    closedCategoryId: p.closed_category_id ?? null,
+    ticketMsgContent: p.ticket_msg_content ?? null,
+    ticketEmbedTitle: p.ticket_embed_title,
+    ticketEmbedColor: p.ticket_embed_color,
+    maxOpenPerUser:   p.max_open_per_user,
+    createdAt:        p.created_at,
+  };
+}
+
 // ── 埋め込み型定義 ───────────────────────────────────────────
 
 interface Embed {
@@ -864,6 +908,147 @@ export default {
       const resp = await sb(`/tickets?id=eq.${id}`);
       const rows = await resp.json() as TicketRow[];
       return new Response(JSON.stringify(mapTicket(rows[0])), { headers: { 'Content-Type': 'application/json' } });
+    }
+
+    // ── チケットパネル管理 ──────────────────────────────────────
+
+    // 一覧 GET /bot/ticket-panels?guild_id=xxx
+    if (url.pathname === '/bot/ticket-panels' && request.method === 'GET') {
+      const guildId = url.searchParams.get('guild_id');
+      if (!guildId) return new Response('Missing guild_id', { status: 400 });
+      const resp = await sb(`/ticket_panels?guild_id=eq.${guildId}&order=created_at.desc`);
+      if (!resp.ok) return new Response(await resp.text(), { status: resp.status });
+      const rows = await resp.json() as TicketPanelRow[];
+      return new Response(JSON.stringify(rows.map(mapPanel)), { headers: { 'Content-Type': 'application/json' } });
+    }
+
+    // 作成 POST /bot/ticket-panels
+    if (url.pathname === '/bot/ticket-panels' && request.method === 'POST') {
+      try {
+        // iOS は camelCase で送信する
+        const body = await request.json() as {
+          guildId?: string; channelId?: string; title?: string; description?: string;
+          color?: number; buttonLabel?: string; buttonEmoji?: string;
+          supportRoleId?: string | null; openCategoryId?: string | null;
+          closedCategoryId?: string | null; ticketMsgContent?: string | null;
+          ticketEmbedTitle?: string; ticketEmbedColor?: number; maxOpenPerUser?: number;
+        };
+        const insertData = {
+          guild_id:          body.guildId          ?? '',
+          channel_id:        body.channelId        ?? '',
+          title:             body.title            ?? 'サポートチケット',
+          description:       body.description      ?? '',
+          color:             body.color            ?? 0x6366f1,
+          button_label:      body.buttonLabel      ?? 'チケットを作成',
+          button_emoji:      body.buttonEmoji      ?? '🎫',
+          support_role_id:   body.supportRoleId    ?? null,
+          open_category_id:  body.openCategoryId   ?? null,
+          closed_category_id:body.closedCategoryId ?? null,
+          ticket_msg_content:body.ticketMsgContent ?? null,
+          ticket_embed_title:body.ticketEmbedTitle ?? 'チケット',
+          ticket_embed_color:body.ticketEmbedColor ?? 0x6366f1,
+          max_open_per_user: body.maxOpenPerUser   ?? 1,
+        };
+        const resp = await sb('/ticket_panels', {
+          method: 'POST',
+          body: JSON.stringify(insertData),
+          headers: { Prefer: 'return=representation' },
+        });
+        if (!resp.ok) return new Response(await resp.text(), { status: resp.status });
+        const rows = await resp.json() as TicketPanelRow[];
+        return new Response(JSON.stringify(mapPanel(rows[0])), { headers: { 'Content-Type': 'application/json' } });
+      } catch (e) { return new Response(JSON.stringify({ error: String(e) }), { status: 500 }); }
+    }
+
+    // 詳細 GET /bot/ticket-panels/:id
+    const panelDetailMatch = url.pathname.match(/^\/bot\/ticket-panels\/([^\/]+)$/);
+
+    // 更新 PATCH /bot/ticket-panels/:id
+    if (panelDetailMatch && request.method === 'PATCH') {
+      const id = panelDetailMatch[1];
+      try {
+        const body = await request.json() as Record<string, unknown>;
+        // camelCase → snake_case マッピング
+        const updateData: Record<string, unknown> = {};
+        const camelToSnake: Record<string, string> = {
+          channelId: 'channel_id', title: 'title', description: 'description',
+          color: 'color', buttonLabel: 'button_label', buttonEmoji: 'button_emoji',
+          supportRoleId: 'support_role_id', openCategoryId: 'open_category_id',
+          closedCategoryId: 'closed_category_id', ticketMsgContent: 'ticket_msg_content',
+          ticketEmbedTitle: 'ticket_embed_title', ticketEmbedColor: 'ticket_embed_color',
+          maxOpenPerUser: 'max_open_per_user',
+        };
+        for (const [k, v] of Object.entries(body)) {
+          const snakeKey = camelToSnake[k] ?? k;
+          updateData[snakeKey] = v;
+        }
+        const resp = await sb(`/ticket_panels?id=eq.${id}`, {
+          method: 'PATCH',
+          body: JSON.stringify(updateData),
+          headers: { Prefer: 'return=representation' },
+        });
+        if (!resp.ok) return new Response(await resp.text(), { status: resp.status });
+        const rows = await resp.json() as TicketPanelRow[];
+        return new Response(JSON.stringify(mapPanel(rows[0])), { headers: { 'Content-Type': 'application/json' } });
+      } catch (e) { return new Response(JSON.stringify({ error: String(e) }), { status: 500 }); }
+    }
+
+    // 削除 DELETE /bot/ticket-panels/:id
+    if (panelDetailMatch && request.method === 'DELETE') {
+      const id = panelDetailMatch[1];
+      await sb(`/ticket_panels?id=eq.${id}`, { method: 'DELETE' });
+      return new Response(JSON.stringify({ ok: true }), { headers: { 'Content-Type': 'application/json' } });
+    }
+
+    // デプロイ POST /bot/ticket-panels/:id/deploy
+    const panelDeployMatch = url.pathname.match(/^\/bot\/ticket-panels\/([^\/]+)\/deploy$/);
+    if (panelDeployMatch && request.method === 'POST') {
+      const id = panelDeployMatch[1];
+      try {
+        const panelResp = await sb(`/ticket_panels?id=eq.${id}`);
+        const panels = await panelResp.json() as TicketPanelRow[];
+        if (!panels.length) return new Response('Panel not found', { status: 404 });
+        const panel = panels[0];
+        if (!panel.channel_id) return new Response('channel_id is not set', { status: 400 });
+
+        // Discord にパネルメッセージを投稿
+        const postResp = await fetch(`https://discord.com/api/v10/channels/${panel.channel_id}/messages`, {
+          method: 'POST',
+          headers: { Authorization: `Bot ${env.DISCORD_BOT_TOKEN}`, 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            embeds: [{
+              title:       panel.title,
+              description: panel.description,
+              color:       panel.color,
+            }],
+            components: [{
+              type: 1,
+              components: [{
+                type:      2,
+                style:     1,
+                label:     panel.button_label,
+                emoji:     { name: panel.button_emoji },
+                custom_id: `ticket_open_${panel.id}`,
+              }],
+            }],
+          }),
+        });
+        if (!postResp.ok) {
+          const errText = await postResp.text();
+          return new Response(JSON.stringify({ error: `Discord送信失敗: ${errText}` }), { status: 502 });
+        }
+        const posted = await postResp.json() as { id: string };
+
+        // message_id を保存
+        await sb(`/ticket_panels?id=eq.${id}`, {
+          method: 'PATCH',
+          body: JSON.stringify({ message_id: posted.id }),
+        });
+
+        const updated = await sb(`/ticket_panels?id=eq.${id}`);
+        const updatedRows = await updated.json() as TicketPanelRow[];
+        return new Response(JSON.stringify(mapPanel(updatedRows[0])), { headers: { 'Content-Type': 'application/json' } });
+      } catch (e) { return new Response(JSON.stringify({ error: String(e) }), { status: 500 }); }
     }
 
     return new Response("Not Found", { status: 404 });

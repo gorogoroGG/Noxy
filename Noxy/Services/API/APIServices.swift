@@ -56,6 +56,11 @@ struct APITicketService: TicketServiceProtocol {
         struct Body: Encodable { let userId: String }
         try await client.postBody("/api/v1/tickets/\(ticketId)/assign", body: Body(userId: userId))
     }
+    func fetchPanels(guildId: String) async throws -> [TicketPanel] { [] }
+    func createPanel(_ panel: TicketPanel) async throws -> TicketPanel { panel }
+    func updatePanel(_ panel: TicketPanel) async throws -> TicketPanel { panel }
+    func deletePanel(id: String) async throws {}
+    func deployPanel(id: String) async throws -> TicketPanel { throw ServiceError.networkError }
 }
 
 // ============================================================

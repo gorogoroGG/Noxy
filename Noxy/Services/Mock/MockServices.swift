@@ -221,6 +221,32 @@ actor MockTicketService: TicketServiceProtocol {
         guard let idx = tickets.firstIndex(where: { $0.id == ticketId }) else { return }
         var t = tickets[idx]; t.assignedToUserId = userId; tickets[idx] = t
     }
+
+    // MARK: - Panels (mock)
+
+    func fetchPanels(guildId: String) async throws -> [TicketPanel] {
+        try await mockDelay()
+        return [
+            TicketPanel(id: "p001", guildId: guildId, channelId: "c001", messageId: "m001",
+                        title: "一般サポート", description: "不具合報告やご質問はこちら。",
+                        color: 0x6366f1, buttonLabel: "チケットを作成", buttonEmoji: "🎫",
+                        supportRoleId: nil, openCategoryId: nil, closedCategoryId: nil,
+                        ticketMsgContent: nil, ticketEmbedTitle: "チケット",
+                        ticketEmbedColor: 0x6366f1, maxOpenPerUser: 1, createdAt: .now),
+        ]
+    }
+    func createPanel(_ panel: TicketPanel) async throws -> TicketPanel {
+        try await mockDelay(); return panel
+    }
+    func updatePanel(_ panel: TicketPanel) async throws -> TicketPanel {
+        try await mockDelay(); return panel
+    }
+    func deletePanel(id: String) async throws { try await mockDelay() }
+    func deployPanel(id: String) async throws -> TicketPanel {
+        try await mockDelay()
+        var p = TicketPanel.blank(guildId: "g003")
+        return p
+    }
 }
 
 // MARK: - AutoResponse

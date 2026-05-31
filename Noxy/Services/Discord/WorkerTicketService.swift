@@ -55,6 +55,30 @@ struct WorkerTicketService: TicketServiceProtocol {
         return try await postReturning("/bot/tickets/create", body: Body(guildId: guildId, subject: subject))
     }
 
+    // MARK: - Panels
+
+    func fetchPanels(guildId: String) async throws -> [TicketPanel] {
+        try await get("/bot/ticket-panels?guild_id=\(guildId)")
+    }
+
+    func createPanel(_ panel: TicketPanel) async throws -> TicketPanel {
+        try await postReturning("/bot/ticket-panels", body: panel)
+    }
+
+    func updatePanel(_ panel: TicketPanel) async throws -> TicketPanel {
+        try await patchReturning("/bot/ticket-panels/\(panel.id)", body: panel)
+    }
+
+    func deletePanel(id: String) async throws {
+        try await delete("/bot/ticket-panels/\(id)")
+    }
+
+    func deployPanel(id: String) async throws -> TicketPanel {
+        try await postReturning("/bot/ticket-panels/\(id)/deploy", body: EmptyBody())
+    }
+
+    private struct EmptyBody: Encodable {}
+
     // MARK: - HTTP helpers
 
     private static let decoder: JSONDecoder = {
@@ -89,6 +113,29 @@ struct WorkerTicketService: TicketServiceProtocol {
         guard let http = resp as? HTTPURLResponse, (200..<300).contains(http.statusCode) else {
             throw ServiceError.networkError
         }
+    }
+
+    private func delete(_ path: String) async throws {
+        let url = URL(string: DiscordConfig.workerURL + path)!
+        var req = URLRequest(url: url, timeoutInterval: 15)
+        req.httpMethod = "DELETE"
+        let (_, resp) = try await session.data(for: req)
+        guard let http = resp as? HTTPURLResponse, (200..<300).contains(http.statusCode) else {
+            throw ServiceError.networkError
+        }
+    }
+
+    private func patchReturning<T: Decodable>(_ path: String, body: some Encodable) async throws -> T {
+        let url = URL(string: DiscordConfig.workerURL + path)!
+        var req = URLRequest(url: url, timeoutInterval: 15)
+        req.httpMethod = "PATCH"
+        req.setValue("application/json", forHTTPHeaderField: "Content-Type")
+        req.httpBody = try JSONEncoder().encode(body)
+        let (data, resp) = try await session.data(for: req)
+        guard let http = resp as? HTTPURLResponse, (200..<300).contains(http.statusCode) else {
+            throw ServiceError.networkError
+        }
+        return try Self.decoder.decode(T.self, from: data)
     }
 
     private func postReturning<T: Decodable>(_ path: String, body: some Encodable) async throws -> T {
