@@ -49,6 +49,25 @@ final class ServiceContainer {
         self.greeting = greeting
     }
 
+    /// モック用（プレビュー・テスト）
+    static func mock() -> ServiceContainer {
+        ServiceContainer(
+            embeds:            MockEmbedService(),
+            guilds:            MockGuildService(),
+            members:           MockMemberService(),
+            tickets:           MockTicketService(),
+            autoResponses:     MockAutoResponseService(),
+            scheduledMessages: MockScheduledMessageService(),
+            auditLogs:         MockAuditLogService(),
+            notifications:     MockNotificationService(),
+            analytics:         MockAnalyticsService(),
+            bot:               MockBotService(),
+            auth:              MockAuthService(),
+            reactionRoles:     MockReactionRoleService(),
+            greeting:          MockGreetingService()
+        )
+    }
+
     /// 本番用（Supabase）
     static func live() -> ServiceContainer {
         ServiceContainer(

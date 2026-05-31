@@ -122,7 +122,10 @@ actor MockMemberService: MemberServiceProtocol {
 
     func timeout(memberId: String, guildId: String, until: Date) async throws {
         try await mockDelay()
-        // モックでは何もしない（実際はタイムアウト状態を保存）
+    }
+
+    func sendDM(memberId: String, message: String) async throws {
+        try await mockDelay()
     }
 
     func addRole(memberId: String, guildId: String, roleId: String) async throws {
@@ -156,6 +159,7 @@ actor MockMemberService: MemberServiceProtocol {
 
 actor MockTicketService: TicketServiceProtocol {
     nonisolated(unsafe) private var tickets = MockData.tickets
+    nonisolated(unsafe) private var messages = MockData.ticketMessages
 
     func fetchAll(guildId: String) async throws -> [Ticket] {
         try await mockDelay()
@@ -171,13 +175,13 @@ actor MockTicketService: TicketServiceProtocol {
     func close(id: String) async throws {
         try await mockDelay()
         guard let idx = tickets.firstIndex(where: { $0.id == id }) else { return }
-        var t = tickets[idx]; t.status = .closed; tickets[idx] = t
+        var t = tickets[idx]; t.status = .closed; t.closedAt = .now; tickets[idx] = t
     }
 
     func reopen(id: String) async throws {
         try await mockDelay()
         guard let idx = tickets.firstIndex(where: { $0.id == id }) else { return }
-        var t = tickets[idx]; t.status = .open; tickets[idx] = t
+        var t = tickets[idx]; t.status = .open; t.closedAt = nil; tickets[idx] = t
     }
 
     func updatePriority(id: String, priority: TicketPriority) async throws {
@@ -186,13 +190,27 @@ actor MockTicketService: TicketServiceProtocol {
         var t = tickets[idx]; t.priority = priority; tickets[idx] = t
     }
 
+    func fetchMessages(ticketId: String) async throws -> [TicketMessage] {
+        try await mockDelay()
+        return messages.filter { $0.ticketId == ticketId }
+    }
+
     func reply(ticketId: String, message: String) async throws {
         try await mockDelay()
+        let msg = TicketMessage(
+            id: UUID().uuidString, ticketId: ticketId,
+            userId: "staff001", username: "Noxy Bot",
+            content: message, isStaff: true, createdAt: .now
+        )
+        messages.append(msg)
         guard let idx = tickets.firstIndex(where: { $0.id == ticketId }) else { return }
-        var t = tickets[idx]
-        t.messageCount += 1
-        t.lastMessageAt = .now
-        tickets[idx] = t
+        var t = tickets[idx]; t.messageCount += 1; t.lastMessageAt = .now; tickets[idx] = t
+    }
+
+    func assign(ticketId: String, userId: String) async throws {
+        try await mockDelay()
+        guard let idx = tickets.firstIndex(where: { $0.id == ticketId }) else { return }
+        var t = tickets[idx]; t.assignedToUserId = userId; tickets[idx] = t
     }
 }
 
@@ -384,3 +402,30 @@ actor MockAuthService: AuthServiceProtocol {
         return await MainActor.run { MockData.currentUser }
     }
 }
+
+// MARK: - ReactionRole
+
+actor MockReactionRoleService: ReactionRoleServiceProtocol {
+    nonisolated(unsafe) private var items: [ReactionRoleItem] = []
+
+    func fetchAll(guildId: String) async throws -> [ReactionRoleItem] {
+        try await mockDelay()
+        return items.filter { $0.guildId == guildId }
+    }
+    func create(_ item: ReactionRoleItem) async throws -> ReactionRoleItem {
+        try await mockDelay()
+        items.append(item)
+        return item
+    }
+    func update(_ item: ReactionRoleItem) async throws -> ReactionRoleItem {
+        try await mockDelay()
+        guard let idx = items.firstIndex(where: { $0.id == item.id }) else { throw ServiceError.notFound }
+        items[idx] = item
+        return item
+    }
+    func delete(id: String) async throws {
+        try await mockDelay()
+        items.removeAll { $0.id == id }
+    }
+}
+

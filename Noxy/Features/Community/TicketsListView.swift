@@ -8,54 +8,166 @@ struct TicketsListView: View {
     @State private var tickets: [Ticket] = []
     @State private var isLoading = true
     @State private var selectedStatus: TicketStatus = .open
+    @State private var selectedPriority: TicketPriority? = nil
+    @State private var searchText = ""
     @State private var selectedTicket: Ticket? = nil
+    @State private var sortOrder: SortOrder = .lastMessage
+
+    enum SortOrder: String, CaseIterable {
+        case lastMessage = "最終更新"
+        case opened      = "開設日"
+        case priority    = "優先度"
+    }
 
     private var filtered: [Ticket] {
-        tickets.filter { $0.status == selectedStatus }
+        var base = tickets.filter { $0.status == selectedStatus }
+        if let p = selectedPriority { base = base.filter { $0.priority == p } }
+        if !searchText.isEmpty {
+            base = base.filter {
+                $0.subject.localizedCaseInsensitiveContains(searchText) ||
+                $0.openedBy.localizedCaseInsensitiveContains(searchText)
+            }
+        }
+        switch sortOrder {
+        case .lastMessage: return base.sorted { $0.lastMessageAt > $1.lastMessageAt }
+        case .opened:      return base.sorted { $0.openedAt > $1.openedAt }
+        case .priority:
+            let order: [TicketPriority] = [.urgent, .high, .medium, .low]
+            return base.sorted { order.firstIndex(of: $0.priority)! < order.firstIndex(of: $1.priority)! }
+        }
     }
+
+    private var openCount:    Int { tickets.filter { $0.status == .open    }.count }
+    private var pendingCount: Int { tickets.filter { $0.status == .pending }.count }
+    private var closedCount:  Int { tickets.filter { $0.status == .closed  }.count }
 
     var body: some View {
         VStack(spacing: 0) {
-            Picker("Status", selection: $selectedStatus) {
-                Text("オープン").tag(TicketStatus.open)
-                Text("対応中").tag(TicketStatus.pending)
-                Text("クローズ").tag(TicketStatus.closed)
-            }
-            .pickerStyle(.segmented)
-            .padding()
-
+            statsHeader
+            filterBar
             if isLoading {
-                ProgressView().frame(maxWidth: .infinity, minHeight: 200)
+                Spacer()
+                ProgressView().frame(maxWidth: .infinity)
+                Spacer()
             } else if filtered.isEmpty {
+                Spacer()
                 EmptyStateView(
                     icon: "ticket",
                     title: "チケットがありません",
                     description: selectedStatus == .closed
                         ? "クローズ済みのチケットはありません"
-                        : "現在対応中のチケットはありません"
-                )
+                        : "条件に一致するチケットはありません",
+                    actionTitle: nil
+                ) {}
+                Spacer()
             } else {
-                List {
-                    ForEach(filtered) { ticket in
-                        TicketRow(ticket: ticket)
-                            .onTapGesture { selectedTicket = ticket }
-                            .listRowSeparator(.hidden)
-                            .listRowBackground(Color.bgPrimary)
-                            .listRowInsets(EdgeInsets())
+                ScrollView {
+                    LazyVStack(spacing: .spacing8) {
+                        Text("\(filtered.count)件").font(.captionSmall).foregroundStyle(Color.textTertiary)
+                            .frame(maxWidth: .infinity, alignment: .leading)
+                            .padding(.horizontal, .spacing16).padding(.top, .spacing8)
+                        ForEach(filtered) { ticket in
+                            TicketCard(ticket: ticket)
+                                .onTapGesture { selectedTicket = ticket }
+                                .padding(.horizontal, .spacing16)
+                        }
+                        Color.clear.frame(height: 80)
                     }
                 }
-                .listStyle(.plain)
             }
         }
+        .background(Color(.systemGroupedBackground))
+        .searchable(text: $searchText, prompt: "件名・開設者で検索")
         .sheet(item: $selectedTicket) { ticket in
-            TicketDetailView(ticket: ticket) { updated in
+            TicketDetailView(ticket: ticket, guildId: guildId) { updated in
                 if let idx = tickets.firstIndex(where: { $0.id == updated.id }) {
                     tickets[idx] = updated
                 }
             }
         }
+        .toolbar {
+            ToolbarItem(placement: .topBarTrailing) {
+                Menu {
+                    Picker("並び順", selection: $sortOrder) {
+                        ForEach(SortOrder.allCases, id: \.self) { Text($0.rawValue).tag($0) }
+                    }
+                    Button { Task { await load() } } label: {
+                        Label("更新", systemImage: "arrow.clockwise")
+                    }
+                } label: {
+                    Image(systemName: "ellipsis.circle").font(.system(size: 18)).foregroundStyle(Color.accentIndigo)
+                }
+            }
+        }
         .refreshable { await load() }
         .task { await load() }
+    }
+
+    // MARK: - Stats Header
+
+    private var statsHeader: some View {
+        HStack(spacing: 0) {
+            statCell(value: "\(openCount)",    label: "オープン",  color: .accentGreen)
+            Divider().frame(height: 32)
+            statCell(value: "\(pendingCount)", label: "対応中",    color: .accentOrange)
+            Divider().frame(height: 32)
+            statCell(value: "\(closedCount)",  label: "クローズ",  color: Color.textTertiary)
+        }
+        .padding(.vertical, .spacing12)
+        .background(Color(.secondarySystemGroupedBackground))
+        .overlay(Divider(), alignment: .bottom)
+    }
+
+    private func statCell(value: String, label: String, color: Color) -> some View {
+        VStack(spacing: 2) {
+            Text(value).font(.system(size: 22, weight: .bold, design: .rounded)).foregroundStyle(color)
+            Text(label).font(.captionSmall).foregroundStyle(Color.textTertiary)
+        }.frame(maxWidth: .infinity)
+    }
+
+    // MARK: - Filter Bar
+
+    private var filterBar: some View {
+        ScrollView(.horizontal, showsIndicators: false) {
+            HStack(spacing: .spacing8) {
+                // ステータス
+                ForEach([TicketStatus.open, .pending, .closed], id: \.self) { s in
+                    FilterChip(
+                        label: s.label, icon: s.icon,
+                        color: s.chipColor,
+                        isSelected: selectedStatus == s
+                    ) { withAnimation(.easeInOut(duration: 0.2)) { selectedStatus = s } }
+                }
+                Divider().frame(height: 20).padding(.horizontal, 4)
+                // 優先度フィルタ
+                if let p = selectedPriority {
+                    FilterChip(label: p.label, icon: "flag.fill", color: p.color, isSelected: true) {
+                        withAnimation { selectedPriority = nil }
+                    }
+                }
+                Menu {
+                    Button("優先度で絞り込まない") { withAnimation { selectedPriority = nil } }
+                    Divider()
+                    ForEach(TicketPriority.allCases, id: \.self) { p in
+                        Button(p.label) { withAnimation { selectedPriority = p } }
+                    }
+                } label: {
+                    HStack(spacing: 5) {
+                        Image(systemName: "flag").font(.system(size: 11, weight: .semibold))
+                        Text("優先度").font(.captionRegular).fontWeight(.medium)
+                        Image(systemName: "chevron.down").font(.system(size: 9))
+                    }
+                    .foregroundStyle(Color.accentOrange)
+                    .padding(.horizontal, .spacing12).padding(.vertical, 7)
+                    .background(Color.accentOrange.opacity(0.1))
+                    .clipShape(Capsule())
+                    .overlay(Capsule().strokeBorder(Color.accentOrange.opacity(0.3), lineWidth: 1))
+                }
+            }
+            .padding(.horizontal, .spacing16).padding(.vertical, .spacing10)
+        }
+        .background(Color(.secondarySystemGroupedBackground))
+        .overlay(Divider(), alignment: .bottom)
     }
 
     private func load() async {
@@ -65,65 +177,81 @@ struct TicketsListView: View {
     }
 }
 
-// MARK: - TicketRow
+// MARK: - FilterChip (local)
 
-private struct TicketRow: View {
+private struct FilterChip: View {
+    let label: String; let icon: String; let color: Color; let isSelected: Bool; let action: () -> Void
+    var body: some View {
+        Button(action: action) {
+            HStack(spacing: 5) {
+                Image(systemName: icon).font(.system(size: 11, weight: .semibold))
+                Text(label).font(.captionRegular).fontWeight(.medium)
+            }
+            .foregroundStyle(isSelected ? .white : color)
+            .padding(.horizontal, .spacing12).padding(.vertical, 7)
+            .background(isSelected ? color : color.opacity(0.1))
+            .clipShape(Capsule())
+            .overlay(Capsule().strokeBorder(isSelected ? Color.clear : color.opacity(0.3), lineWidth: 1))
+        }.buttonStyle(.plain)
+    }
+}
+
+// MARK: - TicketCard
+
+private struct TicketCard: View {
     let ticket: Ticket
-
-    private var priorityColor: Color {
-        switch ticket.priority {
-        case .urgent: .red
-        case .high:   .accentOrange
-        case .medium: .accentIndigo
-        case .low:    .accentGreen
-        }
-    }
-
-    private var statusColor: Color {
-        switch ticket.status {
-        case .open:    .accentGreen
-        case .pending: .accentOrange
-        case .closed:  .textTertiary
-        }
-    }
 
     var body: some View {
         HStack(spacing: 0) {
+            // 優先度カラーバー
             RoundedRectangle(cornerRadius: 2)
-                .fill(priorityColor)
+                .fill(ticket.priority.color)
                 .frame(width: 4)
 
-            HStack(spacing: .spacing12) {
-                VStack(alignment: .leading, spacing: 4) {
+            VStack(alignment: .leading, spacing: .spacing8) {
+                // 上段: 件名 + ステータスバッジ
+                HStack(alignment: .top, spacing: .spacing8) {
                     Text(ticket.subject)
-                        .font(.titleMedium)
+                        .font(.bodySmall).fontWeight(.semibold)
                         .foregroundStyle(Color.textPrimary)
-                        .lineLimit(1)
+                        .lineLimit(2)
+                    Spacer()
+                    StatusBadge(status: ticket.status)
+                }
 
-                    HStack(spacing: .spacing4) {
-                        Text("@\(ticket.openedBy)")
-                        Text("·")
-                        Text(ticket.openedAt.formatted(.relative(presentation: .named)))
+                // 下段: メタ情報
+                HStack(spacing: .spacing12) {
+                    Label("@\(ticket.openedBy)", systemImage: "person.fill")
+                    if let assignee = ticket.assignedToUserId {
+                        Label(assignee, systemImage: "person.badge.clock.fill")
+                            .foregroundStyle(Color.accentIndigo)
                     }
-                    .font(.captionRegular)
-                    .foregroundStyle(Color.textTertiary)
+                    Spacer()
+                    HStack(spacing: 4) {
+                        Image(systemName: "bubble.left.fill")
+                        Text("\(ticket.messageCount)")
+                    }
+                    Text(ticket.lastMessageAt.formatted(.relative(presentation: .named)))
                 }
+                .font(.captionSmall)
+                .foregroundStyle(Color.textTertiary)
 
-                Spacer()
-
-                VStack(alignment: .trailing, spacing: 4) {
-                    Badge(text: ticket.status.rawValue, color: statusColor)
-                    Text("\(ticket.messageCount) msg")
-                        .font(.captionSmall)
-                        .foregroundStyle(Color.textTertiary)
+                // 優先度バッジ
+                HStack(spacing: 5) {
+                    Circle().fill(ticket.priority.color).frame(width: 6, height: 6)
+                    Text(ticket.priority.label)
+                        .font(.system(size: 10, weight: .semibold))
+                        .foregroundStyle(ticket.priority.color)
                 }
+                .padding(.horizontal, 8).padding(.vertical, 3)
+                .background(ticket.priority.color.opacity(0.1))
+                .clipShape(Capsule())
             }
             .padding(.spacing12)
         }
-        .background(Color.bgSurface)
-        .clipShape(RoundedRectangle(cornerRadius: .cornerRadiusMedium))
-        .padding(.horizontal)
-        .padding(.vertical, .spacing4)
+        .background(Color(.secondarySystemGroupedBackground))
+        .clipShape(RoundedRectangle(cornerRadius: 14))
+        .contentShape(Rectangle())
     }
 }
 
@@ -131,193 +259,274 @@ private struct TicketRow: View {
 
 struct TicketDetailView: View {
     @State var ticket: Ticket
-    @Environment(\.services) private var services
-    @Environment(\.dismiss) private var dismiss
+    let guildId: String
     let onUpdate: (Ticket) -> Void
 
+    @Environment(\.services) private var services
+    @Environment(\.dismiss)  private var dismiss
+
+    @State private var messages: [TicketMessage] = []
+    @State private var isLoadingMessages = true
+    @State private var replyText = ""
+    @State private var isSending = false
     @State private var isActioning = false
-    @State private var showPriorityPicker = false
     @State private var errorMessage: String? = nil
+    @State private var showCloseConfirm = false
+    @State private var showDeleteConfirm = false
 
     var body: some View {
         NavigationStack {
-            ScrollView {
-                VStack(spacing: .spacing16) {
-
-                    // ===== チケット情報 =====
-                    VStack(alignment: .leading, spacing: .spacing12) {
-                        HStack {
-                            Text(ticket.subject)
-                                .font(.titleLarge)
-                                .foregroundStyle(Color.textPrimary)
-                            Spacer()
-                            StatusBadge(status: ticket.status)
+            VStack(spacing: 0) {
+                ScrollViewReader { proxy in
+                    ScrollView {
+                        VStack(spacing: .spacing12) {
+                            infoCard
+                            priorityCard
+                            messagesSection
+                            Color.clear.frame(height: 8).id("bottom")
                         }
-
-                        Divider().background(Color.border)
-
-                        infoRow(label: "開設者", value: "@\(ticket.openedBy)")
-                        infoRow(label: "開設日時", value: ticket.openedAt.formatted(date: .abbreviated, time: .shortened))
-                        infoRow(label: "メッセージ数", value: "\(ticket.messageCount) 件")
-                        if let closed = ticket.lastMessageAt as Date? {
-                            infoRow(label: "最終更新", value: closed.formatted(.relative(presentation: .named)))
-                        }
+                        .padding(.horizontal, .spacing16)
+                        .padding(.top, .spacing16)
+                        .padding(.bottom, 100)
                     }
-                    .padding()
-                    .background(Color.bgSurface)
-                    .clipShape(RoundedRectangle(cornerRadius: .cornerRadiusMedium))
-
-                    // ===== 優先度 =====
-                    VStack(alignment: .leading, spacing: .spacing12) {
-                        Text("優先度")
-                            .font(.captionRegular)
-                            .foregroundStyle(Color.textTertiary)
-                            .textCase(.uppercase)
-
-                        HStack(spacing: .spacing8) {
-                            ForEach(TicketPriority.allCases, id: \.self) { p in
-                                Button {
-                                    Task { await changePriority(p) }
-                                } label: {
-                                    Text(p.label)
-                                        .font(.captionRegular)
-                                        .fontWeight(ticket.priority == p ? .bold : .regular)
-                                        .foregroundStyle(ticket.priority == p ? .white : Color.textSecondary)
-                                        .padding(.horizontal, .spacing12)
-                                        .padding(.vertical, .spacing6)
-                                        .background(
-                                            ticket.priority == p
-                                                ? p.color
-                                                : Color.bgSurface
-                                        )
-                                        .clipShape(Capsule())
-                                }
-                                .buttonStyle(.plain)
-                            }
-                        }
+                    .onChange(of: messages.count) {
+                        withAnimation { proxy.scrollTo("bottom") }
                     }
-                    .padding()
-                    .background(Color.bgSurface)
-                    .clipShape(RoundedRectangle(cornerRadius: .cornerRadiusMedium))
-
-                    // ===== エラー =====
-                    if let errorMessage {
-                        Text("❌ \(errorMessage)")
-                            .font(.captionRegular)
-                            .foregroundStyle(.red)
-                            .padding(.horizontal)
-                    }
-
-                    // ===== アクション =====
-                    VStack(spacing: .spacing8) {
-                        if ticket.status != .closed {
-                            // クローズ
-                            Button {
-                                Task { await closeTicket() }
-                            } label: {
-                                actionLabel("🔒 チケットをクローズ", color: .accentOrange)
-                            }
-                            .buttonStyle(.plain)
-                            .disabled(isActioning)
-                        } else {
-                            // 再オープン
-                            Button {
-                                Task { await reopenTicket() }
-                            } label: {
-                                actionLabel("🔓 再オープン", color: .accentGreen)
-                            }
-                            .buttonStyle(.plain)
-                            .disabled(isActioning)
-                        }
-                    }
-                    .padding(.top, .spacing8)
-
-                    // ===== Discordで操作を案内 =====
-                    HStack(spacing: .spacing8) {
-                        Image(systemName: "info.circle")
-                            .foregroundStyle(Color.textTertiary)
-                        Text("チャットへの返信はDiscordチャンネルで行ってください")
-                            .font(.captionRegular)
-                            .foregroundStyle(Color.textTertiary)
-                    }
-                    .padding()
-                    .background(Color.bgSurface)
-                    .clipShape(RoundedRectangle(cornerRadius: .cornerRadiusMedium))
                 }
-                .padding()
+
+                // 返信入力欄（クローズ以外）
+                if ticket.status != .closed {
+                    replyBar
+                }
             }
-            .background(Color.bgPrimary)
-            .navigationTitle("チケット #\(ticket.id)")
+            .background(Color(.systemGroupedBackground))
+            .navigationTitle("# \(ticket.subject)")
             .navigationBarTitleDisplayMode(.inline)
-            .toolbar {
-                ToolbarItem(placement: .topBarLeading) {
-                    Button("完了") { dismiss() }
+            .toolbar { toolbarContent }
+            .alert("チケットをクローズ", isPresented: $showCloseConfirm) {
+                Button("クローズ", role: .destructive) { Task { await closeTicket() } }
+                Button("キャンセル", role: .cancel) {}
+            } message: {
+                Text("チケットをクローズします。開設者はチャンネルにアクセスできなくなります。")
+            }
+        }
+        .task { await loadMessages() }
+    }
+
+    // MARK: - Toolbar
+
+    @ToolbarContentBuilder
+    private var toolbarContent: some ToolbarContent {
+        ToolbarItem(placement: .topBarLeading) {
+            Button("完了") { dismiss() }.foregroundStyle(Color.accentIndigo)
+        }
+        ToolbarItem(placement: .topBarTrailing) {
+            Menu {
+                if ticket.status != .closed {
+                    Button(role: .destructive) { showCloseConfirm = true }
+                    label: { Label("チケットをクローズ", systemImage: "lock.fill") }
+                } else {
+                    Button { Task { await reopenTicket() } }
+                    label: { Label("再オープン", systemImage: "lock.open.fill") }
+                }
+                Divider()
+                Menu("優先度を変更") {
+                    ForEach(TicketPriority.allCases, id: \.self) { p in
+                        Button {
+                            Task { await changePriority(p) }
+                        } label: {
+                            if ticket.priority == p { Label(p.label, systemImage: "checkmark") }
+                            else { Text(p.label) }
+                        }
+                    }
+                }
+            } label: {
+                Image(systemName: "ellipsis.circle").foregroundStyle(Color.accentIndigo)
+            }
+        }
+    }
+
+    // MARK: - Info Card
+
+    private var infoCard: some View {
+        VStack(spacing: 0) {
+            cardHeader("情報", icon: "ticket.fill", color: .accentIndigo)
+            Divider()
+            infoRow("開設者",   value: "@\(ticket.openedBy)")
+            Divider().padding(.leading, .spacing16)
+            infoRow("開設日時", value: ticket.openedAt.formatted(date: .abbreviated, time: .shortened))
+            Divider().padding(.leading, .spacing16)
+            infoRow("ステータス", value: ticket.status.label)
+            Divider().padding(.leading, .spacing16)
+            infoRow("優先度",   value: ticket.priority.label)
+            if let assignee = ticket.assignedToUserId {
+                Divider().padding(.leading, .spacing16)
+                infoRow("担当者", value: "@\(assignee)")
+            }
+            if let closedAt = ticket.closedAt {
+                Divider().padding(.leading, .spacing16)
+                infoRow("クローズ日時", value: closedAt.formatted(date: .abbreviated, time: .shortened))
+            }
+        }
+        .background(Color(.secondarySystemGroupedBackground))
+        .clipShape(RoundedRectangle(cornerRadius: 14))
+    }
+
+    // MARK: - Priority Card
+
+    private var priorityCard: some View {
+        VStack(spacing: 0) {
+            cardHeader("優先度", icon: "flag.fill", color: .accentOrange)
+            Divider()
+            HStack(spacing: .spacing8) {
+                ForEach(TicketPriority.allCases, id: \.self) { p in
+                    Button {
+                        guard ticket.priority != p else { return }
+                        Task { await changePriority(p) }
+                    } label: {
+                        Text(p.label)
+                            .font(.captionRegular)
+                            .fontWeight(ticket.priority == p ? .bold : .regular)
+                            .foregroundStyle(ticket.priority == p ? .white : Color.textSecondary)
+                            .padding(.horizontal, .spacing12).padding(.vertical, .spacing8)
+                            .background(ticket.priority == p ? p.color : Color(.tertiarySystemGroupedBackground))
+                            .clipShape(Capsule())
+                    }
+                    .buttonStyle(.plain)
                 }
             }
+            .padding(.spacing12)
+        }
+        .background(Color(.secondarySystemGroupedBackground))
+        .clipShape(RoundedRectangle(cornerRadius: 14))
+    }
+
+    // MARK: - Messages Section
+
+    private var messagesSection: some View {
+        VStack(spacing: 0) {
+            cardHeader("メッセージ (\(ticket.messageCount))", icon: "bubble.left.and.bubble.right.fill", color: .accentGreen)
+            Divider()
+            if isLoadingMessages {
+                HStack { Spacer(); ProgressView(); Spacer() }.padding(.spacing24)
+            } else if messages.isEmpty {
+                Text("メッセージはありません")
+                    .font(.captionSmall).foregroundStyle(Color.textTertiary)
+                    .padding(.spacing16)
+            } else {
+                VStack(spacing: .spacing8) {
+                    ForEach(messages) { msg in
+                        MessageBubble(message: msg)
+                    }
+                }
+                .padding(.spacing12)
+            }
+            if let err = errorMessage {
+                HStack(spacing: .spacing8) {
+                    Image(systemName: "exclamationmark.triangle.fill").foregroundStyle(.orange)
+                    Text(err).font(.captionSmall).foregroundStyle(Color.textSecondary)
+                }
+                .padding(.horizontal, .spacing16).padding(.bottom, .spacing8)
+            }
+        }
+        .background(Color(.secondarySystemGroupedBackground))
+        .clipShape(RoundedRectangle(cornerRadius: 14))
+    }
+
+    // MARK: - Reply Bar
+
+    private var replyBar: some View {
+        VStack(spacing: 0) {
+            Divider()
+            HStack(spacing: .spacing10) {
+                ZStack(alignment: .topLeading) {
+                    if replyText.isEmpty {
+                        Text("スタッフとして返信…").foregroundStyle(Color.textTertiary).font(.bodySmall)
+                            .padding(.top, 8).padding(.leading, 4).allowsHitTesting(false)
+                    }
+                    TextEditor(text: $replyText)
+                        .font(.bodySmall).frame(minHeight: 38, maxHeight: 100)
+                        .scrollContentBackground(.hidden)
+                }
+                .padding(.horizontal, .spacing10).padding(.vertical, .spacing6)
+                .background(Color(.tertiarySystemGroupedBackground))
+                .clipShape(RoundedRectangle(cornerRadius: 18))
+
+                Button {
+                    guard !replyText.isEmpty else { return }
+                    Task { await sendReply() }
+                } label: {
+                    Image(systemName: isSending ? "hourglass" : "paperplane.fill")
+                        .font(.system(size: 18, weight: .semibold))
+                        .foregroundStyle(replyText.isEmpty ? Color.textTertiary : Color.accentIndigo)
+                }
+                .disabled(replyText.isEmpty || isSending)
+            }
+            .padding(.horizontal, .spacing16)
+            .padding(.vertical, .spacing10)
+            .background(Color(.secondarySystemGroupedBackground))
         }
     }
 
     // MARK: - Helpers
 
-    @ViewBuilder
-    private func infoRow(label: String, value: String) -> some View {
-        HStack {
-            Text(label)
-                .font(.captionRegular)
-                .foregroundStyle(Color.textTertiary)
-                .frame(width: 90, alignment: .leading)
-            Text(value)
-                .font(.bodySmall)
-                .foregroundStyle(Color.textPrimary)
-            Spacer()
+    private func cardHeader(_ title: String, icon: String, color: Color) -> some View {
+        HStack(spacing: .spacing8) {
+            Image(systemName: icon).font(.captionRegular).foregroundStyle(color)
+            Text(title).font(.captionSmall).fontWeight(.semibold).foregroundStyle(Color.textTertiary).textCase(.uppercase)
         }
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .padding(.horizontal, .spacing16).padding(.vertical, .spacing10)
     }
 
-    @ViewBuilder
-    private func actionLabel(_ title: String, color: Color) -> some View {
+    private func infoRow(_ label: String, value: String) -> some View {
         HStack {
-            if isActioning {
-                ProgressView().scaleEffect(0.8)
-            } else {
-                Text(title)
-                    .font(.titleMedium)
-                    .foregroundStyle(color)
-            }
+            Text(label).font(.bodySmall).foregroundStyle(Color.textSecondary)
             Spacer()
-            Image(systemName: "chevron.right")
-                .font(.captionSmall)
-                .foregroundStyle(Color.textTertiary)
-        }
-        .padding()
-        .background(color.opacity(0.1))
-        .clipShape(RoundedRectangle(cornerRadius: .cornerRadiusMedium))
+            Text(value).font(.bodySmall).fontWeight(.medium).foregroundStyle(Color.textPrimary)
+        }.padding(.horizontal, .spacing16).padding(.vertical, .spacing12)
     }
 
-    // MARK: - Actions
+    // MARK: - Async Actions
+
+    private func loadMessages() async {
+        isLoadingMessages = true
+        messages = (try? await services.tickets.fetchMessages(ticketId: ticket.id)) ?? []
+        isLoadingMessages = false
+    }
+
+    private func sendReply() async {
+        let text = replyText
+        isSending = true; errorMessage = nil
+        do {
+            try await services.tickets.reply(ticketId: ticket.id, message: text)
+            replyText = ""
+            ticket.messageCount += 1; ticket.lastMessageAt = .now
+            onUpdate(ticket)
+            await loadMessages()
+        } catch {
+            errorMessage = "送信に失敗しました"
+        }
+        isSending = false
+    }
 
     private func closeTicket() async {
-        isActioning = true
-        errorMessage = nil
+        isActioning = true; errorMessage = nil
         do {
             try await services.tickets.close(id: ticket.id)
-            ticket.status = .closed
+            ticket.status = .closed; ticket.closedAt = .now
             onUpdate(ticket)
-        } catch {
-            errorMessage = error.localizedDescription
-        }
+        } catch { errorMessage = "クローズに失敗しました" }
         isActioning = false
     }
 
     private func reopenTicket() async {
-        isActioning = true
-        errorMessage = nil
+        isActioning = true; errorMessage = nil
         do {
             try await services.tickets.reopen(id: ticket.id)
-            ticket.status = .open
+            ticket.status = .open; ticket.closedAt = nil
             onUpdate(ticket)
-        } catch {
-            errorMessage = error.localizedDescription
-        }
+        } catch { errorMessage = "再オープンに失敗しました" }
         isActioning = false
     }
 
@@ -325,10 +534,45 @@ struct TicketDetailView: View {
         errorMessage = nil
         do {
             try await services.tickets.updatePriority(id: ticket.id, priority: priority)
-            ticket.priority = priority
-            onUpdate(ticket)
-        } catch {
-            errorMessage = error.localizedDescription
+            ticket.priority = priority; onUpdate(ticket)
+        } catch { errorMessage = "優先度の変更に失敗しました" }
+    }
+}
+
+// MARK: - MessageBubble
+
+private struct MessageBubble: View {
+    let message: TicketMessage
+
+    var body: some View {
+        HStack(alignment: .bottom, spacing: .spacing8) {
+            if message.isStaff { Spacer(minLength: 40) }
+
+            VStack(alignment: message.isStaff ? .trailing : .leading, spacing: 3) {
+                HStack(spacing: 5) {
+                    if message.isStaff {
+                        Text(message.createdAt.formatted(.dateTime.hour().minute()))
+                            .font(.system(size: 9)).foregroundStyle(Color.textTertiary)
+                        Label("スタッフ", systemImage: "shield.fill")
+                            .font(.system(size: 9, weight: .semibold)).foregroundStyle(Color.accentIndigo)
+                    }
+                    Text(message.username)
+                        .font(.system(size: 11, weight: .semibold)).foregroundStyle(Color.textTertiary)
+                    if !message.isStaff {
+                        Text(message.createdAt.formatted(.dateTime.hour().minute()))
+                            .font(.system(size: 9)).foregroundStyle(Color.textTertiary)
+                    }
+                }
+
+                Text(message.content)
+                    .font(.bodySmall)
+                    .foregroundStyle(message.isStaff ? .white : Color.textPrimary)
+                    .padding(.horizontal, .spacing12).padding(.vertical, .spacing8)
+                    .background(message.isStaff ? Color.accentIndigo : Color(.tertiarySystemGroupedBackground))
+                    .clipShape(RoundedRectangle(cornerRadius: 16, style: .continuous))
+            }
+
+            if !message.isStaff { Spacer(minLength: 40) }
         }
     }
 }
@@ -339,17 +583,15 @@ private struct StatusBadge: View {
     let status: TicketStatus
     var body: some View {
         Text(status.label)
-            .font(.captionRegular)
-            .fontWeight(.semibold)
-            .foregroundStyle(status.color)
-            .padding(.horizontal, .spacing8)
-            .padding(.vertical, .spacing4)
-            .background(status.color.opacity(0.15))
+            .font(.system(size: 10, weight: .semibold))
+            .foregroundStyle(status.chipColor)
+            .padding(.horizontal, 8).padding(.vertical, 3)
+            .background(status.chipColor.opacity(0.15))
             .clipShape(Capsule())
     }
 }
 
-// MARK: - TicketPriority / TicketStatus extensions
+// MARK: - Extensions
 
 extension TicketPriority: CaseIterable {
     public static var allCases: [TicketPriority] { [.low, .medium, .high, .urgent] }
@@ -370,11 +612,14 @@ extension TicketStatus {
     var label: String {
         switch self { case .open: "オープン"; case .pending: "対応中"; case .closed: "クローズ" }
     }
-    var color: Color {
+    var icon: String {
+        switch self { case .open: "envelope.open.fill"; case .pending: "clock.fill"; case .closed: "lock.fill" }
+    }
+    var chipColor: Color {
         switch self {
         case .open:    .accentGreen
         case .pending: .accentOrange
-        case .closed:  .textTertiary
+        case .closed:  Color.textTertiary
         }
     }
 }
@@ -382,7 +627,10 @@ extension TicketStatus {
 // MARK: - Preview
 
 #Preview {
-    TicketsListView(guildId: "1509488000504168499")
-        .environment(\.services, ServiceContainer.live())
-        .preferredColorScheme(.dark)
+    NavigationStack {
+        TicketsListView(guildId: "g003").navigationTitle("チケット")
+    }
+    .environment(\.services, ServiceContainer.mock())
+    .environment(AppState())
+    .preferredColorScheme(.dark)
 }

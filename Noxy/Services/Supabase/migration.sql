@@ -7,6 +7,7 @@
 CREATE TABLE IF NOT EXISTS embeds (
     id              TEXT PRIMARY KEY,
     name            TEXT NOT NULL DEFAULT '',
+    message_content TEXT,
     title           TEXT,
     embed_url       TEXT,
     description     TEXT,
@@ -20,6 +21,9 @@ CREATE TABLE IF NOT EXISTS embeds (
     created_at      TIMESTAMPTZ NOT NULL DEFAULT NOW(),
     updated_at      TIMESTAMPTZ NOT NULL DEFAULT NOW()
 );
+
+-- 既存DB向け: message_content 列を追加（埋め込みの外に出すメッセージ本文。メンションが機能する）
+ALTER TABLE embeds ADD COLUMN IF NOT EXISTS message_content TEXT;
 
 -- 2. scheduled_messages（予約投稿 / 定期投稿）
 CREATE TABLE IF NOT EXISTS scheduled_messages (

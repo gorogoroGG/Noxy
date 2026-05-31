@@ -22,6 +22,7 @@ interface ScheduledMessage {
 interface Embed {
   id: string;
   name: string;
+  message_content: string | null;
   title: string | null;
   description: string | null;
   color_hex: number;
@@ -74,7 +75,11 @@ async function sendToDiscord(
   channelId: string,
   embed: Embed
 ): Promise<boolean> {
+  const content = embed.message_content?.trim() || undefined;
   const body = {
+    content,
+    // 本文中のメンション（@everyone・ロール・ユーザー）を実際に通知する
+    allowed_mentions: { parse: ["everyone", "roles", "users"] },
     embeds: [
       {
         title: embed.title ?? undefined,
@@ -387,6 +392,54 @@ export default {
       }
     }
 
+    // DM送信
+    if (url.pathname === "/bot/members/dm" && request.method === "POST") {
+      try {
+        const { memberId, message } = await request.json() as { memberId: string; message: string };
+        // DMチャンネルを開く（Bot自身=@me のDMチャンネル一覧に対して recipient_id を指定）
+        const resp = await fetch(`https://discord.com/api/v10/users/@me/channels`, {
+          method: "POST",
+          headers: { Authorization: `Bot ${env.DISCORD_BOT_TOKEN}`, "Content-Type": "application/json" },
+          body: JSON.stringify({ recipient_id: memberId }),
+        });
+        if (!resp.ok) return new Response(await resp.text(), { status: resp.status });
+        const { id: channelId } = await resp.json() as { id: string };
+        const msgResp = await fetch(`https://discord.com/api/v10/channels/${channelId}/messages`, {
+          method: "POST",
+          headers: { Authorization: `Bot ${env.DISCORD_BOT_TOKEN}`, "Content-Type": "application/json" },
+          body: JSON.stringify({ content: message }),
+        });
+        if (!msgResp.ok) return new Response(await msgResp.text(), { status: msgResp.status });
+        return new Response(JSON.stringify({ success: true }), { headers: { "Content-Type": "application/json" } });
+      } catch (e) { return new Response(JSON.stringify({ error: String(e) }), { status: 500 }); }
+    }
+
+    // ロール付与
+    if (url.pathname === "/bot/members/role/add" && request.method === "POST") {
+      try {
+        const { memberId, guildId, roleId } = await request.json() as { memberId: string; guildId: string; roleId: string };
+        const resp = await fetch(`https://discord.com/api/v10/guilds/${guildId}/members/${memberId}/roles/${roleId}`, {
+          method: "PUT",
+          headers: { Authorization: `Bot ${env.DISCORD_BOT_TOKEN}` },
+        });
+        if (!resp.ok && resp.status !== 204) return new Response(await resp.text(), { status: resp.status });
+        return new Response(JSON.stringify({ success: true }), { headers: { "Content-Type": "application/json" } });
+      } catch (e) { return new Response(JSON.stringify({ error: String(e) }), { status: 500 }); }
+    }
+
+    // ロール剥奪
+    if (url.pathname === "/bot/members/role/remove" && request.method === "POST") {
+      try {
+        const { memberId, guildId, roleId } = await request.json() as { memberId: string; guildId: string; roleId: string };
+        const resp = await fetch(`https://discord.com/api/v10/guilds/${guildId}/members/${memberId}/roles/${roleId}`, {
+          method: "DELETE",
+          headers: { Authorization: `Bot ${env.DISCORD_BOT_TOKEN}` },
+        });
+        if (!resp.ok && resp.status !== 204) return new Response(await resp.text(), { status: resp.status });
+        return new Response(JSON.stringify({ success: true }), { headers: { "Content-Type": "application/json" } });
+      } catch (e) { return new Response(JSON.stringify({ error: String(e) }), { status: 500 }); }
+    }
+
     // リアクションロールパネルをDiscordに送信
     if (url.pathname === "/bot/reaction-roles/publish" && request.method === "POST") {
       try {
@@ -432,6 +485,8 @@ export default {
 
         // 3. Discord にメッセージを投稿
         const discordBody = {
+          content: embed.message_content?.trim() || undefined,
+          allowed_mentions: { parse: ["everyone", "roles", "users"] },
           embeds: [{
             title: embed.title ?? undefined,
             description: embed.description ?? undefined,

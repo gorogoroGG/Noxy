@@ -79,6 +79,7 @@ struct EmbedEditorView: View {
                     // エディター（上半分）
                     ScrollView {
                         VStack(alignment: .leading, spacing: .spacing20) {
+                            messageContentSection
                             contentSection
                             colorSection
                             mediaSection
@@ -213,6 +214,50 @@ struct EmbedEditorView: View {
     }
 
     // MARK: - Editor Sections
+
+    @ViewBuilder
+    private var messageContentSection: some View {
+        SectionCard(title: "メッセージ本文") {
+            VStack(alignment: .leading, spacing: .spacing8) {
+                Text("埋め込みの上に表示される通常テキストです。ここに入れたメンション（@everyone・@here・ロール・ユーザー）は実際に通知されます。")
+                    .font(.captionSmall)
+                    .foregroundStyle(Color.textTertiary)
+
+                TextField("例: @everyone 新しいお知らせです！", text: Binding(
+                    get: { vm.embed.messageContent ?? "" },
+                    set: { vm.embed.messageContent = $0.isEmpty ? nil : $0; vm.isModified = true }
+                ), axis: .vertical)
+                .lineLimit(2...5)
+                .inputStyle()
+
+                // メンション挿入チップ
+                ScrollView(.horizontal, showsIndicators: false) {
+                    HStack(spacing: .spacing6) {
+                        Text("挿入:").font(.captionSmall).foregroundStyle(Color.textTertiary)
+                        ForEach(["@everyone", "@here"], id: \.self) { token in
+                            Button {
+                                let current = vm.embed.messageContent ?? ""
+                                let sep = current.isEmpty || current.hasSuffix(" ") ? "" : " "
+                                vm.embed.messageContent = current + sep + token + " "
+                                vm.isModified = true
+                            } label: {
+                                Text(token)
+                                    .font(.system(size: 11, weight: .semibold))
+                                    .foregroundStyle(Color.accentIndigo)
+                                    .padding(.horizontal, 8).padding(.vertical, 4)
+                                    .background(Color.accentIndigo.opacity(0.1))
+                                    .clipShape(Capsule())
+                            }
+                            .buttonStyle(.plain)
+                        }
+                        Text("ロール: <@&ロールID>  ユーザー: <@ユーザーID>")
+                            .font(.system(size: 10))
+                            .foregroundStyle(Color.textTertiary)
+                    }
+                }
+            }
+        }
+    }
 
     @ViewBuilder
     private var contentSection: some View {

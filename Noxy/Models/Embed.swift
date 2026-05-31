@@ -13,6 +13,9 @@ struct EmbedModel: Identifiable, Codable, Hashable {
     var name: String
     var guildId: String?
 
+    // メッセージ本文（埋め込みの外＝通常テキスト。メンション/変数が機能する）
+    var messageContent: String?
+
     // Content
     var title: String?
     var embedUrl: String?
@@ -36,7 +39,7 @@ struct EmbedModel: Identifiable, Codable, Hashable {
 
     // MARK: - CodingKeys
     enum CodingKeys: String, CodingKey {
-        case id, name, guildId, title, embedUrl, description, colorHex
+        case id, name, guildId, messageContent, title, embedUrl, description, colorHex
         case fields, imageUrl, thumbnailUrl
         case footerText, footerIconUrl, showTimestamp
         case createdAt, updatedAt
@@ -47,6 +50,7 @@ struct EmbedModel: Identifiable, Codable, Hashable {
         id = try container.decode(String.self, forKey: .id)
         name = try container.decodeIfPresent(String.self, forKey: .name) ?? ""
         guildId = try container.decodeIfPresent(String.self, forKey: .guildId)
+        messageContent = try container.decodeIfPresent(String.self, forKey: .messageContent)
         title = try container.decodeIfPresent(String.self, forKey: .title)
         embedUrl = try container.decodeIfPresent(String.self, forKey: .embedUrl)
         description = try container.decodeIfPresent(String.self, forKey: .description)
@@ -63,6 +67,7 @@ struct EmbedModel: Identifiable, Codable, Hashable {
 
     // Required for Hashable when custom CodingKeys are defined
     init(id: String, name: String, guildId: String? = nil,
+         messageContent: String? = nil,
          title: String?, embedUrl: String?, description: String?,
          colorHex: UInt32, fields: [EmbedFieldModel],
          imageUrl: String?, thumbnailUrl: String?,
@@ -71,6 +76,7 @@ struct EmbedModel: Identifiable, Codable, Hashable {
         self.id = id
         self.name = name
         self.guildId = guildId
+        self.messageContent = messageContent
         self.title = title
         self.embedUrl = embedUrl
         self.description = description

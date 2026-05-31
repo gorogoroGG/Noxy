@@ -15,6 +15,7 @@ struct EmbedData: Equatable {
     var color: Color = .accentIndigo
     var botName: String = "BotForge"
     var timestamp: Date? = nil
+    var messageContent: String? = nil
     var title: String? = nil
     var description: String? = nil
     var fields: [EmbedField] = []
@@ -27,6 +28,7 @@ struct EmbedData: Equatable {
         EmbedData(
             color: Color(uiColor: UIColor(hex: e.colorHex)),
             timestamp: e.showTimestamp ? Date() : nil,
+            messageContent: e.messageContent,
             title: e.title,
             description: e.description,
             fields: e.fields.map { EmbedField(name: $0.name, value: $0.value, inline: $0.inline) },
@@ -52,6 +54,19 @@ struct EmbedPreviewCard: View {
     }
 
     var body: some View {
+        VStack(alignment: .leading, spacing: .spacing8) {
+            // メッセージ本文（埋め込みの外＝通常テキスト）
+            if let content = embed.messageContent, !content.isEmpty {
+                Text(content)
+                    .font(.bodySmall)
+                    .foregroundStyle(Color.textPrimary)
+                    .frame(maxWidth: .infinity, alignment: .leading)
+            }
+            embedBlock
+        }
+    }
+
+    private var embedBlock: some View {
         HStack(alignment: .top, spacing: 0) {
             // 左のカラーバー
             RoundedRectangle(cornerRadius: 2)

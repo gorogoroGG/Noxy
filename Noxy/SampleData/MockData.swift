@@ -36,8 +36,8 @@ enum MockData {
         Channel(id: "c008", guildId: "g002", name: "stream-notify", type: .announcement, categoryName: "General",    botCanSend: true),
     ]
 
-    private static func date(daysAgo: Int = 0, hoursAgo: Int = 0) -> Date {
-        Calendar.current.date(byAdding: .hour, value: -(daysAgo * 24 + hoursAgo), to: .now)!
+    private static func date(daysAgo: Int = 0, hoursAgo: Int = 0, minutesAgo: Int = 0) -> Date {
+        Calendar.current.date(byAdding: .minute, value: -(daysAgo * 1440 + hoursAgo * 60 + minutesAgo), to: .now)!
     }
 
     static let embeds: [EmbedModel] = [
@@ -139,6 +139,29 @@ enum MockData {
         Ticket(id: "t006", guildId: "g003", channelId: "c001", openedBy: "m009",
                subject: "Request: add reaction role support", status: .closed,
                priority: .low, openedAt: date(daysAgo: 7), lastMessageAt: date(daysAgo: 6), messageCount: 4),
+    ]
+
+    static let ticketMessages: [TicketMessage] = [
+        // t001 のメッセージ
+        TicketMessage(id: "tm001", ticketId: "t001", userId: "m002", username: "ShadowFox",
+                      content: "/helpコマンドを打っても反応がありません。他のコマンドは動いています。", isStaff: false,
+                      createdAt: date(hoursAgo: 2)),
+        TicketMessage(id: "tm002", ticketId: "t001", userId: "staff001", username: "Admin",
+                      content: "ご報告ありがとうございます。Botの設定を確認します。少々お待ちください。", isStaff: true,
+                      createdAt: date(minutesAgo: 90)),
+        TicketMessage(id: "tm003", ticketId: "t001", userId: "m002", username: "ShadowFox",
+                      content: "了解です。よろしくお願いします。", isStaff: false,
+                      createdAt: date(minutesAgo: 60)),
+        // t002 のメッセージ
+        TicketMessage(id: "tm004", ticketId: "t002", userId: "m003", username: "NeonByte",
+                      content: "Embedのカラーを変更して保存しても、次回開いたときに元に戻っています。", isStaff: false,
+                      createdAt: date(hoursAgo: 26)),
+        TicketMessage(id: "tm005", ticketId: "t002", userId: "staff001", username: "Admin",
+                      content: "再現確認できました。修正対応中です。", isStaff: true,
+                      createdAt: date(hoursAgo: 20)),
+        TicketMessage(id: "tm006", ticketId: "t002", userId: "m003", username: "NeonByte",
+                      content: "ありがとうございます。修正完了したら教えてください。", isStaff: false,
+                      createdAt: date(hoursAgo: 18)),
     ]
 
     static let autoResponses: [AutoResponse] = [

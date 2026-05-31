@@ -41,8 +41,16 @@ struct APITicketService: TicketServiceProtocol {
         struct Body: Encodable { let priority: String }
         try await client.postBody("/api/v1/tickets/\(id)/priority", body: Body(priority: priority.rawValue))
     }
+    func fetchMessages(ticketId: String) async throws -> [TicketMessage] {
+        try await client.get("/api/v1/tickets/\(ticketId)/messages")
+    }
     func reply(ticketId: String, message: String) async throws {
-        // チャット返信はDiscordチャンネル内で行うため no-op
+        struct Body: Encodable { let content: String }
+        try await client.postBody("/api/v1/tickets/\(ticketId)/reply", body: Body(content: message))
+    }
+    func assign(ticketId: String, userId: String) async throws {
+        struct Body: Encodable { let userId: String }
+        try await client.postBody("/api/v1/tickets/\(ticketId)/assign", body: Body(userId: userId))
     }
 }
 
@@ -63,6 +71,9 @@ struct APIMemberService: MemberServiceProtocol {
         // TODO: 実装予定
     }
     func timeout(memberId: String, guildId: String, until: Date) async throws {
+        // TODO: 実装予定
+    }
+    func sendDM(memberId: String, message: String) async throws {
         // TODO: 実装予定
     }
     func addRole(memberId: String, guildId: String, roleId: String) async throws {
@@ -103,6 +114,7 @@ struct APIEmbedService: EmbedServiceProtocol {
 
 private struct EmbedRequest: Encodable {
     let name: String
+    let messageContent: String?
     let title: String?
     let embedUrl: String?
     let description: String?
@@ -119,8 +131,9 @@ private struct EmbedRequest: Encodable {
     }
 
     init(_ e: EmbedModel) {
-        name          = e.name
-        title         = e.title
+        name           = e.name
+        messageContent = e.messageContent
+        title          = e.title
         embedUrl      = e.embedUrl
         description   = e.description
         colorHex      = e.colorHex
