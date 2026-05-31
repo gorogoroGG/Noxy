@@ -35,6 +35,8 @@ function toEmojiKey(reaction: MessageReaction | PartialMessageReaction): string 
 client.on(
   Events.MessageReactionAdd,
   async (reaction: MessageReaction | PartialMessageReaction, user: User | PartialUser) => {
+    console.log(`[ReactionRole] 🔔 イベント受信 emoji=${reaction.emoji.name} user=${user.id}`);
+
     // Bot自身のリアクションは無視
     if (user.bot) return;
 
@@ -44,9 +46,10 @@ client.on(
     }
 
     const guild = reaction.message.guild;
-    if (!guild) return; // DMは無視
+    if (!guild) { console.log('[ReactionRole] guild なし（DM？）'); return; }
 
     const emojiKey = toEmojiKey(reaction);
+    console.log(`[ReactionRole] emojiKey=${emojiKey} channelId=${reaction.message.channelId} guildId=${guild.id}`);
 
     // Supabaseからこのチャンネルのリアクションロール設定を取得
     const { data: configs, error } = await supabase
@@ -54,6 +57,8 @@ client.on(
       .select('*')
       .eq('guild_id', guild.id)
       .eq('channel_id', reaction.message.channelId);
+
+    console.log(`[ReactionRole] Supabase結果: ${configs?.length ?? 0}件`, error?.message ?? '');
 
     if (error) {
       console.error('[ReactionRole] Supabase error:', error.message);
