@@ -281,7 +281,11 @@ export default {
         // 1. Supabase からリアクションロール設定を取得
         const rrResp = await sb(`/reaction_roles?id=eq.${body.reactionRoleId}`);
         if (!rrResp.ok) {
-          return new Response(JSON.stringify({ error: "リアクションロール設定が見つかりません" }), { status: 404 });
+          const errBody = await rrResp.text();
+          return new Response(JSON.stringify({
+            error: `Supabase エラー (${rrResp.status}): ${errBody}`,
+            debug: { reactionRoleId: body.reactionRoleId }
+          }), { status: 502 });
         }
         const rrList = await rrResp.json() as Array<{
           id: string;
@@ -290,7 +294,10 @@ export default {
           mode: string;
         }>;
         if (!rrList.length) {
-          return new Response(JSON.stringify({ error: "リアクションロール設定が見つかりません" }), { status: 404 });
+          return new Response(JSON.stringify({
+            error: `IDが一致するデータが見つかりません`,
+            debug: { reactionRoleId: body.reactionRoleId, tableHit: true }
+          }), { status: 404 });
         }
         const rr = rrList[0];
 
