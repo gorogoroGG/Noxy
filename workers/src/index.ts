@@ -19,6 +19,66 @@ interface ScheduledMessage {
   end_date: string | null;
 }
 
+// ── チケット型定義 ───────────────────────────────────────────
+
+interface TicketRow {
+  id: string;
+  guild_id: string;
+  channel_id: string;
+  opened_by_user_id: string;
+  subject: string;
+  status: string;
+  priority: string;
+  assigned_to_user_id: string | null;
+  panel_id: string | null;
+  opened_at: string;
+  closed_at: string | null;
+  last_message_at: string;
+  message_count: number;
+}
+
+interface TicketMessageRow {
+  id: string;
+  ticket_id: string;
+  user_id: string;
+  username: string;
+  content: string;
+  is_staff: boolean;
+  created_at: string;
+}
+
+function mapTicket(t: TicketRow) {
+  return {
+    id:               t.id,
+    guildId:          t.guild_id,
+    channelId:        t.channel_id,
+    openedBy:         t.opened_by_user_id,
+    subject:          t.subject,
+    status:           t.status,
+    priority:         t.priority,
+    assignedToUserId: t.assigned_to_user_id ?? null,
+    panelId:          t.panel_id ?? null,
+    openedAt:         t.opened_at,
+    closedAt:         t.closed_at ?? null,
+    lastMessageAt:    t.last_message_at,
+    messageCount:     t.message_count,
+  };
+}
+
+function mapTicketMessage(m: TicketMessageRow) {
+  return {
+    id:        m.id,
+    ticketId:  m.ticket_id,
+    userId:    m.user_id,
+    username:  m.username,
+    content:   m.content,
+    isStaff:   m.is_staff,
+    createdAt: m.created_at,
+  };
+}
+
+// ── 埋め込み型定義 ───────────────────────────────────────────
+
 interface Embed {
   id: string;
   name: string;
@@ -564,6 +624,210 @@ export default {
       return new Response(inviteUrl, {
         headers: { "Content-Type": "text/plain" },
       });
+    }
+
+    // ── チケット管理 ────────────────────────────────────────────
+
+    const sb = makeSupabaseFetch(env);
+
+    // チケット一覧 GET /bot/tickets?guild_id=xxx[&status=xxx]
+    if (url.pathname === '/bot/tickets' && request.method === 'GET') {
+      const guildId = url.searchParams.get('guild_id');
+      if (!guildId) return new Response('Missing guild_id', { status: 400 });
+      const status = url.searchParams.get('status');
+      let query = `/tickets?guild_id=eq.${guildId}&order=last_message_at.desc`;
+      if (status) query += `&status=eq.${status}`;
+      const resp = await sb(query);
+      if (!resp.ok) return new Response(await resp.text(), { status: resp.status });
+      const rows = await resp.json() as TicketRow[];
+      return new Response(JSON.stringify(rows.map(mapTicket)), { headers: { 'Content-Type': 'application/json' } });
+    }
+
+    // チケット詳細 GET /bot/tickets/:id
+    const ticketDetailMatch = url.pathname.match(/^\/bot\/tickets\/([^\/]+)$/);
+    if (ticketDetailMatch && request.method === 'GET') {
+      const id = ticketDetailMatch[1];
+      const resp = await sb(`/tickets?id=eq.${id}`);
+      if (!resp.ok) return new Response(await resp.text(), { status: resp.status });
+      const rows = await resp.json() as TicketRow[];
+      if (!rows.length) return new Response('Not found', { status: 404 });
+      return new Response(JSON.stringify(mapTicket(rows[0])), { headers: { 'Content-Type': 'application/json' } });
+    }
+
+    // メッセージ一覧 GET /bot/tickets/:id/messages
+    const ticketMsgMatch = url.pathname.match(/^\/bot\/tickets\/([^\/]+)\/messages$/);
+    if (ticketMsgMatch && request.method === 'GET') {
+      const ticketId = ticketMsgMatch[1];
+      const resp = await sb(`/ticket_messages?ticket_id=eq.${ticketId}&order=created_at.asc`);
+      if (!resp.ok) return new Response(await resp.text(), { status: resp.status });
+      const rows = await resp.json() as TicketMessageRow[];
+      return new Response(JSON.stringify(rows.map(mapTicketMessage)), { headers: { 'Content-Type': 'application/json' } });
+    }
+
+    // クローズ POST /bot/tickets/:id/close
+    const ticketCloseMatch = url.pathname.match(/^\/bot\/tickets\/([^\/]+)\/close$/);
+    if (ticketCloseMatch && request.method === 'POST') {
+      const id = ticketCloseMatch[1];
+      const ticketResp = await sb(`/tickets?id=eq.${id}`);
+      const tickets = await ticketResp.json() as TicketRow[];
+      if (!tickets.length) return new Response('Not found', { status: 404 });
+      const ticket = tickets[0];
+
+      // Supabase 更新
+      await sb(`/tickets?id=eq.${id}`, {
+        method: 'PATCH',
+        body: JSON.stringify({ status: 'closed', closed_at: new Date().toISOString() }),
+      });
+
+      // Discord: 開設者の ViewChannel を剥奪
+      try {
+        await fetch(`https://discord.com/api/v10/channels/${ticket.channel_id}/permissions/${ticket.opened_by_user_id}`, {
+          method: 'PUT',
+          headers: { Authorization: `Bot ${env.DISCORD_BOT_TOKEN}`, 'Content-Type': 'application/json' },
+          body: JSON.stringify({ deny: '1024', type: 1 }), // deny VIEW_CHANNEL
+        });
+        // クローズ通知
+        await fetch(`https://discord.com/api/v10/channels/${ticket.channel_id}/messages`, {
+          method: 'POST',
+          headers: { Authorization: `Bot ${env.DISCORD_BOT_TOKEN}`, 'Content-Type': 'application/json' },
+          body: JSON.stringify({ content: '🔒 **チケットがクローズされました。**\n作成者はこのチャンネルにアクセスできなくなりました。' }),
+        });
+      } catch { /* ignore Discord errors */ }
+
+      return new Response(JSON.stringify({ ok: true }), { headers: { 'Content-Type': 'application/json' } });
+    }
+
+    // 再オープン POST /bot/tickets/:id/reopen
+    const ticketReopenMatch = url.pathname.match(/^\/bot\/tickets\/([^\/]+)\/reopen$/);
+    if (ticketReopenMatch && request.method === 'POST') {
+      const id = ticketReopenMatch[1];
+      const ticketResp = await sb(`/tickets?id=eq.${id}`);
+      const tickets = await ticketResp.json() as TicketRow[];
+      if (!tickets.length) return new Response('Not found', { status: 404 });
+      const ticket = tickets[0];
+
+      await sb(`/tickets?id=eq.${id}`, {
+        method: 'PATCH',
+        body: JSON.stringify({ status: 'open', closed_at: null }),
+      });
+
+      try {
+        // 開設者のViewChannel権限を復元
+        await fetch(`https://discord.com/api/v10/channels/${ticket.channel_id}/permissions/${ticket.opened_by_user_id}`, {
+          method: 'PUT',
+          headers: { Authorization: `Bot ${env.DISCORD_BOT_TOKEN}`, 'Content-Type': 'application/json' },
+          body: JSON.stringify({ allow: '117760', type: 1 }), // VIEW_CHANNEL + SEND_MESSAGES + READ_HISTORY + ATTACH_FILES
+        });
+        await fetch(`https://discord.com/api/v10/channels/${ticket.channel_id}/messages`, {
+          method: 'POST',
+          headers: { Authorization: `Bot ${env.DISCORD_BOT_TOKEN}`, 'Content-Type': 'application/json' },
+          body: JSON.stringify({ content: '🔓 **チケットが再オープンされました。**' }),
+        });
+      } catch { /* ignore */ }
+
+      return new Response(JSON.stringify({ ok: true }), { headers: { 'Content-Type': 'application/json' } });
+    }
+
+    // 優先度変更 POST /bot/tickets/:id/priority
+    const ticketPriorityMatch = url.pathname.match(/^\/bot\/tickets\/([^\/]+)\/priority$/);
+    if (ticketPriorityMatch && request.method === 'POST') {
+      const id = ticketPriorityMatch[1];
+      const body = await request.json() as { priority: string };
+      if (!['low', 'medium', 'high', 'urgent'].includes(body.priority))
+        return new Response('Invalid priority', { status: 400 });
+      await sb(`/tickets?id=eq.${id}`, {
+        method: 'PATCH',
+        body: JSON.stringify({ priority: body.priority }),
+      });
+      const resp = await sb(`/tickets?id=eq.${id}`);
+      const rows = await resp.json() as TicketRow[];
+      return new Response(JSON.stringify(mapTicket(rows[0])), { headers: { 'Content-Type': 'application/json' } });
+    }
+
+    // スタッフ返信 POST /bot/tickets/:id/reply
+    const ticketReplyMatch = url.pathname.match(/^\/bot\/tickets\/([^\/]+)\/reply$/);
+    if (ticketReplyMatch && request.method === 'POST') {
+      const id = ticketReplyMatch[1];
+      const body = await request.json() as { content: string };
+      if (!body.content?.trim()) return new Response('content is required', { status: 400 });
+
+      const ticketResp = await sb(`/tickets?id=eq.${id}`);
+      const tickets = await ticketResp.json() as TicketRow[];
+      if (!tickets.length) return new Response('Not found', { status: 404 });
+      const ticket = tickets[0];
+      if (ticket.status === 'closed') return new Response('Ticket is closed', { status: 400 });
+
+      // Supabase にメッセージ記録
+      const msgResp = await sb('/ticket_messages', {
+        method: 'POST',
+        body: JSON.stringify({
+          ticket_id: id,
+          user_id: 'app-staff',
+          username: 'Staff (App)',
+          content: body.content.trim(),
+          is_staff: true,
+        }),
+        headers: { Prefer: 'return=representation' },
+      });
+      // message_count + last_message_at 更新
+      await sb(`/tickets?id=eq.${id}`, {
+        method: 'PATCH',
+        body: JSON.stringify({
+          message_count: ticket.message_count + 1,
+          last_message_at: new Date().toISOString(),
+        }),
+      });
+
+      // Discord チャンネルに送信
+      try {
+        await fetch(`https://discord.com/api/v10/channels/${ticket.channel_id}/messages`, {
+          method: 'POST',
+          headers: { Authorization: `Bot ${env.DISCORD_BOT_TOKEN}`, 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            embeds: [{
+              description: body.content.trim(),
+              color: 0x6366f1,
+              author: { name: '📱 アプリからのスタッフ返信' },
+              timestamp: new Date().toISOString(),
+            }],
+          }),
+        });
+      } catch { /* ignore */ }
+
+      const msgRows = msgResp.ok ? await msgResp.json() as TicketMessageRow[] : [];
+      const msg = msgRows[0] ?? { id: '', ticket_id: id, user_id: 'app-staff', username: 'Staff (App)', content: body.content, is_staff: true, created_at: new Date().toISOString() };
+      return new Response(JSON.stringify(mapTicketMessage(msg)), { headers: { 'Content-Type': 'application/json' } });
+    }
+
+    // 担当者割り当て POST /bot/tickets/:id/assign
+    const ticketAssignMatch = url.pathname.match(/^\/bot\/tickets\/([^\/]+)\/assign$/);
+    if (ticketAssignMatch && request.method === 'POST') {
+      const id = ticketAssignMatch[1];
+      const body = await request.json() as { userId: string };
+      if (!body.userId?.trim()) return new Response('userId is required', { status: 400 });
+
+      const ticketResp = await sb(`/tickets?id=eq.${id}`);
+      const tickets = await ticketResp.json() as TicketRow[];
+      if (!tickets.length) return new Response('Not found', { status: 404 });
+      const ticket = tickets[0];
+
+      await sb(`/tickets?id=eq.${id}`, {
+        method: 'PATCH',
+        body: JSON.stringify({ assigned_to_user_id: body.userId }),
+      });
+
+      // Discord チャンネルに担当者を追加
+      try {
+        await fetch(`https://discord.com/api/v10/channels/${ticket.channel_id}/permissions/${body.userId}`, {
+          method: 'PUT',
+          headers: { Authorization: `Bot ${env.DISCORD_BOT_TOKEN}`, 'Content-Type': 'application/json' },
+          body: JSON.stringify({ allow: '117760', type: 1 }),
+        });
+      } catch { /* ignore */ }
+
+      const resp = await sb(`/tickets?id=eq.${id}`);
+      const rows = await resp.json() as TicketRow[];
+      return new Response(JSON.stringify(mapTicket(rows[0])), { headers: { 'Content-Type': 'application/json' } });
     }
 
     return new Response("Not Found", { status: 404 });

@@ -99,6 +99,55 @@ CREATE TABLE IF NOT EXISTS reaction_roles (
 -- 既存テーブルに message_id カラムがない場合は追加（べき等）
 ALTER TABLE reaction_roles ADD COLUMN IF NOT EXISTS message_id TEXT;
 
+-- 7. ticket_panels（チケットパネル設定）
+CREATE TABLE IF NOT EXISTS ticket_panels (
+    id                 TEXT PRIMARY KEY DEFAULT gen_random_uuid()::text,
+    guild_id           TEXT NOT NULL,
+    channel_id         TEXT NOT NULL DEFAULT '',
+    message_id         TEXT,
+    title              TEXT NOT NULL DEFAULT 'サポートチケット',
+    description        TEXT NOT NULL DEFAULT 'ボタンをクリックしてチケットを作成してください。',
+    color              INTEGER NOT NULL DEFAULT 6579201,   -- 0x6466F1
+    button_label       TEXT NOT NULL DEFAULT 'チケットを作成',
+    button_emoji       TEXT NOT NULL DEFAULT '🎫',
+    support_role_id    TEXT,
+    open_category_id   TEXT,
+    closed_category_id TEXT,
+    ticket_msg_content TEXT,
+    ticket_embed_title TEXT NOT NULL DEFAULT 'チケット',
+    ticket_embed_color INTEGER NOT NULL DEFAULT 6579201,
+    max_open_per_user  INTEGER NOT NULL DEFAULT 1,
+    created_at         TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
+
+-- 8. tickets（チケット）
+CREATE TABLE IF NOT EXISTS tickets (
+    id                  TEXT PRIMARY KEY DEFAULT gen_random_uuid()::text,
+    guild_id            TEXT NOT NULL,
+    channel_id          TEXT NOT NULL,
+    opened_by_user_id   TEXT NOT NULL,
+    subject             TEXT NOT NULL,
+    status              TEXT NOT NULL DEFAULT 'open',    -- open / pending / closed
+    priority            TEXT NOT NULL DEFAULT 'medium',  -- low / medium / high / urgent
+    assigned_to_user_id TEXT,
+    panel_id            TEXT REFERENCES ticket_panels(id) ON DELETE SET NULL,
+    opened_at           TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    closed_at           TIMESTAMPTZ,
+    last_message_at     TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    message_count       INTEGER NOT NULL DEFAULT 0
+);
+
+-- 9. ticket_messages（チケットメッセージ）
+CREATE TABLE IF NOT EXISTS ticket_messages (
+    id         TEXT PRIMARY KEY DEFAULT gen_random_uuid()::text,
+    ticket_id  TEXT NOT NULL REFERENCES tickets(id) ON DELETE CASCADE,
+    user_id    TEXT NOT NULL,
+    username   TEXT NOT NULL DEFAULT '',
+    content    TEXT NOT NULL,
+    is_staff   BOOLEAN NOT NULL DEFAULT FALSE,
+    created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
+
 -- ============================================================
 -- インデックス
 -- ============================================================
@@ -106,6 +155,10 @@ CREATE INDEX IF NOT EXISTS idx_scheduled_status  ON scheduled_messages(status);
 CREATE INDEX IF NOT EXISTS idx_scheduled_time    ON scheduled_messages(scheduled_for);
 CREATE INDEX IF NOT EXISTS idx_channels_guild    ON channels(guild_id);
 CREATE INDEX IF NOT EXISTS idx_rr_guild          ON reaction_roles(guild_id);
+CREATE INDEX IF NOT EXISTS idx_tickets_guild     ON tickets(guild_id);
+CREATE INDEX IF NOT EXISTS idx_tickets_status    ON tickets(status);
+CREATE INDEX IF NOT EXISTS idx_tickets_channel   ON tickets(channel_id);
+CREATE INDEX IF NOT EXISTS idx_ticket_msgs       ON ticket_messages(ticket_id);
 
 -- ============================================================
 -- Row Level Security（RLS）: 認証済みの全操作を許可
@@ -115,12 +168,18 @@ ALTER TABLE scheduled_messages ENABLE ROW LEVEL SECURITY;
 ALTER TABLE guilds             ENABLE ROW LEVEL SECURITY;
 ALTER TABLE channels           ENABLE ROW LEVEL SECURITY;
 ALTER TABLE reaction_roles     ENABLE ROW LEVEL SECURITY;
+ALTER TABLE ticket_panels      ENABLE ROW LEVEL SECURITY;
+ALTER TABLE tickets            ENABLE ROW LEVEL SECURITY;
+ALTER TABLE ticket_messages    ENABLE ROW LEVEL SECURITY;
 
 CREATE POLICY "Allow all for authenticated users" ON embeds             FOR ALL USING (auth.role() = 'authenticated');
 CREATE POLICY "Allow all for authenticated users" ON scheduled_messages FOR ALL USING (auth.role() = 'authenticated');
 CREATE POLICY "Allow all for authenticated users" ON guilds             FOR ALL USING (auth.role() = 'authenticated');
 CREATE POLICY "Allow all for authenticated users" ON channels           FOR ALL USING (auth.role() = 'authenticated');
 CREATE POLICY "Allow all for authenticated users" ON reaction_roles     FOR ALL USING (auth.role() = 'authenticated');
+CREATE POLICY "Allow all for authenticated users" ON ticket_panels      FOR ALL USING (auth.role() = 'authenticated');
+CREATE POLICY "Allow all for authenticated users" ON tickets            FOR ALL USING (auth.role() = 'authenticated');
+CREATE POLICY "Allow all for authenticated users" ON ticket_messages    FOR ALL USING (auth.role() = 'authenticated');
 
 -- ============================================================
 -- サンプルデータ（初回のみ）
