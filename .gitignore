@@ -1,0 +1,20 @@
+# Xcode
+*.xcworkspace/xcuserdata/
+*.xcodeproj/xcuserdata/
+DerivedData/
+.build/
+
+# Node.js
+node_modules/
+dist/
+logs/
+
+# 環境変数・シークレット
+.env
+.env.local
+
+# Cloudflare Wrangler
+workers/.wrangler/
+
+# macOS
+.DS_Store

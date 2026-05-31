@@ -1,0 +1,239 @@
+import SwiftUI
+
+struct SendEmbedView: View {
+    let embed: EmbedModel
+    var isNewEmbed: Bool = false
+    @Environment(\.services) private var services
+    @Environment(AppState.self) private var appState
+    @Environment(\.dismiss) private var dismiss
+
+    @State private var channels: [Channel] = []
+    @State private var selectedChannel: Channel? = nil
+    @State private var isLoading = true
+    @State private var isSending = false
+    @State private var didSend = false
+    @State private var errorMessage: String? = nil
+    @State private var showConfirm = false
+    @State private var channelSearchText = ""
+
+    private var filteredChannels: [Channel] {
+        let textChannels = channels.filter { $0.type == .text }
+        guard !channelSearchText.isEmpty else { return textChannels }
+        return textChannels.filter { $0.name.localizedCaseInsensitiveContains(channelSearchText) }
+    }
+
+    var body: some View {
+        NavigationStack {
+            Group {
+                if didSend {
+                    SendSuccessView(embed: embed, channel: selectedChannel) { dismiss() }
+                } else {
+                    mainContent
+                }
+            }
+            .background(Color.bgPrimary)
+            .navigationTitle("チャンネルを選択")
+            .navigationBarTitleDisplayMode(.inline)
+            .toolbar {
+                ToolbarItem(placement: .topBarLeading) {
+                    Button("キャンセル") { dismiss() }
+                        .foregroundStyle(Color.textSecondary)
+                }
+            }
+        }
+        .task { await loadChannels() }
+    }
+
+    // MARK: - Main Content
+
+    @ViewBuilder
+    private var mainContent: some View {
+        VStack(spacing: 0) {
+            // Embed プレビュー（コンパクト）
+            VStack(alignment: .leading, spacing: .spacing8) {
+                Text("送信するEmbed")
+                    .font(.captionSmall)
+                    .foregroundStyle(Color.textTertiary)
+                    .textCase(.uppercase)
+                    .padding(.horizontal)
+                    .padding(.top)
+
+                EmbedPreviewCard(embed: .from(embed))
+                    .padding(.horizontal)
+                    .padding(.bottom)
+            }
+            .background(Color.bgElevated)
+
+            Divider().background(Color.border)
+
+            // エラー
+            if let errorMessage {
+                Text("❌ \(errorMessage)")
+                    .font(.captionRegular)
+                    .foregroundStyle(.red)
+                    .padding()
+            }
+
+            // チャンネル一覧
+            if isLoading {
+                ProgressView().frame(maxWidth: .infinity, minHeight: 100)
+            } else if channels.isEmpty {
+                Text("送信可能なチャンネルがありません")
+                    .font(.bodySmall)
+                    .foregroundStyle(Color.textTertiary)
+                    .frame(maxWidth: .infinity, minHeight: 100)
+            } else {
+                List {
+                    ForEach(filteredChannels) { ch in
+                        Button {
+                            selectedChannel = ch
+                        } label: {
+                            HStack {
+                                Image(systemName: "number")
+                                    .font(.captionRegular)
+                                    .foregroundStyle(Color.textTertiary)
+                                Text(ch.name)
+                                    .font(.bodySmall)
+                                    .foregroundStyle(Color.textPrimary)
+                                Spacer()
+                                if selectedChannel?.id == ch.id {
+                                    Image(systemName: "checkmark.circle.fill")
+                                        .foregroundStyle(Color.accentIndigo)
+                                }
+                            }
+                        }
+                        .buttonStyle(.plain)
+                        .listRowBackground(selectedChannel?.id == ch.id ? Color.accentIndigo.opacity(0.1) : Color.bgSurface)
+                    }
+                }
+                .listStyle(.plain)
+                .scrollContentBackground(.hidden)
+                .searchable(text: $channelSearchText, prompt: "チャンネルを検索")
+            }
+
+            // 送信ボタン
+            if let ch = selectedChannel {
+                Button {
+                    showConfirm = true
+                } label: {
+                    HStack {
+                        if isSending {
+                            ProgressView().tint(.white).scaleEffect(0.85)
+                        } else {
+                            Image(systemName: "paperplane.fill")
+                            Text("送信する")
+                        }
+                    }
+                    .font(.titleMedium)
+                    .foregroundStyle(.white)
+                    .frame(maxWidth: .infinity)
+                    .frame(height: 52)
+                    .background(Color.accentIndigo)
+                    .clipShape(RoundedRectangle(cornerRadius: .cornerRadiusMedium))
+                }
+                .padding()
+                .disabled(isSending)
+                .buttonStyle(ScalePressButtonStyle())
+                .alert("#\(ch.name) に送信しますか？", isPresented: $showConfirm) {
+                    Button("送信する") { Task { await sendEmbed() } }
+                    Button("キャンセル", role: .cancel) { }
+                }
+            }
+        }
+    }
+
+    // MARK: - Actions
+
+    private func loadChannels() async {
+        isLoading = true
+        channels = (try? await services.guilds.fetchChannels(guildId: appState.selectedGuildId)) ?? []
+        isLoading = false
+    }
+
+    private func sendEmbed() async {
+        guard let channel = selectedChannel else { return }
+        isSending = true
+        errorMessage = nil
+        do {
+            let embedToSend: EmbedModel
+            if isNewEmbed {
+                var toSave = embed
+                if toSave.name.isEmpty {
+                    toSave.name = "Untitled"
+                }
+                embedToSend = try await services.embeds.create(toSave)
+            } else {
+                embedToSend = embed
+            }
+            try await services.embeds.send(
+                embedId: embedToSend.id,
+                guildId: appState.selectedGuildId,
+                channelId: channel.id
+            )
+            isSending = false
+            withAnimation { didSend = true }
+        } catch {
+            isSending = false
+            errorMessage = error.localizedDescription
+        }
+    }
+}
+
+// MARK: - SendSuccessView
+
+struct SendSuccessView: View {
+    let embed: EmbedModel
+    let channel: Channel?
+    let onDone: () -> Void
+
+    @State private var scale: CGFloat = 0.5
+    @State private var opacity: Double = 0
+
+    var body: some View {
+        VStack(spacing: .spacing24) {
+            Spacer()
+
+            ZStack {
+                Circle()
+                    .fill(Color.accentGreen.opacity(0.15))
+                    .frame(width: 120, height: 120)
+                Image(systemName: "checkmark.circle.fill")
+                    .font(.system(size: 72))
+                    .foregroundStyle(Color.accentGreen)
+                    .scaleEffect(scale)
+                    .opacity(opacity)
+            }
+
+            VStack(spacing: .spacing8) {
+                Text("送信完了！")
+                    .font(.displayMedium)
+                    .foregroundStyle(Color.textPrimary)
+                if let ch = channel {
+                    Text("#\(ch.name) に送信しました")
+                        .font(.bodyRegular)
+                        .foregroundStyle(Color.textSecondary)
+                }
+            }
+
+            Spacer()
+
+            PrimaryButton("完了", style: .filled, size: .large, action: onDone)
+                .padding(.horizontal)
+                .padding(.bottom)
+        }
+        .onAppear {
+            withAnimation(.spring(duration: 0.5)) {
+                scale = 1
+                opacity = 1
+            }
+            UINotificationFeedbackGenerator().notificationOccurred(.success)
+        }
+    }
+}
+
+#Preview {
+    SendEmbedView(embed: .blank())
+        .environment(\.services, ServiceContainer.live())
+        .environment(AppState())
+        .preferredColorScheme(.dark)
+}

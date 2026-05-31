@@ -1,24 +1,44 @@
-//
-//  ContentView.swift
-//  Noxy
-//
-//  Created by ゴロゴロ on 2026/05/27.
-//
-
 import SwiftUI
 
 struct ContentView: View {
     var body: some View {
-        VStack {
-            Image(systemName: "globe")
-                .imageScale(.large)
-                .foregroundStyle(.tint)
-            Text("Hello, world!")
+        ZStack {
+            Color.bgPrimary.ignoresSafeArea()
+
+            VStack(spacing: .spacing16) {
+                RoundedRectangle(cornerRadius: .cornerRadiusMedium)
+                    .fill(
+                        LinearGradient(
+                            colors: [Color.accentIndigo, Color.accentPink],
+                            startPoint: .topLeading,
+                            endPoint: .bottomTrailing
+                        )
+                    )
+                    .frame(width: 80, height: 80)
+                    .overlay {
+                        Image(systemName: "bubble.left.and.bubble.right.fill")
+                            .font(.system(size: 36, weight: .bold))
+                            .foregroundStyle(Color.white)
+                    }
+
+                Text("BotForge")
+                    .font(.displayMedium)
+                    .foregroundStyle(Color.textPrimary)
+
+                Text("Architecture initialized")
+                    .font(.bodySmall)
+                    .foregroundStyle(Color.textSecondary)
+            }
         }
-        .padding()
     }
 }
 
-#Preview {
+#Preview("Dark") {
     ContentView()
+        .preferredColorScheme(.dark)
+}
+
+#Preview("Light") {
+    ContentView()
+        .preferredColorScheme(.light)
 }

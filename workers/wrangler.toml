@@ -1,0 +1,20 @@
+# Cloudflare Workers 設定
+name = "noxy-scheduler"
+main = "src/index.ts"
+compatibility_date = "2025-05-30"
+
+# 1分ごとに実行（Cron Trigger）
+[triggers]
+crons = ["* * * * *"]
+
+# 環境変数（deploy 時に wrangler secret put で設定する）
+# DISCORD_BOT_TOKEN  – Discord Bot のトークン
+# SUPABASE_URL       – Supabase プロジェクトの URL
+# SUPABASE_SERVICE_KEY – Supabase の service_role key（管理用）
+[vars]
+# ここには機密以外の設定だけ書く（空でもOK）
+
+# 必要に応じてKVやD1を追加可能
+# [[kv_namespaces]]
+# binding = "CACHE"
+# id = "xxxxxxxx"
