@@ -20,15 +20,18 @@ struct ReactionRoleItem: Identifiable, Codable {
     var id: String
     var title: String
     var embedId: String
-    var channelId: String
-    var channelName: String
+    var channelId: String      // 送信後に設定される
+    var channelName: String    // 送信後に設定される
+    var messageId: String?     // Discord上のメッセージID（送信後に設定）
     var pairs: [ReactionPair]
     var mode: ReactionMode
     var guildId: String
 
+    var isPublished: Bool { !(messageId ?? "").isEmpty }
+
     static let empty = ReactionRoleItem(
         id: "", title: "", embedId: "", channelId: "",
-        channelName: "", pairs: [], mode: .normal, guildId: ""
+        channelName: "", messageId: nil, pairs: [], mode: .normal, guildId: ""
     )
 }
 
@@ -65,6 +68,7 @@ struct ReactionRolesView: View {
     @State private var isLoading = true
     @State private var showEditor = false
     @State private var editingItem: ReactionRoleItem? = nil
+    @State private var sendingItem: ReactionRoleItem? = nil
     @State private var toast: ToastMessage? = nil
     @State private var showEmbedEditor = false
 
@@ -92,6 +96,9 @@ struct ReactionRolesView: View {
                                 ReactionRoleCard(
                                     item: item,
                                     embed: embeds.first(where: { $0.id == item.embedId }),
+                                    onSend: {
+                                        sendingItem = item
+                                    },
                                     onEdit: {
                                         editingItem = item
                                         showEditor = true
@@ -137,6 +144,7 @@ struct ReactionRolesView: View {
                 }
             }
         }
+        // 編集シート
         .sheet(isPresented: $showEditor, onDismiss: { Task { await load() } }) {
             ReactionRoleEditorView(
                 embeds: embeds,
@@ -156,9 +164,25 @@ struct ReactionRolesView: View {
                 }
             }
         }
+        // Embed新規作成シート
         .sheet(isPresented: $showEmbedEditor, onDismiss: { Task { await loadEmbeds() } }) {
             EmbedEditorView(embed: nil) { saved in
                 embeds.append(saved)
+            }
+        }
+        // チャンネル選択・送信シート
+        .sheet(item: $sendingItem) { item in
+            ChannelPickerForPublishView(
+                item: item,
+                guildId: appState.selectedGuildId
+            ) { channelId, channelName, messageId in
+                // 送信成功 → ローカルのitemを更新
+                if let idx = items.firstIndex(where: { $0.id == item.id }) {
+                    items[idx].channelId = channelId
+                    items[idx].channelName = channelName
+                    items[idx].messageId = messageId
+                }
+                toast = ToastMessage(type: .success, message: "Discordに送信しました 🎉")
             }
         }
         .toast($toast)
@@ -194,6 +218,7 @@ struct ReactionRolesView: View {
 private struct ReactionRoleCard: View {
     let item: ReactionRoleItem
     let embed: EmbedModel?
+    let onSend: () -> Void
     let onEdit: () -> Void
     let onDelete: () -> Void
 
@@ -219,9 +244,21 @@ private struct ReactionRoleCard: View {
                         .foregroundStyle(Color.textPrimary)
                         .lineLimit(1)
                     HStack(spacing: .spacing6) {
-                        Text("#\(item.channelName)")
-                            .foregroundStyle(Color.textSecondary)
+                        if item.isPublished {
+                            Image(systemName: "checkmark.circle.fill")
+                                .foregroundStyle(Color.accentIndigo)
+                                .font(.captionSmall)
+                            Text("#\(item.channelName)")
+                                .foregroundStyle(Color.textSecondary)
+                        } else {
+                            Image(systemName: "clock")
+                                .foregroundStyle(Color.accentOrange)
+                                .font(.captionSmall)
+                            Text("未送信")
+                                .foregroundStyle(Color.accentOrange)
+                        }
                         Text("·")
+                            .foregroundStyle(Color.textTertiary)
                         Text("\(item.pairs.count)個のリアクション")
                             .foregroundStyle(Color.textTertiary)
                     }
@@ -267,8 +304,19 @@ private struct ReactionRoleCard: View {
 
             Divider().background(Color.border)
 
-            // アクションボタン
+            // アクションボタン：[送信 | 編集 | 削除]
             HStack(spacing: 0) {
+                Button(action: onSend) {
+                    Label("送信", systemImage: "paperplane.fill")
+                        .font(.captionRegular)
+                        .foregroundStyle(Color.accentIndigo)
+                        .frame(maxWidth: .infinity)
+                        .padding(.vertical, .spacing8)
+                }
+                .buttonStyle(.plain)
+
+                Divider().frame(height: 24)
+
                 Button(action: onEdit) {
                     Label("編集", systemImage: "pencil")
                         .font(.captionRegular)
@@ -295,7 +343,142 @@ private struct ReactionRoleCard: View {
     }
 }
 
-// MARK: - Editor
+// MARK: - Channel Picker for Publish
+
+private struct ChannelPickerForPublishView: View {
+    @Environment(\.services) private var services
+    @Environment(\.dismiss) private var dismiss
+
+    let item: ReactionRoleItem
+    let guildId: String
+    let onPublished: (String, String, String) -> Void  // channelId, channelName, messageId
+
+    @State private var channels: [Channel] = []
+    @State private var isLoading = true
+    @State private var publishingChannelId: String? = nil
+    @State private var errorMessage = ""
+    @State private var showError = false
+
+    private var textChannels: [Channel] {
+        channels.filter { $0.type == .text || $0.type == .announcement }
+    }
+
+    var body: some View {
+        NavigationStack {
+            Group {
+                if isLoading {
+                    ProgressView("チャンネルを読み込み中...")
+                        .frame(maxWidth: .infinity, maxHeight: .infinity)
+                } else if textChannels.isEmpty {
+                    EmptyStateView(
+                        icon: "number",
+                        title: "チャンネルが見つかりません",
+                        description: "Botが参加しているサーバーのチャンネルを確認してください。",
+                        actionTitle: nil
+                    ) {}
+                    .frame(maxWidth: .infinity, maxHeight: .infinity)
+                } else {
+                    List {
+                        Section {
+                            ForEach(textChannels) { ch in
+                                Button {
+                                    guard publishingChannelId == nil else { return }
+                                    Task { await publish(to: ch) }
+                                } label: {
+                                    HStack(spacing: .spacing12) {
+                                        Image(systemName: ch.type == .announcement ? "megaphone.fill" : "number")
+                                            .font(.captionRegular)
+                                            .foregroundStyle(Color.textTertiary)
+                                            .frame(width: 20)
+                                        Text(ch.name)
+                                            .foregroundStyle(Color.textPrimary)
+                                        Spacer()
+                                        if publishingChannelId == ch.id {
+                                            ProgressView()
+                                                .scaleEffect(0.8)
+                                        }
+                                    }
+                                    .padding(.vertical, 2)
+                                }
+                                .buttonStyle(.plain)
+                                .disabled(publishingChannelId != nil)
+                            }
+                        } header: {
+                            VStack(alignment: .leading, spacing: 4) {
+                                Text("「\(item.title)」を送信するチャンネルを選択")
+                                Text("選択したチャンネルにEmbedが投稿され、絵文字が追加されます")
+                                    .font(.captionSmall)
+                                    .foregroundStyle(Color.textTertiary)
+                            }
+                            .padding(.bottom, 4)
+                        }
+                    }
+                    .listStyle(.insetGrouped)
+                }
+            }
+            .background(Color(.systemGroupedBackground))
+            .navigationTitle("送信先を選択")
+            .navigationBarTitleDisplayMode(.inline)
+            .toolbar {
+                ToolbarItem(placement: .topBarLeading) {
+                    Button("閉じる") { dismiss() }
+                        .foregroundStyle(Color.textSecondary)
+                        .disabled(publishingChannelId != nil)
+                }
+            }
+            .alert("送信に失敗しました", isPresented: $showError) {
+                Button("OK") {}
+            } message: {
+                Text(errorMessage)
+            }
+        }
+        .task {
+            channels = (try? await services.guilds.fetchChannels(guildId: guildId)) ?? []
+            isLoading = false
+        }
+    }
+
+    private func publish(to channel: Channel) async {
+        publishingChannelId = channel.id
+
+        do {
+            let url = URL(string: "\(DiscordConfig.workerURL)/bot/reaction-roles/publish")!
+            var req = URLRequest(url: url, timeoutInterval: 30)
+            req.httpMethod = "POST"
+            req.setValue("application/json", forHTTPHeaderField: "Content-Type")
+
+            let body: [String: String] = [
+                "reactionRoleId": item.id,
+                "channelId": channel.id,
+                "channelName": channel.name,
+                "guildId": guildId
+            ]
+            req.httpBody = try JSONEncoder().encode(body)
+
+            let (data, response) = try await URLSession.shared.data(for: req)
+
+            guard let http = response as? HTTPURLResponse, (200..<300).contains(http.statusCode) else {
+                let msg = String(data: data, encoding: .utf8) ?? "サーバーエラー"
+                errorMessage = msg
+                showError = true
+                publishingChannelId = nil
+                return
+            }
+
+            struct PublishResponse: Decodable { let messageId: String }
+            let resp = try JSONDecoder().decode(PublishResponse.self, from: data)
+
+            onPublished(channel.id, channel.name, resp.messageId)
+            dismiss()
+        } catch {
+            errorMessage = error.localizedDescription
+            showError = true
+            publishingChannelId = nil
+        }
+    }
+}
+
+// MARK: - Editor（チャンネル選択なし・保存のみ）
 
 struct ReactionRoleEditorView: View {
     @Environment(\.services) private var services
@@ -309,19 +492,13 @@ struct ReactionRoleEditorView: View {
 
     @State private var title: String
     @State private var embedId: String
-    @State private var channelId: String
-    @State private var channelName: String
     @State private var pairs: [ReactionPair]
     @State private var mode: ReactionMode
-    @State private var channels: [Channel] = []
-    @State private var isLoadingChannels = true
     @State private var roles: [DiscordRole] = []
     @State private var showEmojiPicker = false
     @State private var showRolePicker = false
     @State private var rolePickerPairIndex = 0
     @State private var isSaving = false
-    @State private var showCompletionModal = false
-    @State private var savedItem: ReactionRoleItem? = nil
 
     private let existingId: String?
 
@@ -336,15 +513,14 @@ struct ReactionRoleEditorView: View {
         existingId = existing?.id
         _title = State(initialValue: existing?.title ?? "")
         _embedId = State(initialValue: existing?.embedId ?? (embeds.first?.id ?? ""))
-        _channelId = State(initialValue: existing?.channelId ?? "")
-        _channelName = State(initialValue: existing?.channelName ?? "")
         _pairs = State(initialValue: existing?.pairs ?? [ReactionPair(emoji: "", roleId: "", roleName: "")])
         _mode = State(initialValue: existing?.mode ?? .normal)
     }
 
     private var isValid: Bool {
-        !title.isEmpty && !embedId.isEmpty && !channelId.isEmpty
-            && !pairs.isEmpty && pairs.allSatisfy { !$0.emoji.isEmpty }
+        !title.isEmpty && !embedId.isEmpty
+            && !pairs.isEmpty
+            && pairs.allSatisfy { !$0.emoji.isEmpty && !$0.roleId.isEmpty }
     }
 
     var body: some View {
@@ -378,39 +554,6 @@ struct ReactionRoleEditorView: View {
                             .padding(.vertical, .spacing4)
                     }
                 } header: { Text("埋め込みメッセージ") }
-
-                Section {
-                    if isLoadingChannels {
-                        ProgressView()
-                    } else if channels.isEmpty {
-                        Text("チャンネルを取得できませんでした")
-                            .font(.bodySmall)
-                            .foregroundStyle(Color.textTertiary)
-                    } else {
-                        ForEach(channels.filter { $0.type == .text || $0.type == .announcement }) { ch in
-                            Button {
-                                channelId = ch.id
-                                channelName = ch.name
-                            } label: {
-                                HStack {
-                                    Image(systemName: ch.type == .announcement ? "megaphone.fill" : "number")
-                                        .font(.captionRegular)
-                                        .foregroundStyle(Color.textTertiary)
-                                        .frame(width: 20)
-                                    Text(ch.name)
-                                        .font(.bodyRegular)
-                                        .foregroundStyle(Color.textPrimary)
-                                    Spacer()
-                                    if channelId == ch.id {
-                                        Image(systemName: "checkmark")
-                                            .foregroundStyle(Color.accentIndigo)
-                                    }
-                                }
-                            }
-                            .buttonStyle(.plain)
-                        }
-                    }
-                } header: { Text("送信先チャンネル") }
 
                 Section {
                     ForEach(Array($pairs.enumerated()), id: \.element.id) { idx, $pair in
@@ -468,6 +611,17 @@ struct ReactionRoleEditorView: View {
                         }
                     }
                 } header: { Text("詳細") }
+
+                // 送信は一覧画面から行う旨を案内
+                Section {
+                    HStack(spacing: .spacing10) {
+                        Image(systemName: "info.circle")
+                            .foregroundStyle(Color.accentIndigo)
+                        Text("保存後、一覧画面の「送信」ボタンからDiscordに投稿できます")
+                            .font(.captionRegular)
+                            .foregroundStyle(Color.textSecondary)
+                    }
+                }
             }
             .navigationTitle(existingId == nil ? "新規作成" : "編集")
             .navigationBarTitleDisplayMode(.inline)
@@ -480,9 +634,13 @@ struct ReactionRoleEditorView: View {
                     Button {
                         save()
                     } label: {
-                        Text("完了")
-                            .fontWeight(.semibold)
-                            .foregroundStyle(isValid ? Color.accentIndigo : Color.textTertiary)
+                        if isSaving {
+                            ProgressView().scaleEffect(0.8)
+                        } else {
+                            Text("保存")
+                                .fontWeight(.semibold)
+                                .foregroundStyle(isValid ? Color.accentIndigo : Color.textTertiary)
+                        }
                     }
                     .disabled(!isValid || isSaving)
                 }
@@ -505,26 +663,9 @@ struct ReactionRoleEditorView: View {
                     }
                 }
             }
-            .confirmationDialog("完了しました", isPresented: $showCompletionModal, titleVisibility: .visible) {
-                Button {
-                    if let item = savedItem { sendToDiscord(item) }
-                    dismiss()
-                } label: {
-                    Text("📨 保存して送信")
-                }
-                Button("保存のみ", role: .cancel) {
-                    dismiss()
-                }
-            } message: {
-                Text("#\(channelName) に送信しますか？")
-            }
         }
         .task {
-            async let chTask = services.guilds.fetchChannels(guildId: guildId)
-            async let rolesTask = DiscordService().fetchRoles(guildId: guildId)
-            channels = (try? await chTask) ?? []
-            isLoadingChannels = false
-            roles = (try? await rolesTask) ?? []
+            roles = (try? await DiscordService().fetchRoles(guildId: guildId)) ?? []
         }
     }
 
@@ -534,9 +675,10 @@ struct ReactionRoleEditorView: View {
             id: existingId ?? UUID().uuidString,
             title: title,
             embedId: embedId,
-            channelId: channelId,
-            channelName: channelName,
-            pairs: pairs.filter { !$0.emoji.isEmpty },
+            channelId: existing?.channelId ?? "",     // 既存の送信先を保持
+            channelName: existing?.channelName ?? "",
+            messageId: existing?.messageId,            // 既存のmessageIdを保持
+            pairs: pairs.filter { !$0.emoji.isEmpty && !$0.roleId.isEmpty },
             mode: mode,
             guildId: guildId
         )
@@ -547,27 +689,9 @@ struct ReactionRoleEditorView: View {
             } else {
                 saved = (try? await services.reactionRoles.create(item)) ?? item
             }
-            savedItem = saved
             onSave(saved)
             isSaving = false
-            showCompletionModal = true
-        }
-    }
-
-    private func sendToDiscord(_ item: ReactionRoleItem) {
-        Task {
-            let msg = ScheduledMessage(
-                id: UUID().uuidString,
-                guildId: item.guildId,
-                channelId: item.channelId,
-                embedId: item.embedId,
-                title: item.title,
-                scheduledFor: Date(),
-                repeatRule: .none,
-                status: .pending,
-                endDate: nil
-            )
-            _ = try? await services.scheduledMessages.create(msg)
+            dismiss()
         }
     }
 }

@@ -33,8 +33,9 @@ interface Embed {
   show_timestamp: boolean;
 }
 
-// ── Supabase クライアント（簡易） ────────────────────────────
+// ── Supabase クライアント ─────────────────────────────────────
 
+// グローバル変数版（scheduled ハンドラ用）
 function supabaseFetch(path: string, options?: RequestInit): Promise<Response> {
   const url = `${SUPABASE_URL}/rest/v1${path}`;
   return fetch(url, {
@@ -47,6 +48,23 @@ function supabaseFetch(path: string, options?: RequestInit): Promise<Response> {
       ...(options?.headers ?? {}),
     },
   });
+}
+
+// env 経由版（HTTP ハンドラ用）
+function makeSupabaseFetch(env: Env) {
+  return (path: string, options?: RequestInit): Promise<Response> => {
+    const url = `${env.SUPABASE_URL}/rest/v1${path}`;
+    return fetch(url, {
+      ...options,
+      headers: {
+        "apikey": env.SUPABASE_SERVICE_KEY,
+        "Authorization": `Bearer ${env.SUPABASE_SERVICE_KEY}`,
+        "Content-Type": "application/json",
+        "Prefer": "return=representation",
+        ...(options?.headers ?? {}),
+      },
+    });
+  };
 }
 
 // ── Discord 送信 ────────────────────────────────────────────
@@ -246,6 +264,109 @@ export default {
       return new Response(JSON.stringify(roles), {
         headers: { "Content-Type": "application/json" },
       });
+    }
+
+    // リアクションロールパネルをDiscordに送信
+    if (url.pathname === "/bot/reaction-roles/publish" && request.method === "POST") {
+      try {
+        const body = await request.json() as {
+          reactionRoleId: string;
+          channelId: string;
+          channelName: string;
+          guildId: string;
+        };
+
+        const sb = makeSupabaseFetch(env);
+
+        // 1. Supabase からリアクションロール設定を取得
+        const rrResp = await sb(`/reaction_roles?id=eq.${body.reactionRoleId}`);
+        if (!rrResp.ok) {
+          return new Response(JSON.stringify({ error: "リアクションロール設定が見つかりません" }), { status: 404 });
+        }
+        const rrList = await rrResp.json() as Array<{
+          id: string;
+          embed_id: string;
+          pairs: Array<{ emoji: string; role_id: string; role_name: string }>;
+          mode: string;
+        }>;
+        if (!rrList.length) {
+          return new Response(JSON.stringify({ error: "リアクションロール設定が見つかりません" }), { status: 404 });
+        }
+        const rr = rrList[0];
+
+        // 2. Supabase から embed テンプレートを取得
+        const embedResp = await sb(`/embeds?id=eq.${rr.embed_id}`);
+        const embedList = await embedResp.json() as Embed[];
+        if (!embedList.length) {
+          return new Response(JSON.stringify({ error: "Embedテンプレートが見つかりません" }), { status: 404 });
+        }
+        const embed = embedList[0];
+
+        // 3. Discord にメッセージを投稿
+        const discordBody = {
+          embeds: [{
+            title: embed.title ?? undefined,
+            description: embed.description ?? undefined,
+            color: embed.color_hex,
+            fields: embed.fields ?? [],
+            image: embed.image_url ? { url: embed.image_url } : undefined,
+            thumbnail: embed.thumbnail_url ? { url: embed.thumbnail_url } : undefined,
+            footer: embed.footer_text ? { text: embed.footer_text, icon_url: embed.footer_icon_url ?? undefined } : undefined,
+            timestamp: embed.show_timestamp ? new Date().toISOString() : undefined,
+          }],
+        };
+
+        const postResp = await fetch(
+          `https://discord.com/api/v10/channels/${body.channelId}/messages`,
+          {
+            method: "POST",
+            headers: {
+              Authorization: `Bot ${env.DISCORD_BOT_TOKEN}`,
+              "Content-Type": "application/json",
+            },
+            body: JSON.stringify(discordBody),
+          }
+        );
+
+        if (!postResp.ok) {
+          const errText = await postResp.text();
+          return new Response(JSON.stringify({ error: `Discord送信失敗: ${errText}` }), { status: 502 });
+        }
+
+        const postedMessage = await postResp.json() as { id: string };
+        const messageId = postedMessage.id;
+
+        // 4. 各絵文字をリアクションとして追加
+        for (const pair of rr.pairs) {
+          const emoji = pair.emoji.replace(/️/g, ""); // variation selector 除去
+          const encodedEmoji = encodeURIComponent(emoji);
+          await fetch(
+            `https://discord.com/api/v10/channels/${body.channelId}/messages/${messageId}/reactions/${encodedEmoji}/@me`,
+            {
+              method: "PUT",
+              headers: { Authorization: `Bot ${env.DISCORD_BOT_TOKEN}` },
+            }
+          );
+          // Discordのレート制限対策（250ms待機）
+          await new Promise(r => setTimeout(r, 250));
+        }
+
+        // 5. Supabase のリアクションロール設定を更新（channelId / channelName / messageId）
+        await sb(`/reaction_roles?id=eq.${body.reactionRoleId}`, {
+          method: "PATCH",
+          body: JSON.stringify({
+            channel_id: body.channelId,
+            channel_name: body.channelName,
+            message_id: messageId,
+          }),
+        });
+
+        return new Response(JSON.stringify({ messageId }), {
+          headers: { "Content-Type": "application/json" },
+        });
+      } catch (e) {
+        return new Response(JSON.stringify({ error: String(e) }), { status: 500 });
+      }
     }
 
     // Bot招待URL

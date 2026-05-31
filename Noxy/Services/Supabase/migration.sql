@@ -55,12 +55,30 @@ CREATE TABLE IF NOT EXISTS channels (
     bot_can_send    BOOLEAN NOT NULL DEFAULT TRUE
 );
 
+-- 5. reaction_roles（リアクションロール設定）
+CREATE TABLE IF NOT EXISTS reaction_roles (
+    id           TEXT PRIMARY KEY,
+    guild_id     TEXT NOT NULL,
+    title        TEXT NOT NULL DEFAULT '',
+    embed_id     TEXT NOT NULL REFERENCES embeds(id) ON DELETE CASCADE,
+    channel_id   TEXT NOT NULL DEFAULT '',
+    channel_name TEXT NOT NULL DEFAULT '',
+    message_id   TEXT,          -- Discordに送信済みのメッセージID（未送信はNULL）
+    pairs        JSONB NOT NULL DEFAULT '[]',
+    mode         TEXT NOT NULL DEFAULT '通常',
+    created_at   TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
+
+-- 既存テーブルに message_id カラムがない場合は追加（べき等）
+ALTER TABLE reaction_roles ADD COLUMN IF NOT EXISTS message_id TEXT;
+
 -- ============================================================
 -- インデックス
 -- ============================================================
-CREATE INDEX IF NOT EXISTS idx_scheduled_status ON scheduled_messages(status);
-CREATE INDEX IF NOT EXISTS idx_scheduled_time   ON scheduled_messages(scheduled_for);
-CREATE INDEX IF NOT EXISTS idx_channels_guild   ON channels(guild_id);
+CREATE INDEX IF NOT EXISTS idx_scheduled_status  ON scheduled_messages(status);
+CREATE INDEX IF NOT EXISTS idx_scheduled_time    ON scheduled_messages(scheduled_for);
+CREATE INDEX IF NOT EXISTS idx_channels_guild    ON channels(guild_id);
+CREATE INDEX IF NOT EXISTS idx_rr_guild          ON reaction_roles(guild_id);
 
 -- ============================================================
 -- Row Level Security（RLS）: 認証済みの全操作を許可
@@ -69,11 +87,13 @@ ALTER TABLE embeds             ENABLE ROW LEVEL SECURITY;
 ALTER TABLE scheduled_messages ENABLE ROW LEVEL SECURITY;
 ALTER TABLE guilds             ENABLE ROW LEVEL SECURITY;
 ALTER TABLE channels           ENABLE ROW LEVEL SECURITY;
+ALTER TABLE reaction_roles     ENABLE ROW LEVEL SECURITY;
 
 CREATE POLICY "Allow all for authenticated users" ON embeds             FOR ALL USING (auth.role() = 'authenticated');
 CREATE POLICY "Allow all for authenticated users" ON scheduled_messages FOR ALL USING (auth.role() = 'authenticated');
 CREATE POLICY "Allow all for authenticated users" ON guilds             FOR ALL USING (auth.role() = 'authenticated');
 CREATE POLICY "Allow all for authenticated users" ON channels           FOR ALL USING (auth.role() = 'authenticated');
+CREATE POLICY "Allow all for authenticated users" ON reaction_roles     FOR ALL USING (auth.role() = 'authenticated');
 
 -- ============================================================
 -- サンプルデータ（初回のみ）
