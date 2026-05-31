@@ -28,6 +28,10 @@ struct APITicketService: TicketServiceProtocol {
     func fetchAll(guildId: String) async throws -> [Ticket] {
         try await client.get("/api/v1/tickets?guildId=\(guildId)")
     }
+    func create(guildId: String, subject: String) async throws -> Ticket {
+        struct Body: Encodable { let guildId: String; let subject: String }
+        return try await client.post("/api/v1/tickets/create", body: Body(guildId: guildId, subject: subject))
+    }
     func fetch(id: String) async throws -> Ticket {
         try await client.get("/api/v1/tickets/\(id)")
     }

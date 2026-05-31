@@ -630,6 +630,42 @@ export default {
 
     const sb = makeSupabaseFetch(env);
 
+    // チケット作成 POST /bot/tickets/create
+    if (url.pathname === '/bot/tickets/create' && request.method === 'POST') {
+      try {
+        const body = await request.json() as { guildId: string; subject: string; openedByUserId?: string };
+        if (!body.guildId || !body.subject?.trim())
+          return new Response('guildId and subject are required', { status: 400 });
+
+        // Discord にチャンネルを作成
+        const suffix      = Date.now().toString().slice(-4);
+        const channelName = `ticket-admin-${suffix}`;
+        const chResp = await fetch(`https://discord.com/api/v10/guilds/${body.guildId}/channels`, {
+          method: 'POST',
+          headers: { Authorization: `Bot ${env.DISCORD_BOT_TOKEN}`, 'Content-Type': 'application/json' },
+          body: JSON.stringify({ name: channelName, type: 0 }),
+        });
+        const channelId = chResp.ok ? ((await chResp.json()) as { id: string }).id : '';
+
+        // Supabase にチケットを記録
+        const sbRes = await sb('/tickets', {
+          method:  'POST',
+          body:    JSON.stringify({
+            guild_id:          body.guildId,
+            channel_id:        channelId,
+            opened_by_user_id: body.openedByUserId ?? 'admin',
+            subject:           body.subject.trim(),
+          }),
+          headers: { Prefer: 'return=representation' },
+        });
+        if (!sbRes.ok) return new Response(await sbRes.text(), { status: sbRes.status });
+        const rows = await sbRes.json() as TicketRow[];
+        return new Response(JSON.stringify(mapTicket(rows[0])), { headers: { 'Content-Type': 'application/json' } });
+      } catch (e) {
+        return new Response(JSON.stringify({ error: String(e) }), { status: 500 });
+      }
+    }
+
     // チケット一覧 GET /bot/tickets?guild_id=xxx[&status=xxx]
     if (url.pathname === '/bot/tickets' && request.method === 'GET') {
       const guildId = url.searchParams.get('guild_id');

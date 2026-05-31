@@ -166,6 +166,15 @@ actor MockTicketService: TicketServiceProtocol {
         return tickets.filter { $0.guildId == guildId }
     }
 
+    func create(guildId: String, subject: String) async throws -> Ticket {
+        try await mockDelay()
+        let t = Ticket(id: UUID().uuidString, guildId: guildId, channelId: "mock-ch",
+                       openedBy: "admin", subject: subject, status: .open, priority: .medium,
+                       openedAt: .now, lastMessageAt: .now, messageCount: 0)
+        tickets.insert(t, at: 0)
+        return t
+    }
+
     func fetch(id: String) async throws -> Ticket {
         try await mockDelay()
         guard let ticket = tickets.first(where: { $0.id == id }) else { throw ServiceError.notFound }

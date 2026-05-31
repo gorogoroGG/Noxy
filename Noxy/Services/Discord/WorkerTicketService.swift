@@ -50,6 +50,11 @@ struct WorkerTicketService: TicketServiceProtocol {
         try await postBody("/bot/tickets/\(ticketId)/assign", body: Body(userId: userId))
     }
 
+    func create(guildId: String, subject: String) async throws -> Ticket {
+        struct Body: Encodable { let guildId: String; let subject: String }
+        return try await postReturning("/bot/tickets/create", body: Body(guildId: guildId, subject: subject))
+    }
+
     // MARK: - HTTP helpers
 
     private static let decoder: JSONDecoder = {
@@ -84,6 +89,19 @@ struct WorkerTicketService: TicketServiceProtocol {
         guard let http = resp as? HTTPURLResponse, (200..<300).contains(http.statusCode) else {
             throw ServiceError.networkError
         }
+    }
+
+    private func postReturning<T: Decodable>(_ path: String, body: some Encodable) async throws -> T {
+        let url = URL(string: DiscordConfig.workerURL + path)!
+        var req = URLRequest(url: url, timeoutInterval: 15)
+        req.httpMethod = "POST"
+        req.setValue("application/json", forHTTPHeaderField: "Content-Type")
+        req.httpBody = try JSONEncoder().encode(body)
+        let (data, resp) = try await session.data(for: req)
+        guard let http = resp as? HTTPURLResponse, (200..<300).contains(http.statusCode) else {
+            throw ServiceError.networkError
+        }
+        return try Self.decoder.decode(T.self, from: data)
     }
 
     private func postBody(_ path: String, body: some Encodable) async throws {
