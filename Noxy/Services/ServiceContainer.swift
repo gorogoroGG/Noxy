@@ -54,7 +54,7 @@ final class ServiceContainer {
         ServiceContainer(
             embeds:            SupabaseEmbedService(),
             guilds:            DiscordService(),
-            members:           MockMemberService(),
+            members:           DiscordMemberService(),
             tickets:           MockTicketService(),
             autoResponses:     MockAutoResponseService(),
             scheduledMessages: SupabaseScheduledMessageService(),

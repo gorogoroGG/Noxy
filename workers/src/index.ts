@@ -267,6 +267,126 @@ export default {
       });
     }
 
+    // ── メンバー管理 ────────────────────────────────────────────
+
+    // メンバー一覧取得
+    if (url.pathname === "/bot/members" && request.method === "GET") {
+      const guildId = url.searchParams.get("guild_id");
+      if (!guildId) return new Response("Missing guild_id", { status: 400 });
+
+      const [membersResp, rolesResp] = await Promise.all([
+        fetch(`https://discord.com/api/v10/guilds/${guildId}/members?limit=1000`, {
+          headers: { Authorization: `Bot ${env.DISCORD_BOT_TOKEN}` },
+        }),
+        fetch(`https://discord.com/api/v10/guilds/${guildId}/roles`, {
+          headers: { Authorization: `Bot ${env.DISCORD_BOT_TOKEN}` },
+        }),
+      ]);
+
+      if (!membersResp.ok) {
+        const err = await membersResp.text();
+        return new Response(JSON.stringify({ error: err }), { status: membersResp.status });
+      }
+
+      const discordMembers = await membersResp.json() as any[];
+      const discordRoles   = rolesResp.ok ? await rolesResp.json() as any[] : [];
+      const roleMap: Record<string, string> = Object.fromEntries(
+        discordRoles.map((r: any) => [r.id, r.name])
+      );
+
+      const members = discordMembers
+        .filter((m: any) => !m.user?.bot)
+        .map((m: any) => ({
+          id:          m.user.id,
+          guildId,
+          username:    m.user.username,
+          displayName: m.nick ?? m.user.global_name ?? m.user.username,
+          avatarUrl:   m.user.avatar
+            ? `https://cdn.discordapp.com/avatars/${m.user.id}/${m.user.avatar}.png`
+            : null,
+          roles:       (m.roles as string[]).map(id => roleMap[id]).filter(Boolean),
+          joinedAt:    m.joined_at,
+          isBoosting:  !!m.premium_since,
+          status:      "offline",
+        }));
+
+      return new Response(JSON.stringify(members), {
+        headers: { "Content-Type": "application/json" },
+      });
+    }
+
+    // メンバーキック
+    if (url.pathname === "/bot/members/kick" && request.method === "POST") {
+      try {
+        const { memberId, guildId, reason } = await request.json() as { memberId: string; guildId: string; reason?: string };
+        const resp = await fetch(
+          `https://discord.com/api/v10/guilds/${guildId}/members/${memberId}`,
+          {
+            method: "DELETE",
+            headers: {
+              Authorization: `Bot ${env.DISCORD_BOT_TOKEN}`,
+              ...(reason ? { "X-Audit-Log-Reason": reason } : {}),
+            },
+          }
+        );
+        if (!resp.ok && resp.status !== 204) {
+          return new Response(await resp.text(), { status: resp.status });
+        }
+        return new Response(JSON.stringify({ success: true }), { headers: { "Content-Type": "application/json" } });
+      } catch (e) {
+        return new Response(JSON.stringify({ error: String(e) }), { status: 500 });
+      }
+    }
+
+    // メンバーBAN
+    if (url.pathname === "/bot/members/ban" && request.method === "POST") {
+      try {
+        const { memberId, guildId, reason } = await request.json() as { memberId: string; guildId: string; reason?: string };
+        const resp = await fetch(
+          `https://discord.com/api/v10/guilds/${guildId}/bans/${memberId}`,
+          {
+            method: "PUT",
+            headers: {
+              Authorization: `Bot ${env.DISCORD_BOT_TOKEN}`,
+              "Content-Type": "application/json",
+              ...(reason ? { "X-Audit-Log-Reason": reason } : {}),
+            },
+            body: JSON.stringify({ delete_message_seconds: 0 }),
+          }
+        );
+        if (!resp.ok && resp.status !== 204) {
+          return new Response(await resp.text(), { status: resp.status });
+        }
+        return new Response(JSON.stringify({ success: true }), { headers: { "Content-Type": "application/json" } });
+      } catch (e) {
+        return new Response(JSON.stringify({ error: String(e) }), { status: 500 });
+      }
+    }
+
+    // メンバータイムアウト
+    if (url.pathname === "/bot/members/timeout" && request.method === "POST") {
+      try {
+        const { memberId, guildId, until } = await request.json() as { memberId: string; guildId: string; until: string };
+        const resp = await fetch(
+          `https://discord.com/api/v10/guilds/${guildId}/members/${memberId}`,
+          {
+            method: "PATCH",
+            headers: {
+              Authorization: `Bot ${env.DISCORD_BOT_TOKEN}`,
+              "Content-Type": "application/json",
+            },
+            body: JSON.stringify({ communication_disabled_until: until }),
+          }
+        );
+        if (!resp.ok) {
+          return new Response(await resp.text(), { status: resp.status });
+        }
+        return new Response(JSON.stringify({ success: true }), { headers: { "Content-Type": "application/json" } });
+      } catch (e) {
+        return new Response(JSON.stringify({ error: String(e) }), { status: 500 });
+      }
+    }
+
     // リアクションロールパネルをDiscordに送信
     if (url.pathname === "/bot/reaction-roles/publish" && request.method === "POST") {
       try {

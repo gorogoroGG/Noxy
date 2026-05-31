@@ -120,6 +120,11 @@ actor MockMemberService: MemberServiceProtocol {
         members.removeAll { $0.id == memberId && $0.guildId == guildId }
     }
 
+    func timeout(memberId: String, guildId: String, until: Date) async throws {
+        try await mockDelay()
+        // モックでは何もしない（実際はタイムアウト状態を保存）
+    }
+
     func addRole(memberId: String, guildId: String, roleId: String) async throws {
         try await mockDelay()
         guard let idx = members.firstIndex(where: { $0.id == memberId }) else { return }
