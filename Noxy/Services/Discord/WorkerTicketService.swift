@@ -73,8 +73,9 @@ struct WorkerTicketService: TicketServiceProtocol {
         try await delete("/bot/ticket-panels/\(id)")
     }
 
-    func deployPanel(id: String) async throws -> TicketPanel {
-        try await postReturning("/bot/ticket-panels/\(id)/deploy", body: EmptyBody())
+    func deployPanel(id: String, channelId: String) async throws -> TicketPanel {
+        struct Body: Encodable { let channelId: String }
+        return try await postReturning("/bot/ticket-panels/\(id)/deploy", body: Body(channelId: channelId))
     }
 
     private struct EmptyBody: Encodable {}

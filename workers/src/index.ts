@@ -1000,19 +1000,36 @@ export default {
       return new Response(JSON.stringify({ ok: true }), { headers: { 'Content-Type': 'application/json' } });
     }
 
-    // デプロイ POST /bot/ticket-panels/:id/deploy
+    // デプロイ POST /bot/ticket-panels/:id/deploy  body: { channelId: string }
     const panelDeployMatch = url.pathname.match(/^\/bot\/ticket-panels\/([^\/]+)\/deploy$/);
     if (panelDeployMatch && request.method === 'POST') {
       const id = panelDeployMatch[1];
       try {
+        // channelId をリクエストボディから受け取る
+        let bodyChannelId = '';
+        try {
+          const body = await request.json() as { channelId?: string };
+          bodyChannelId = body.channelId ?? '';
+        } catch { /* body なし */ }
+
         const panelResp = await sb(`/ticket_panels?id=eq.${id}`);
         const panels = await panelResp.json() as TicketPanelRow[];
         if (!panels.length) return new Response('Panel not found', { status: 404 });
         const panel = panels[0];
-        if (!panel.channel_id) return new Response('channel_id is not set', { status: 400 });
+
+        // bodyChannelId が指定されていれば Supabase の channel_id を更新する
+        const channelId = bodyChannelId || panel.channel_id;
+        if (!channelId) return new Response('channelId is required', { status: 400 });
+        if (bodyChannelId) {
+          await sb(`/ticket_panels?id=eq.${id}`, {
+            method: 'PATCH',
+            body: JSON.stringify({ channel_id: bodyChannelId }),
+          });
+          panel.channel_id = bodyChannelId;
+        }
 
         // Discord にパネルメッセージを投稿
-        const postResp = await fetch(`https://discord.com/api/v10/channels/${panel.channel_id}/messages`, {
+        const postResp = await fetch(`https://discord.com/api/v10/channels/${channelId}/messages`, {
           method: 'POST',
           headers: { Authorization: `Bot ${env.DISCORD_BOT_TOKEN}`, 'Content-Type': 'application/json' },
           body: JSON.stringify({

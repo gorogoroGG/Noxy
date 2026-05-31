@@ -59,8 +59,8 @@ private struct TicketPanelListView: View {
     @State private var showCreate = false
     @State private var editingPanel: TicketPanel? = nil
     @State private var deployingId: String? = nil
+    @State private var deployTargetPanel: TicketPanel? = nil  // チャンネル選択シート用
     @State private var toast: String? = nil
-    @State private var errorMessage: String? = nil
 
     var body: some View {
         ZStack(alignment: .bottom) {
@@ -68,8 +68,7 @@ private struct TicketPanelListView: View {
                 if isLoading {
                     HStack { Spacer(); ProgressView(); Spacer() }
                         .listRowBackground(Color(.systemGroupedBackground))
-                        .listRowSeparator(.hidden)
-                        .padding(.top, 40)
+                        .listRowSeparator(.hidden).padding(.top, 40)
                 } else if panels.isEmpty {
                     emptyPanelState
                         .listRowBackground(Color(.systemGroupedBackground))
@@ -80,7 +79,8 @@ private struct TicketPanelListView: View {
                             panel: panel,
                             isDeploying: deployingId == panel.id,
                             onEdit: { editingPanel = panel },
-                            onDeploy: { Task { await deploy(panel) } }
+                            // 送信ボタン → チャンネル選択シートを開く
+                            onDeploy: { deployTargetPanel = panel }
                         )
                         .listRowInsets(EdgeInsets(top: 4, leading: 16, bottom: 4, trailing: 16))
                         .listRowBackground(Color(.systemGroupedBackground))
@@ -89,22 +89,19 @@ private struct TicketPanelListView: View {
                     .onDelete { offsets in
                         let toDelete = offsets.map { panels[$0] }
                         Task {
-                            for p in toDelete {
-                                try? await services.tickets.deletePanel(id: p.id)
-                            }
+                            for p in toDelete { try? await services.tickets.deletePanel(id: p.id) }
                             panels.remove(atOffsets: offsets)
                         }
                     }
                 }
                 Color.clear.frame(height: 80)
-                    .listRowBackground(Color(.systemGroupedBackground))
-                    .listRowSeparator(.hidden)
+                    .listRowBackground(Color(.systemGroupedBackground)).listRowSeparator(.hidden)
             }
             .listStyle(.plain)
             .background(Color(.systemGroupedBackground))
             .refreshable { await load() }
 
-            // ── 作成ボタン（FAB）──
+            // FAB
             Button { showCreate = true } label: {
                 HStack(spacing: .spacing8) {
                     Image(systemName: "plus").font(.system(size: 14, weight: .bold))
@@ -112,8 +109,7 @@ private struct TicketPanelListView: View {
                 }
                 .foregroundStyle(.white)
                 .padding(.horizontal, .spacing20).padding(.vertical, .spacing12)
-                .background(Color.accentIndigo)
-                .clipShape(Capsule())
+                .background(Color.accentIndigo).clipShape(Capsule())
                 .shadow(color: Color.accentIndigo.opacity(0.4), radius: 8, y: 4)
             }
             .padding(.bottom, 24)
@@ -129,15 +125,17 @@ private struct TicketPanelListView: View {
             }
         }
         .sheet(isPresented: $showCreate) {
-            TicketPanelEditView(existingPanel: nil, guildId: guildId) { newPanel in
-                panels.insert(newPanel, at: 0)
-            }
+            TicketPanelEditView(existingPanel: nil, guildId: guildId) { panels.insert($0, at: 0) }
         }
         .sheet(item: $editingPanel) { panel in
             TicketPanelEditView(existingPanel: panel, guildId: guildId) { updated in
-                if let idx = panels.firstIndex(where: { $0.id == updated.id }) {
-                    panels[idx] = updated
-                }
+                if let idx = panels.firstIndex(where: { $0.id == updated.id }) { panels[idx] = updated }
+            }
+        }
+        // チャンネル選択 → デプロイシート
+        .sheet(item: $deployTargetPanel) { panel in
+            DeployChannelPickerSheet(panel: panel, guildId: guildId) { channelId in
+                Task { await deploy(panel, channelId: channelId) }
             }
         }
         .task { await load() }
@@ -162,20 +160,14 @@ private struct TicketPanelListView: View {
         isLoading = false
     }
 
-    private func deploy(_ panel: TicketPanel) async {
-        guard !panel.channelId.isEmpty else {
-            showToast("チャンネルが設定されていません")
-            return
-        }
+    private func deploy(_ panel: TicketPanel, channelId: String) async {
         deployingId = panel.id
         do {
-            let updated = try await services.tickets.deployPanel(id: panel.id)
-            if let idx = panels.firstIndex(where: { $0.id == panel.id }) {
-                panels[idx] = updated
-            }
-            showToast("✅ デプロイ完了")
+            let updated = try await services.tickets.deployPanel(id: panel.id, channelId: channelId)
+            if let idx = panels.firstIndex(where: { $0.id == panel.id }) { panels[idx] = updated }
+            showToast("✅ Discordに送信しました")
         } catch {
-            showToast("❌ デプロイ失敗")
+            showToast("❌ 送信に失敗しました")
         }
         deployingId = nil
     }
@@ -186,6 +178,77 @@ private struct TicketPanelListView: View {
             try? await Task.sleep(for: .seconds(2.5))
             withAnimation { toast = nil }
         }
+    }
+}
+
+// MARK: - DeployChannelPickerSheet
+
+private struct DeployChannelPickerSheet: View {
+    let panel: TicketPanel
+    let guildId: String
+    let onSelect: (String) -> Void
+
+    @Environment(\.dismiss) private var dismiss
+    @State private var channels: [(id: String, name: String)] = []
+    @State private var isLoading = true
+
+    var body: some View {
+        NavigationStack {
+            List {
+                if isLoading {
+                    HStack { Spacer(); ProgressView(); Spacer() }
+                        .listRowBackground(Color(.systemGroupedBackground))
+                } else if channels.isEmpty {
+                    Text("テキストチャンネルが見つかりません")
+                        .font(.bodySmall).foregroundStyle(Color.textTertiary)
+                } else {
+                    Section {
+                        ForEach(channels, id: \.id) { ch in
+                            Button {
+                                onSelect(ch.id)
+                                dismiss()
+                            } label: {
+                                HStack(spacing: .spacing12) {
+                                    Image(systemName: "number").font(.system(size: 14)).foregroundStyle(Color.textTertiary)
+                                    Text(ch.name).font(.bodySmall).foregroundStyle(Color.textPrimary)
+                                    Spacer()
+                                    if panel.channelId == ch.id {
+                                        Image(systemName: "checkmark.circle.fill").foregroundStyle(Color.accentIndigo)
+                                    }
+                                }
+                            }
+                            .buttonStyle(.plain)
+                        }
+                    } header: {
+                        Text("「\(panel.title)」の送信先チャンネル")
+                    } footer: {
+                        Text("選択したチャンネルにパネルメッセージが投稿されます。")
+                    }
+                }
+            }
+            .listStyle(.insetGrouped)
+            .background(Color(.systemGroupedBackground))
+            .navigationTitle("送信先を選択")
+            .navigationBarTitleDisplayMode(.inline)
+            .toolbar {
+                ToolbarItem(placement: .topBarLeading) {
+                    Button("キャンセル") { dismiss() }.foregroundStyle(Color.textSecondary)
+                }
+            }
+            .task { await load() }
+        }
+    }
+
+    private func load() async {
+        isLoading = true
+        if let url = URL(string: "\(DiscordConfig.workerURL)/bot/channels?guild_id=\(guildId)"),
+           let (data, _) = try? await URLSession.shared.data(from: url) {
+            struct RawCh: Decodable { let id: String; let name: String; let type: Int }
+            if let chs = try? JSONDecoder().decode([RawCh].self, from: data) {
+                channels = chs.filter { $0.type == 0 || $0.type == 5 }.map { ($0.id, $0.name) }
+            }
+        }
+        isLoading = false
     }
 }
 
@@ -252,7 +315,7 @@ private struct PanelCard: View {
 
                 Divider().frame(height: 20)
 
-                // デプロイ
+                // 送信（チャンネル選択シートを開く）
                 Button(action: onDeploy) {
                     if isDeploying {
                         HStack(spacing: 5) {
@@ -261,7 +324,7 @@ private struct PanelCard: View {
                         }
                         .frame(maxWidth: .infinity).padding(.vertical, .spacing10)
                     } else {
-                        Label(panel.isDeployed ? "再デプロイ" : "Discordに送信",
+                        Label(panel.isDeployed ? "チャンネルを選んで再送信" : "チャンネルを選んで送信",
                               systemImage: "paperplane.fill")
                             .font(.captionRegular).fontWeight(.medium)
                             .foregroundStyle(panel.isDeployed ? Color.accentOrange : Color.accentGreen)

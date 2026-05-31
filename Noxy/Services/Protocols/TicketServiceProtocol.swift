@@ -17,5 +17,5 @@ protocol TicketServiceProtocol: Sendable {
     func createPanel(_ panel: TicketPanel) async throws -> TicketPanel
     func updatePanel(_ panel: TicketPanel) async throws -> TicketPanel
     func deletePanel(id: String) async throws
-    func deployPanel(id: String) async throws -> TicketPanel
+    func deployPanel(id: String, channelId: String) async throws -> TicketPanel
 }

@@ -60,7 +60,7 @@ struct APITicketService: TicketServiceProtocol {
     func createPanel(_ panel: TicketPanel) async throws -> TicketPanel { panel }
     func updatePanel(_ panel: TicketPanel) async throws -> TicketPanel { panel }
     func deletePanel(id: String) async throws {}
-    func deployPanel(id: String) async throws -> TicketPanel { throw ServiceError.networkError }
+    func deployPanel(id: String, channelId: String) async throws -> TicketPanel { throw ServiceError.networkError }
 }
 
 // ============================================================

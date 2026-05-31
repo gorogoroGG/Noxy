@@ -242,10 +242,9 @@ actor MockTicketService: TicketServiceProtocol {
         try await mockDelay(); return panel
     }
     func deletePanel(id: String) async throws { try await mockDelay() }
-    func deployPanel(id: String) async throws -> TicketPanel {
+    func deployPanel(id: String, channelId: String) async throws -> TicketPanel {
         try await mockDelay()
-        var p = TicketPanel.blank(guildId: "g003")
-        return p
+        return TicketPanel.blank(guildId: "g003")
     }
 }
 
