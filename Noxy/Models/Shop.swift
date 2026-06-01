@@ -8,6 +8,7 @@ struct Shop: Identifiable, Codable, Hashable {
     var name: String
     var description: String
     var enabled: Bool
+    var disabledMessage: String?
     var channelId: String
     var messageId: String?
     var orderCategoryId: String?
@@ -35,6 +36,7 @@ struct Shop: Identifiable, Codable, Hashable {
             name: "ショップ",
             description: "商品を選択して購入してください。",
             enabled: true,
+            disabledMessage: nil,
             channelId: "",
             messageId: nil,
             orderCategoryId: nil,

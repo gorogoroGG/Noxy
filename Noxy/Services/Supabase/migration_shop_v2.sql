@@ -10,6 +10,9 @@ ALTER TABLE shops ADD COLUMN IF NOT EXISTS payment_flow TEXT NOT NULL DEFAULT 'm
 ALTER TABLE shops ADD COLUMN IF NOT EXISTS auto_deliver BOOLEAN NOT NULL DEFAULT true;
 -- true = 支払い確認後自動で対価送信, false = 手動対応
 
+ALTER TABLE shops ADD COLUMN IF NOT EXISTS disabled_message TEXT;
+-- ショップが無効のときに表示するメッセージ
+
 -- ウェルカムメッセージ embed 設定
 ALTER TABLE shops ADD COLUMN IF NOT EXISTS welcome_image_url TEXT;
 ALTER TABLE shops ADD COLUMN IF NOT EXISTS welcome_thumbnail_url TEXT;

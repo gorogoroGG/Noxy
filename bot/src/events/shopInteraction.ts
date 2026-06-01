@@ -12,7 +12,7 @@ import { supabase } from '../db.js';
 
 interface ShopRow { id: string; guild_id: string; name: string; description: string; color: number; footer_text: string;
   order_category_id: string|null; archive_category_id: string|null; support_role_id: string|null;
-  payment_flow: string; auto_deliver: boolean;
+  payment_flow: string; auto_deliver: boolean; disabled_message: string|null;
   welcome_image_url: string|null; welcome_thumbnail_url: string|null;
   welcome_fields: Array<{name: string; value: string; inline: boolean}>;
   welcome_footer_text: string|null; welcome_footer_icon_url: string|null;
@@ -224,25 +224,34 @@ async function handleConfirmPurchase(interaction: ButtonInteraction, shopId: str
   const closeRow = new ActionRowBuilder<ButtonBuilder>().addComponents(closeBtn);
   const supportMention = shop.support_role_id ? `<@&${shop.support_role_id}> ` : '';
 
+  // 管理者宛てメッセージ
   await channel.send({
-    content: expandVariables(`${supportMention}{buyer.mention}`, vars),
+    content: expandVariables(`${supportMention}${buyer.mention}`, vars),
     embeds: [welcomeEmbed],
     components: [closeRow],
   });
 
   // 支払いフローに応じたアクション
   if (shop.payment_flow === 'url_input') {
-    // URL入力ボタン
+    // 購入者宛てURL入力案内
     const urlInputBtn = new ButtonBuilder().setCustomId(`order_url_input_${orderId}`)
       .setLabel('💳 支払いURLを入力').setStyle(ButtonStyle.Primary);
     const urlRow = new ActionRowBuilder<ButtonBuilder>().addComponents(urlInputBtn);
-    await channel.send({ content: '**💳 支払いURLの入力**\n支払いURLを入力して、管理者の確認を待ってください。', components: [urlRow] });
+    await channel.send({
+      content: expandVariables(`{buyer.mention} 支払いURLの入力をお願いします。`, vars),
+      embeds: [{ title: '💳 支払いURLの入力', description: '下のボタンから支払いURLを入力して、管理者の確認を待ってください。', color: 0x6366f1 }],
+      components: [urlRow],
+    });
   } else {
-    // 管理者アクション（支払い確認ボタン）
+    // 管理者宛て支払い確認案内
     const payBtn = new ButtonBuilder().setCustomId(`order_pay_${orderId}`)
       .setLabel('✅ 支払いを確認しました').setStyle(ButtonStyle.Success);
     const payRow = new ActionRowBuilder<ButtonBuilder>().addComponents(payBtn);
-    await channel.send({ content: '**📋 管理者アクション**', components: [payRow] });
+    await channel.send({
+      content: `${supportMention}`,
+      embeds: [{ title: '📋 管理者アクション', description: '支払いを確認したら下のボタンを押してください。', color: 0x6366f1 }],
+      components: [payRow],
+    });
   }
 
   await interaction.editReply({ content: `✅ 注文チャンネルを作成しました → <#${channel.id}>`, embeds: [], components: [] });
@@ -278,11 +287,16 @@ async function handleUrlModalSubmit(interaction: import('discord.js').ModalSubmi
 
   const channel = interaction.channel as TextChannel|undefined;
   if (channel) {
-    // 管理者に通知
+    const { data: shopData } = await supabase.from('shops').select('*').eq('id', order.shop_id).single();
+    const shop = shopData as ShopRow|null;
+    const supportMention = shop?.support_role_id ? `<@&${shop.support_role_id}>` : '';
+
+    // 管理者宛て通知
     const payBtn = new ButtonBuilder().setCustomId(`order_pay_${orderId}`)
       .setLabel('✅ 支払いを確認しました').setStyle(ButtonStyle.Success);
     const payRow = new ActionRowBuilder<ButtonBuilder>().addComponents(payBtn);
     await channel.send({
+      content: `${supportMention}`,
       embeds: [{ title: '💳 支払いURLが送信されました',
         description: `購入者から支払いURLが送信されました。\n\`${paymentUrl}\`\n\n確認後、「支払いを確認しました」ボタンを押してください。`,
         color: 0x6366f1, timestamp: now }],
@@ -330,7 +344,7 @@ async function handleConfirmPayment(interaction: ButtonInteraction, orderId: str
   const now = new Date().toISOString();
   await supabase.from('orders').update({ status: 'delivered', paid_at: now, delivered_at: now }).eq('id', orderId);
 
-  // 完了確認ボタンを送信
+  // 完了確認ボタンを送信（購入者・管理者双方用）
   if (channel) {
     const buyerDoneBtn  = new ButtonBuilder().setCustomId(`order_done_buyer_${orderId}`)
       .setLabel('✅ 取引完了（購入者）').setStyle(ButtonStyle.Success);
@@ -340,16 +354,20 @@ async function handleConfirmPayment(interaction: ButtonInteraction, orderId: str
       .setLabel('⚠️ キャンセルを申し出る').setStyle(ButtonStyle.Secondary);
     const doneRow = new ActionRowBuilder<ButtonBuilder>().addComponents(buyerDoneBtn, sellerDoneBtn, cancelReqBtn);
 
+    const buyerMention = buyer?.toString() ?? '<購入者>';
+    const supportMention = shop.support_role_id ? `<@&${shop.support_role_id}>` : '';
+
     const desc = shop.auto_deliver
-      ? '商品をお届けしました。受け取ったら「取引完了」を押してください。\n双方が押すとチャンネルがアーカイブされます。'
-      : '支払いが確認されました。対価の引き渡し後、「取引完了」を押してください。\n双方が押すとチャンネルがアーカイブされます。';
+      ? `${buyerMention} 商品をお届けしました。受け取ったら「取引完了（購入者）」を押してください。\n双方が押すとチャンネルがアーカイブされます。`
+      : `${buyerMention} 支払いが確認されました。対価の引き渡し後、「取引完了（購入者）」を押してください。\n双方が押すとチャンネルがアーカイブされます。`;
 
     await channel.send({
+      content: `${buyerMention} ${supportMention}`,
       embeds: [{ title: '✅ 支払い確認済', description: desc, color: 0x10b981, timestamp: now }],
       components: [doneRow],
     });
     // 購入者に DM 通知
-    await buyer?.send(`✅ **${order.product_name}** の支払いが確認されました。チャンネルをご確認ください。`).catch(() => {});
+    await buyer?.send(`✅ **${order.product_name}** の支払いが確認されました。注文チャンネルで「取引完了（購入者）」ボタンを押してください。`).catch(() => {});
   }
   console.log(`[Shop] 支払確認: ${orderId}`);
 }

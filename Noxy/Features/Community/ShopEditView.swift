@@ -14,6 +14,7 @@ struct ShopEditView: View {
     @State private var name = "ショップ"
     @State private var description = "商品を選択して購入してください。"
     @State private var enabled = true
+    @State private var disabledMessage = "このショップは現在準備中です。もうしばらくお待ちください。"
     @State private var supportRoleId = ""
     @State private var orderCategoryId = ""
     @State private var archiveCategoryId = ""
@@ -32,33 +33,106 @@ struct ShopEditView: View {
     @State private var welcomeFooterIconUrl = ""
     @State private var welcomeShowTimestamp = true
 
+    // Products (for 商品 tab)
+    @State private var products: [Product] = []
+    @State private var showCreateProduct = false
+    @State private var editingProduct: Product? = nil
+
     @State private var roles: [DiscordRole] = []
     @State private var categories: [(id: String, name: String)] = []
     @State private var isLoading = true
     @State private var isSaving = false
     @State private var errorMessage: String? = nil
+    @State private var showDiscardAlert = false
 
     private var isNew: Bool { existingShop == nil }
     private var previewColor: Color { Color(uiColor: UIColor(hex: colorHex)) }
     private let colorPresets: [UInt32] = [0x6366f1, 0x10b981, 0xf59e0b, 0xef4444, 0x8b5cf6, 0x3b82f6]
 
+    private var hasChanges: Bool {
+        guard let s = existingShop else { return true }
+        return name != s.name || description != s.description || enabled != s.enabled ||
+            disabledMessage != (s.disabledMessage ?? "このショップは現在準備中です。もうしばらくお待ちください。") ||
+            supportRoleId != (s.supportRoleId ?? "") || orderCategoryId != (s.orderCategoryId ?? "") ||
+            archiveCategoryId != (s.archiveCategoryId ?? "") || timeoutEnabled != (s.timeoutHours != nil) ||
+            (timeoutEnabled && timeoutHours != s.timeoutHours) || footerText != s.footerText ||
+            colorHex != UInt32(s.color) || paymentFlow != s.paymentFlow || autoDeliver != s.autoDeliver ||
+            welcomeImageUrl != (s.welcomeImageUrl ?? "") || welcomeThumbnailUrl != (s.welcomeThumbnailUrl ?? "") ||
+            welcomeFields != s.welcomeFields || welcomeFooterText != (s.welcomeFooterText ?? "") ||
+            welcomeFooterIconUrl != (s.welcomeFooterIconUrl ?? "") || welcomeShowTimestamp != s.welcomeShowTimestamp
+    }
+
     var body: some View {
         NavigationStack {
-            Form {
-                if selectedTab == 0 {
-                    enabledToggleSection
-                    appearanceSection
-                    previewSection
-                    channelSettingsSection
-                    timeoutSection
-                    paymentFlowSection
-                    footerSection
-                } else {
-                    welcomeEmbedSection
-                    welcomePreviewSection
-                    welcomeFieldsSection
-                    welcomeFooterSection
+            VStack(spacing: 0) {
+                // Toolbar buttons
+                HStack {
+                    Button("キャンセル") {
+                        if hasChanges { showDiscardAlert = true } else { dismiss() }
+                    }.foregroundStyle(Color.textSecondary)
+                    Spacer()
+                    Button(isSaving ? "保存中..." : "保存") { Task { await save() } }
+                        .fontWeight(.semibold)
+                        .foregroundStyle(name.isEmpty ? Color.textTertiary : Color.accentIndigo)
+                        .disabled(name.isEmpty || isSaving)
                 }
+                .padding(.horizontal, 16).padding(.vertical, 10)
+                .background(Color(.secondarySystemGroupedBackground))
+                .overlay(Divider(), alignment: .bottom)
+
+                // Tab bar
+                tabPicker
+                    .padding(.horizontal, 16).padding(.vertical, 10)
+                    .background(Color(.secondarySystemGroupedBackground))
+                    .overlay(Divider(), alignment: .bottom)
+
+                // Content
+                TabView(selection: $selectedTab) {
+                    panelSettingsTab.tag(0)
+                    transactionTab.tag(1)
+                    productsTab.tag(2)
+                }
+                .tabViewStyle(.page(indexDisplayMode: .never))
+            }
+            .navigationTitle(isNew ? "ショップを作成" : "ショップを編集")
+            .navigationBarTitleDisplayMode(.inline)
+            .toolbar {
+                ToolbarItem(placement: .topBarLeading) {
+                    Button("閉じる") {
+                        if hasChanges { showDiscardAlert = true } else { dismiss() }
+                    }.foregroundStyle(Color.textSecondary)
+                }
+            }
+            .task { await loadData() }
+            .alert("変更を破棄しますか？", isPresented: $showDiscardAlert) {
+                Button("破棄する", role: .destructive) { dismiss() }
+                Button("キャンセル", role: .cancel) {}
+            } message: {
+                Text("行った変更は保存されません。")
+            }
+        }
+    }
+
+    private var tabPicker: some View {
+        Picker("タブ", selection: $selectedTab) {
+            Text("パネル設定").tag(0)
+            Text("取引").tag(1)
+            Text("商品").tag(2)
+        }
+        .pickerStyle(.segmented)
+    }
+
+    // MARK: - パネル設定
+
+    private var panelSettingsTab: some View {
+        ScrollView {
+            Form {
+                enabledToggleSection
+                appearanceSection
+                previewSection
+                channelSettingsSection
+                timeoutSection
+                footerSection
 
                 if let err = errorMessage {
                     Section {
@@ -67,36 +141,29 @@ struct ShopEditView: View {
                     }
                 }
             }
-            .navigationTitle(isNew ? "ショップを作成" : "ショップを編集")
-            .navigationBarTitleDisplayMode(.inline)
-            .toolbar {
-                ToolbarItem(placement: .topBarLeading) {
-                    Button("キャンセル") { dismiss() }.foregroundStyle(Color.textSecondary)
-                }
-                ToolbarItem(placement: .principal) {
-                    Picker("タブ", selection: $selectedTab) {
-                        Text("基本設定").tag(0)
-                        Text("ウェルカム").tag(1)
-                    }
-                    .pickerStyle(.segmented)
-                    .frame(maxWidth: 200)
-                }
-                ToolbarItem(placement: .topBarTrailing) {
-                    Button(isSaving ? "保存中..." : "保存") { Task { await save() } }
-                        .fontWeight(.semibold)
-                        .foregroundStyle(name.isEmpty ? Color.textTertiary : Color.accentIndigo)
-                        .disabled(name.isEmpty || isSaving)
-                }
-            }
-            .task { await loadData() }
+            .scrollContentBackground(.hidden)
         }
+        .background(Color(.systemGroupedBackground))
     }
 
     private var enabledToggleSection: some View {
         Section {
             Toggle("ショップを有効にする", isOn: $enabled)
+            if !enabled {
+                VStack(alignment: .leading, spacing: 6) {
+                    Text("無効時メッセージ").font(.captionSmall).foregroundStyle(Color.textTertiary)
+                    TextEditor(text: $disabledMessage)
+                        .frame(minHeight: 60).scrollContentBackground(.hidden)
+                }
+            }
         } header: { Text("有効/無効") }
-          footer: { Text("無効にすると、パネルは表示されますが商品を選択できなくなります。") }
+          footer: {
+              if !enabled {
+                  Text("無効の場合、参加者が商品を選択しようとするとこのメッセージが表示されます。")
+              } else {
+                  Text("無効にすると、パネルは表示されますが商品を選択できなくなります。")
+              }
+          }
     }
 
     private var appearanceSection: some View {
@@ -215,6 +282,42 @@ struct ShopEditView: View {
           }
     }
 
+    private var footerSection: some View {
+        Section {
+            VStack(alignment: .leading, spacing: 6) {
+                Text("フッターテキスト").font(.captionSmall).foregroundStyle(Color.textTertiary)
+                TextEditor(text: $footerText)
+                    .frame(minHeight: 60).scrollContentBackground(.hidden)
+            }
+        } header: { Text("フッター") }
+          footer: {
+              Text("ショップパネルのフッターに表示されるテキストです。")
+          }
+    }
+
+    // MARK: - 取引
+
+    private var transactionTab: some View {
+        ScrollView {
+            Form {
+                paymentFlowSection
+                welcomeEmbedSection
+                welcomePreviewSection
+                welcomeFieldsSection
+                welcomeFooterSection
+
+                if let err = errorMessage {
+                    Section {
+                        Label(err, systemImage: "exclamationmark.triangle.fill")
+                            .foregroundStyle(.orange).font(.captionRegular)
+                    }
+                }
+            }
+            .scrollContentBackground(.hidden)
+        }
+        .background(Color(.systemGroupedBackground))
+    }
+
     private var paymentFlowSection: some View {
         Section {
             Picker("支払いフロー", selection: $paymentFlow) {
@@ -233,21 +336,6 @@ struct ShopEditView: View {
                    : "支払い確認後、手動で対価を送信します。")
           }
     }
-
-    private var footerSection: some View {
-        Section {
-            VStack(alignment: .leading, spacing: 6) {
-                Text("フッターテキスト").font(.captionSmall).foregroundStyle(Color.textTertiary)
-                TextEditor(text: $footerText)
-                    .frame(minHeight: 60).scrollContentBackground(.hidden)
-            }
-        } header: { Text("フッター") }
-          footer: {
-              Text("ショップパネルのフッターに表示されるテキストです。")
-          }
-    }
-
-    // MARK: - Welcome Embed
 
     private var welcomeEmbedSection: some View {
         Section {
@@ -353,6 +441,79 @@ struct ShopEditView: View {
           footer: { Text("空白の場合はパネルのフッターが使用されます。") }
     }
 
+    // MARK: - 商品
+
+    private var productsTab: some View {
+        ZStack(alignment: .bottom) {
+            List {
+                if isLoading {
+                    HStack { Spacer(); ProgressView(); Spacer() }
+                        .listRowBackground(Color(.systemGroupedBackground))
+                        .listRowSeparator(.hidden).padding(.top, 40)
+                } else if products.isEmpty {
+                    VStack(spacing: .spacing12) {
+                        Image(systemName: "archivebox.fill")
+                            .font(.system(size: 40)).foregroundStyle(Color.textTertiary)
+                        Text("商品がありません")
+                            .font(.titleMedium).foregroundStyle(Color.textPrimary)
+                        Text("「商品を追加」ボタンから販売する商品を作成できます")
+                            .font(.captionRegular).foregroundStyle(Color.textTertiary)
+                            .multilineTextAlignment(.center)
+                    }
+                    .frame(maxWidth: .infinity).padding(.top, 60)
+                    .listRowBackground(Color(.systemGroupedBackground))
+                    .listRowSeparator(.hidden)
+                } else {
+                    ForEach(Array(products.enumerated()), id: \.element.id) { index, product in
+                        ProductCard(product: product, index: index, onEdit: { editingProduct = product })
+                            .listRowInsets(EdgeInsets(top: 4, leading: 16, bottom: 4, trailing: 16))
+                            .listRowBackground(Color(.systemGroupedBackground))
+                            .listRowSeparator(.hidden)
+                    }
+                    .onMove { indices, newOffset in
+                        products.move(fromOffsets: indices, toOffset: newOffset)
+                        Task { await updatePositions() }
+                    }
+                }
+                Color.clear.frame(height: 80)
+                    .listRowBackground(Color(.systemGroupedBackground)).listRowSeparator(.hidden)
+            }
+            .listStyle(.plain)
+            .background(Color(.systemGroupedBackground))
+
+            Button { showCreateProduct = true } label: {
+                HStack(spacing: .spacing8) {
+                    Image(systemName: "plus").font(.system(size: 14, weight: .bold))
+                    Text("商品を追加").font(.bodySmall).fontWeight(.semibold)
+                }
+                .foregroundStyle(.white)
+                .padding(.horizontal, .spacing20).padding(.vertical, .spacing12)
+                .background(Color.accentIndigo).clipShape(Capsule())
+                .shadow(color: Color.accentIndigo.opacity(0.4), radius: 8, y: 4)
+            }
+            .padding(.bottom, 24)
+        }
+        .sheet(isPresented: $showCreateProduct) {
+            ProductEditView(shopId: existingShop?.id ?? "", guildId: guildId, existingProduct: nil) {
+                products.insert($0, at: products.count)
+            }
+        }
+        .sheet(item: $editingProduct) { product in
+            ProductEditView(shopId: product.shopId, guildId: guildId, existingProduct: product) { updated in
+                if let idx = products.firstIndex(where: { $0.id == updated.id }) { products[idx] = updated }
+            }
+        }
+    }
+
+    private func updatePositions() async {
+        for (index, var product) in products.enumerated() {
+            product.position = index
+            _ = try? await services.shops.updateProduct(product)
+        }
+    }
+
+    // MARK: - Load & Save
+
     private func loadData() async {
         isLoading = true
 
@@ -365,12 +526,12 @@ struct ShopEditView: View {
         }
 
         roles = (try? await DiscordService().fetchRoles(guildId: guildId)) ?? []
-        isLoading = false
 
         if let s = existingShop {
             name = s.name
             description = s.description
             enabled = s.enabled
+            disabledMessage = s.disabledMessage ?? "このショップは現在準備中です。もうしばらくお待ちください。"
             supportRoleId = s.supportRoleId ?? ""
             orderCategoryId = s.orderCategoryId ?? ""
             archiveCategoryId = s.archiveCategoryId ?? ""
@@ -386,7 +547,12 @@ struct ShopEditView: View {
             welcomeFooterText = s.welcomeFooterText ?? ""
             welcomeFooterIconUrl = s.welcomeFooterIconUrl ?? ""
             welcomeShowTimestamp = s.welcomeShowTimestamp
+
+            // Load products
+            products = (try? await services.shops.fetchProducts(shopId: s.id)) ?? []
         }
+
+        isLoading = false
     }
 
     private func save() async {
@@ -396,6 +562,7 @@ struct ShopEditView: View {
             shop.name = name
             shop.description = description
             shop.enabled = enabled
+            shop.disabledMessage = disabledMessage.isEmpty ? nil : disabledMessage
             shop.color = Int(colorHex)
             shop.supportRoleId = supportRoleId.isEmpty ? nil : supportRoleId
             shop.orderCategoryId = orderCategoryId.isEmpty ? nil : orderCategoryId
@@ -426,5 +593,86 @@ struct ShopEditView: View {
             errorMessage = "保存に失敗しました: \(error.localizedDescription)"
         }
         isSaving = false
+    }
+}
+
+// MARK: - ProductCard (inline for products tab)
+
+private struct ProductCard: View {
+    let product: Product
+    let index: Int
+    let onEdit: () -> Void
+
+    var body: some View {
+        VStack(spacing: 0) {
+            HStack(spacing: .spacing12) {
+                ZStack {
+                    Circle().fill(product.enabled ? Color.accentPurple.opacity(0.15) : Color(.systemGray4))
+                        .frame(width: 36, height: 36)
+                    Text("\(index + 1)").font(.system(size: 14, weight: .bold))
+                        .foregroundStyle(product.enabled ? Color.accentPurple : Color.textTertiary)
+                }
+                .opacity(product.enabled ? 1 : 0.6)
+
+                VStack(alignment: .leading, spacing: 3) {
+                    HStack(spacing: 6) {
+                        Text(product.name)
+                            .font(.bodySmall).fontWeight(.semibold)
+                            .foregroundStyle(product.enabled ? Color.textPrimary : Color.textTertiary)
+                        if product.isSoldOut {
+                            Text("売り切れ")
+                                .font(.system(size: 9, weight: .semibold))
+                                .foregroundStyle(.red)
+                                .padding(.horizontal, 6).padding(.vertical, 2)
+                                .background(Color.red.opacity(0.12))
+                                .clipShape(Capsule())
+                        }
+                        if !product.enabled {
+                            Text("無効")
+                                .font(.system(size: 9, weight: .semibold))
+                                .foregroundStyle(Color.textTertiary)
+                                .padding(.horizontal, 6).padding(.vertical, 2)
+                                .background(Color(.tertiarySystemGroupedBackground))
+                                .clipShape(Capsule())
+                        }
+                    }
+                    HStack(spacing: .spacing12) {
+                        Label(product.priceDisplay, systemImage: "tag.fill")
+                            .font(.captionSmall).foregroundStyle(Color.textTertiary)
+                        if let stock = product.stock {
+                            Label("残り\(stock)個", systemImage: "cube.box.fill")
+                                .font(.captionSmall).foregroundStyle(stock > 0 ? Color.accentGreen : .red)
+                        } else {
+                            Label("無制限", systemImage: "infinity")
+                                .font(.captionSmall).foregroundStyle(Color.textTertiary)
+                        }
+                    }
+                }
+
+                Spacer()
+
+                Label(product.rewardType.label, systemImage: product.rewardType.icon)
+                    .font(.system(size: 10, weight: .semibold))
+                    .foregroundStyle(product.enabled ? Color.accentPurple : Color.textTertiary)
+                    .padding(.horizontal, 8).padding(.vertical, 4)
+                    .background(product.enabled ? Color.accentPurple.opacity(0.12) : Color(.tertiarySystemGroupedBackground))
+                    .clipShape(Capsule())
+            }
+            .padding(.spacing12)
+            .opacity(product.enabled ? 1 : 0.7)
+
+            Divider().padding(.horizontal, .spacing12)
+
+            Button(action: onEdit) {
+                Label("編集", systemImage: "pencil")
+                    .font(.captionRegular).fontWeight(.medium)
+                    .foregroundStyle(Color.accentIndigo)
+                    .frame(maxWidth: .infinity).padding(.vertical, .spacing10)
+            }
+            .buttonStyle(.plain)
+            .background(Color(.tertiarySystemGroupedBackground))
+        }
+        .background(product.enabled ? Color(.secondarySystemGroupedBackground) : Color(.tertiarySystemGroupedBackground))
+        .clipShape(RoundedRectangle(cornerRadius: 14))
     }
 }

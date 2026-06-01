@@ -13,6 +13,8 @@ struct ProductManagementView: View {
     @State private var showCreate = false
     @State private var editingProduct: Product? = nil
     @State private var toast: String? = nil
+    @State private var showDiscardAlert = false
+    @State private var pendingAction: (() -> Void)?
 
     var body: some View {
         NavigationStack {
@@ -70,7 +72,9 @@ struct ProductManagementView: View {
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
                 ToolbarItem(placement: .topBarLeading) {
-                    Button("完了") { dismiss() }.foregroundStyle(Color.accentIndigo)
+                    Button("閉じる") {
+                        showDiscardAlert = true
+                    }.foregroundStyle(Color.accentIndigo)
                 }
             }
             .sheet(isPresented: $showCreate) {
@@ -82,6 +86,12 @@ struct ProductManagementView: View {
                 ProductEditView(shopId: shop.id, guildId: guildId, existingProduct: product) { updated in
                     if let idx = products.firstIndex(where: { $0.id == updated.id }) { products[idx] = updated }
                 }
+            }
+            .alert("変更を破棄しますか？", isPresented: $showDiscardAlert) {
+                Button("破棄する", role: .destructive) { dismiss() }
+                Button("キャンセル", role: .cancel) {}
+            } message: {
+                Text("未保存の変更がある可能性があります。")
             }
             .task { await load() }
         }
@@ -230,8 +240,18 @@ struct ProductEditView: View {
     @State private var isLoading = true
     @State private var isSaving = false
     @State private var errorMessage: String? = nil
+    @State private var showDiscardAlert = false
 
     private var isNew: Bool { existingProduct == nil }
+
+    private var hasChanges: Bool {
+        guard let p = existingProduct else { return true }
+        return name != p.name || description != p.description || priceDisplay != p.priceDisplay ||
+            imageUrl != (p.imageUrl ?? "") || stockEnabled != (p.stock != nil) ||
+            (stockEnabled && stockValue != p.stock) || rewardType != p.rewardType ||
+            rewardContent != (p.rewardContent ?? "") || rewardRoleId != (p.rewardRoleId ?? "") ||
+            rewardDmContent != (p.rewardDmContent ?? "") || enabled != p.enabled
+    }
 
     var body: some View {
         NavigationStack {
@@ -240,6 +260,7 @@ struct ProductEditView: View {
                 basicInfoSection
                 stockSection
                 rewardSection
+                rewardPreviewSection
 
                 if let err = errorMessage {
                     Section {
@@ -252,7 +273,9 @@ struct ProductEditView: View {
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
                 ToolbarItem(placement: .topBarLeading) {
-                    Button("キャンセル") { dismiss() }.foregroundStyle(Color.textSecondary)
+                    Button("キャンセル") {
+                        if hasChanges { showDiscardAlert = true } else { dismiss() }
+                    }.foregroundStyle(Color.textSecondary)
                 }
                 ToolbarItem(placement: .topBarTrailing) {
                     Button(isSaving ? "保存中..." : "保存") { Task { await save() } }
@@ -262,6 +285,12 @@ struct ProductEditView: View {
                 }
             }
             .task { await loadData() }
+            .alert("変更を破棄しますか？", isPresented: $showDiscardAlert) {
+                Button("破棄する", role: .destructive) { dismiss() }
+                Button("キャンセル", role: .cancel) {}
+            } message: {
+                Text("行った変更は保存されません。")
+            }
         }
     }
 
@@ -342,10 +371,87 @@ struct ProductEditView: View {
           }
     }
 
-    private var optionsSection: some View {
+    private var rewardPreviewSection: some View {
         Section {
-            Toggle("有効", isOn: $enabled)
-        } header: { Text("オプション") }
+            VStack(alignment: .leading, spacing: .spacing12) {
+                HStack(spacing: 6) {
+                    Image(systemName: rewardType.icon)
+                        .font(.system(size: 12)).foregroundStyle(Color.accentPurple)
+                    Text("対価プレビュー").font(.captionSmall).fontWeight(.semibold)
+                        .foregroundStyle(Color.textTertiary)
+                }
+
+                switch rewardType {
+                case .text:
+                    Text(rewardContent.isEmpty ? "（テキストを入力してください）" : rewardContent)
+                        .font(.captionRegular).foregroundStyle(rewardContent.isEmpty ? Color.textTertiary : Color.textPrimary)
+                        .padding(.spacing12)
+                        .frame(maxWidth: .infinity, alignment: .leading)
+                        .background(Color(.tertiarySystemGroupedBackground))
+                        .clipShape(RoundedRectangle(cornerRadius: 8))
+                case .url:
+                    if rewardContent.isEmpty {
+                        Text("（URLを入力してください）")
+                            .font(.captionRegular).foregroundStyle(Color.textTertiary)
+                            .padding(.spacing12)
+                            .frame(maxWidth: .infinity, alignment: .leading)
+                            .background(Color(.tertiarySystemGroupedBackground))
+                            .clipShape(RoundedRectangle(cornerRadius: 8))
+                    } else {
+                        Link(destination: URL(string: rewardContent) ?? URL(string: "https://example.com")!) {
+                            HStack(spacing: 6) {
+                                Image(systemName: "link").font(.system(size: 12))
+                                Text(rewardContent).font(.captionRegular).lineLimit(1)
+                            }
+                        }
+                        .padding(.spacing12)
+                        .frame(maxWidth: .infinity, alignment: .leading)
+                        .background(Color.accentIndigo.opacity(0.08))
+                        .clipShape(RoundedRectangle(cornerRadius: 8))
+                    }
+                case .role:
+                    if rewardRoleId.isEmpty {
+                        Text("（ロールを選択してください）")
+                            .font(.captionRegular).foregroundStyle(Color.textTertiary)
+                            .padding(.spacing12)
+                            .frame(maxWidth: .infinity, alignment: .leading)
+                            .background(Color(.tertiarySystemGroupedBackground))
+                            .clipShape(RoundedRectangle(cornerRadius: 8))
+                    } else {
+                        let roleName = roles.first(where: { $0.id == rewardRoleId })?.name ?? "選択したロール"
+                        HStack(spacing: 6) {
+                            Image(systemName: "shield.fill").font(.system(size: 12)).foregroundStyle(Color.accentPurple)
+                            Text("@\(roleName)").font(.captionRegular)
+                        }
+                        .padding(.spacing12)
+                        .frame(maxWidth: .infinity, alignment: .leading)
+                        .background(Color.accentPurple.opacity(0.08))
+                        .clipShape(RoundedRectangle(cornerRadius: 8))
+                    }
+                case .dm:
+                    VStack(alignment: .leading, spacing: 6) {
+                        HStack(spacing: 4) {
+                            Image(systemName: "message.fill").font(.system(size: 10)).foregroundStyle(Color.textTertiary)
+                            Text("DM").font(.system(size: 9, weight: .semibold)).foregroundStyle(Color.textTertiary)
+                        }
+                        Text(rewardDmContent.isEmpty ? "（DM送信内容を入力してください）" : rewardDmContent)
+                            .font(.captionRegular).foregroundStyle(rewardDmContent.isEmpty ? Color.textTertiary : Color.textPrimary)
+                    }
+                    .padding(.spacing12)
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                    .background(Color(.tertiarySystemGroupedBackground))
+                    .clipShape(RoundedRectangle(cornerRadius: 8))
+                }
+            }
+            .padding(.vertical, 4)
+        } header: {
+            HStack(spacing: 5) {
+                Image(systemName: "eye.fill").font(.captionSmall)
+                Text("対価のプレビュー")
+            }
+        } footer: {
+            Text("購入者に実際に表示される内容のイメージです。")
+        }
     }
 
     private func loadData() async {

@@ -34,6 +34,15 @@ struct CommunityTabView: View {
                                          color: .accentGreen)
                     }
 
+                    NavigationLink {
+                        TempVCListView(guildId: appState.selectedGuildId)
+                    } label: {
+                        CommunityMenuRow(icon: "plus.circle.fill",
+                                         title: "Join to Create",
+                                         subtitle: "参加すると自動でVC＋チャンネルを作成",
+                                         color: .accentPurple)
+                    }
+
 //                    NavigationLink {
 //                        ModerationToolsView()
 //                    } label: {

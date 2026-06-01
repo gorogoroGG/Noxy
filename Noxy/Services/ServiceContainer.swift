@@ -19,6 +19,7 @@ final class ServiceContainer {
     let reactionRoles:      any ReactionRoleServiceProtocol
     let greeting:           any GreetingServiceProtocol
     let tempChannel:        any TempChannelServiceProtocol
+    let tempVCSource:       any TempVCSourceServiceProtocol
     let shops:              any ShopServiceProtocol
 
     private init(
@@ -36,6 +37,7 @@ final class ServiceContainer {
         reactionRoles:     any ReactionRoleServiceProtocol,
         greeting:          any GreetingServiceProtocol,
         tempChannel:       any TempChannelServiceProtocol,
+        tempVCSource:      any TempVCSourceServiceProtocol,
         shops:             any ShopServiceProtocol
     ) {
         self.embeds = embeds
@@ -52,6 +54,7 @@ final class ServiceContainer {
         self.reactionRoles = reactionRoles
         self.greeting = greeting
         self.tempChannel = tempChannel
+        self.tempVCSource = tempVCSource
         self.shops = shops
     }
 
@@ -72,6 +75,7 @@ final class ServiceContainer {
             reactionRoles:     MockReactionRoleService(),
             greeting:          MockGreetingService(),
             tempChannel:       MockTempChannelService(),
+            tempVCSource:      MockTempVCSourceService(),
             shops:             MockShopService()
         )
     }
@@ -93,6 +97,7 @@ final class ServiceContainer {
             reactionRoles:     SupabaseReactionRoleService(),
             greeting:          SupabaseGreetingService(),
             tempChannel:       WorkerTempChannelService(),
+            tempVCSource:      WorkerTempVCSourceService(),
             shops:             WorkerShopService()
         )
     }

@@ -19,6 +19,7 @@ struct WorkerShopService: ShopServiceProtocol {
             let name: String
             let description: String
             let enabled: Bool
+            let disabledMessage: String?
             let channelId: String
             let orderCategoryId: String?
             let archiveCategoryId: String?
@@ -37,7 +38,8 @@ struct WorkerShopService: ShopServiceProtocol {
         }
         let body = Body(
             guildId: shop.guildId, name: shop.name, description: shop.description,
-            enabled: shop.enabled, channelId: shop.channelId,
+            enabled: shop.enabled, disabledMessage: shop.disabledMessage,
+            channelId: shop.channelId,
             orderCategoryId: shop.orderCategoryId, archiveCategoryId: shop.archiveCategoryId,
             supportRoleId: shop.supportRoleId, timeoutHours: shop.timeoutHours,
             color: shop.color, footerText: shop.footerText,
@@ -59,6 +61,7 @@ struct WorkerShopService: ShopServiceProtocol {
             let name: String
             let description: String
             let enabled: Bool
+            let disabledMessage: String?
             let channelId: String
             let orderCategoryId: String?
             let archiveCategoryId: String?
@@ -77,6 +80,7 @@ struct WorkerShopService: ShopServiceProtocol {
         }
         let body = Body(
             name: shop.name, description: shop.description, enabled: shop.enabled,
+            disabledMessage: shop.disabledMessage,
             channelId: shop.channelId, orderCategoryId: shop.orderCategoryId,
             archiveCategoryId: shop.archiveCategoryId, supportRoleId: shop.supportRoleId,
             timeoutHours: shop.timeoutHours, color: shop.color, footerText: shop.footerText,

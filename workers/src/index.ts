@@ -81,6 +81,7 @@ function mapTicketMessage(m: TicketMessageRow) {
 
 interface ShopRow {
   id: string; guild_id: string; name: string; description: string; enabled: boolean;
+  disabled_message: string | null;
   channel_id: string; message_id: string | null;
   order_category_id: string | null; archive_category_id: string | null;
   support_role_id: string | null; timeout_hours: number | null;
@@ -91,6 +92,21 @@ interface ShopRow {
   welcome_footer_text: string | null; welcome_footer_icon_url: string | null;
   welcome_show_timestamp: boolean;
   created_at: string;
+}
+
+function mapShop(s: ShopRow) {
+  return { id: s.id, guildId: s.guild_id, name: s.name, description: s.description,
+    enabled: s.enabled, disabledMessage: s.disabled_message,
+    channelId: s.channel_id, messageId: s.message_id,
+    orderCategoryId: s.order_category_id, archiveCategoryId: s.archive_category_id,
+    supportRoleId: s.support_role_id, timeoutHours: s.timeout_hours,
+    color: s.color, footerText: s.footer_text,
+    paymentFlow: s.payment_flow, autoDeliver: s.auto_deliver,
+    welcomeImageUrl: s.welcome_image_url, welcomeThumbnailUrl: s.welcome_thumbnail_url,
+    welcomeFields: s.welcome_fields ?? [],
+    welcomeFooterText: s.welcome_footer_text, welcomeFooterIconUrl: s.welcome_footer_icon_url,
+    welcomeShowTimestamp: s.welcome_show_timestamp,
+    createdAt: s.created_at };
 }
 interface ProductRow {
   id: string; shop_id: string; name: string; description: string;
@@ -1362,6 +1378,135 @@ export default {
       }))), { headers: { 'Content-Type': 'application/json' } });
     }
 
+    // ── Join-to-Create: temp_vc_sources CRUD ───────────────────
+
+    // GET /bot/temp-vc-sources?guild_id=xxx
+    if (url.pathname === '/bot/temp-vc-sources' && request.method === 'GET') {
+      const guildId = url.searchParams.get('guild_id');
+      if (!guildId) return new Response('Missing guild_id', { status: 400 });
+      const resp = await sb(`/temp_vc_sources?guild_id=eq.${guildId}&order=created_at.desc`);
+      if (!resp.ok) return new Response(await resp.text(), { status: resp.status });
+      const rows = await resp.json() as Record<string, unknown>[];
+      return new Response(JSON.stringify(rows.map(r => ({
+        id:                     r['id'],
+        guildId:                r['guild_id'],
+        sourceVcId:             r['source_vc_id'],
+        name:                   r['name'],
+        categoryId:             r['category_id'],
+        vcNameFormat:           r['vc_name_format'],
+        channelNameFormat:      r['channel_name_format'],
+        userLimit:              r['user_limit'],
+        autoDelete:             r['auto_delete'],
+        deleteDelayMinutes:     r['delete_delay_minutes'],
+        joinLeaveNotification:  r['join_leave_notification'],
+        enabled:                r['enabled'],
+        createdAt:              r['created_at'],
+      }))), { headers: { 'Content-Type': 'application/json' } });
+    }
+
+    // POST /bot/temp-vc-sources (create)
+    if (url.pathname === '/bot/temp-vc-sources' && request.method === 'POST') {
+      try {
+        const body = await request.json() as {
+          guildId: string; sourceVcId: string; name?: string; categoryId: string;
+          vcNameFormat?: string; channelNameFormat?: string; userLimit?: number;
+          autoDelete?: boolean; deleteDelayMinutes?: number;
+          joinLeaveNotification?: boolean; enabled?: boolean;
+        };
+        const insertData = {
+          guild_id:                body.guildId,
+          source_vc_id:            body.sourceVcId,
+          name:                    body.name ?? '',
+          category_id:             body.categoryId,
+          vc_name_format:          body.vcNameFormat ?? '{user-name}のVC',
+          channel_name_format:     body.channelNameFormat ?? '{user-name}の部屋',
+          user_limit:              body.userLimit ?? 0,
+          auto_delete:             body.autoDelete ?? true,
+          delete_delay_minutes:    body.deleteDelayMinutes ?? 0,
+          join_leave_notification: body.joinLeaveNotification ?? true,
+          enabled:                 body.enabled ?? true,
+        };
+        const resp = await sb('/temp_vc_sources', {
+          method: 'POST',
+          body:   JSON.stringify(insertData),
+          headers: { Prefer: 'return=representation' },
+        });
+        if (!resp.ok) return new Response(await resp.text(), { status: resp.status });
+        const rows = await resp.json() as Record<string, unknown>[];
+        const r = rows[0];
+        return new Response(JSON.stringify({
+          id:                     r['id'],
+          guildId:                r['guild_id'],
+          sourceVcId:             r['source_vc_id'],
+          name:                   r['name'],
+          categoryId:             r['category_id'],
+          vcNameFormat:           r['vc_name_format'],
+          channelNameFormat:      r['channel_name_format'],
+          userLimit:              r['user_limit'],
+          autoDelete:             r['auto_delete'],
+          deleteDelayMinutes:     r['delete_delay_minutes'],
+          joinLeaveNotification:  r['join_leave_notification'],
+          enabled:                r['enabled'],
+          createdAt:              r['created_at'],
+        }), { headers: { 'Content-Type': 'application/json' } });
+      } catch (e) { return new Response(JSON.stringify({ error: String(e) }), { status: 500 }); }
+    }
+
+    // PATCH /bot/temp-vc-sources/:id
+    const tempVcSourcePatchMatch = url.pathname.match(/^\/bot\/temp-vc-sources\/([^\/]+)$/);
+    if (tempVcSourcePatchMatch && request.method === 'PATCH') {
+      try {
+        const id = tempVcSourcePatchMatch[1];
+        const body = await request.json() as Record<string, unknown>;
+        const updateData: Record<string, unknown> = {};
+        const camelToSnake: Record<string, string> = {
+          guildId: 'guild_id', sourceVcId: 'source_vc_id', name: 'name',
+          categoryId: 'category_id', vcNameFormat: 'vc_name_format',
+          channelNameFormat: 'channel_name_format', userLimit: 'user_limit',
+          autoDelete: 'auto_delete', deleteDelayMinutes: 'delete_delay_minutes',
+          joinLeaveNotification: 'join_leave_notification', enabled: 'enabled',
+        };
+        for (const [k, v] of Object.entries(body)) {
+          const snakeKey = camelToSnake[k] ?? k;
+          updateData[snakeKey] = v;
+        }
+        updateData['updated_at'] = new Date().toISOString();
+        const resp = await sb(`/temp_vc_sources?id=eq.${id}`, {
+          method: 'PATCH',
+          body:   JSON.stringify(updateData),
+          headers: { Prefer: 'return=representation' },
+        });
+        if (!resp.ok) return new Response(await resp.text(), { status: resp.status });
+        const rows = await resp.json() as Record<string, unknown>[];
+        if (!rows.length) return new Response('Not found', { status: 404 });
+        const r = rows[0];
+        return new Response(JSON.stringify({
+          id:                     r['id'],
+          guildId:                r['guild_id'],
+          sourceVcId:             r['source_vc_id'],
+          name:                   r['name'],
+          categoryId:             r['category_id'],
+          vcNameFormat:           r['vc_name_format'],
+          channelNameFormat:      r['channel_name_format'],
+          userLimit:              r['user_limit'],
+          autoDelete:             r['auto_delete'],
+          deleteDelayMinutes:     r['delete_delay_minutes'],
+          joinLeaveNotification:  r['join_leave_notification'],
+          enabled:                r['enabled'],
+          createdAt:              r['created_at'],
+        }), { headers: { 'Content-Type': 'application/json' } });
+      } catch (e) { return new Response(JSON.stringify({ error: String(e) }), { status: 500 }); }
+    }
+
+    // DELETE /bot/temp-vc-sources/:id
+    const tempVcSourceDeleteMatch = url.pathname.match(/^\/bot\/temp-vc-sources\/([^\/]+)$/);
+    if (tempVcSourceDeleteMatch && request.method === 'DELETE') {
+      const id = tempVcSourceDeleteMatch[1];
+      const resp = await sb(`/temp_vc_sources?id=eq.${id}`, { method: 'DELETE' });
+      if (!resp.ok) return new Response(await resp.text(), { status: resp.status });
+      return new Response(JSON.stringify({ success: true }), { headers: { 'Content-Type': 'application/json' } });
+    }
+
     // ── ショップ CRUD ────────────────────────────────────────────
 
     // GET /bot/shops?guild_id=xxx
@@ -1381,6 +1526,7 @@ export default {
           name:                body['name']    ?? 'ショップ',
           description:         body['description'] ?? '',
           enabled:             body['enabled']  ?? true,
+          disabled_message:    body['disabledMessage'] ?? body.disabled_message ?? null,
           channel_id:          body['channelId'] ?? body.channel_id ?? '',
           order_category_id:   body['orderCategoryId']   ?? body.order_category_id   ?? null,
           archive_category_id: body['archiveCategoryId'] ?? body.archive_category_id ?? null,
@@ -1416,6 +1562,7 @@ export default {
         const body = await request.json() as Record<string, unknown>;
         const camel: Record<string, string> = {
           name: 'name', description: 'description', enabled: 'enabled',
+          disabledMessage: 'disabled_message',
           channelId: 'channel_id', orderCategoryId: 'order_category_id',
           archiveCategoryId: 'archive_category_id', supportRoleId: 'support_role_id',
           timeoutHours: 'timeout_hours', color: 'color', footerText: 'footer_text',

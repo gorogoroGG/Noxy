@@ -13,7 +13,6 @@ struct OrderDetailView: View {
     @State private var isActioning = false
     @State private var errorMessage: String? = nil
     @State private var showConfirmPayment = false
-    @State private var showConfirmComplete = false
 
     var body: some View {
         NavigationStack {
@@ -41,12 +40,6 @@ struct OrderDetailView: View {
                 Button("キャンセル", role: .cancel) {}
             } message: {
                 Text("支払いを確認すると、対価が自動的に送信されます。")
-            }
-            .alert("取引を完了しますか？", isPresented: $showConfirmComplete) {
-                Button("完了にする", role: .none) { Task { await completeOrder() } }
-                Button("キャンセル", role: .cancel) {}
-            } message: {
-                Text("管理者側が取引完了を確認します。購入者も完了ボタンを押すとアーカイブされます。")
             }
         }
     }
@@ -192,27 +185,6 @@ struct OrderDetailView: View {
                 .disabled(isActioning)
             }
 
-            if order.status == .delivered || order.status == .paid {
-                Button {
-                    showConfirmComplete = true
-                } label: {
-                    HStack(spacing: .spacing8) {
-                        if isActioning {
-                            ProgressView().scaleEffect(0.85).tint(.white)
-                        } else {
-                            Image(systemName: "checkmark.circle.fill")
-                        }
-                        Text(isActioning ? "処理中..." : "取引完了（管理者）")
-                            .fontWeight(.semibold)
-                    }
-                    .foregroundStyle(.white)
-                    .frame(maxWidth: .infinity).frame(height: 50)
-                    .background(Color.accentIndigo)
-                    .clipShape(RoundedRectangle(cornerRadius: 12))
-                }
-                .disabled(isActioning)
-            }
-
             if let err = errorMessage {
                 HStack(spacing: .spacing8) {
                     Image(systemName: "exclamationmark.triangle.fill").foregroundStyle(.orange)
@@ -255,18 +227,6 @@ struct OrderDetailView: View {
             onUpdate(updated)
         } catch {
             errorMessage = "支払い確認に失敗しました"
-        }
-        isActioning = false
-    }
-
-    private func completeOrder() async {
-        isActioning = true; errorMessage = nil
-        do {
-            let updated = try await services.shops.completeOrder(orderId: order.id, party: "seller")
-            order = updated
-            onUpdate(updated)
-        } catch {
-            errorMessage = "取引完了処理に失敗しました"
         }
         isActioning = false
     }

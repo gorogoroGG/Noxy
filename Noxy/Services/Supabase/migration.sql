@@ -234,6 +234,27 @@ CREATE TABLE IF NOT EXISTS temp_channels (
     created_at      TIMESTAMPTZ NOT NULL DEFAULT NOW()
 );
 
+-- 14. temp_vc_sources（一時VC作成元設定）
+CREATE TABLE IF NOT EXISTS temp_vc_sources (
+    id                      TEXT PRIMARY KEY DEFAULT gen_random_uuid()::text,
+    guild_id                TEXT NOT NULL,
+    source_vc_id            TEXT NOT NULL,           -- トリガーとなるVCのID
+    name                    TEXT NOT NULL DEFAULT '', -- 管理用名前
+    category_id             TEXT NOT NULL,           -- 作成先カテゴリ
+    vc_name_format          TEXT NOT NULL DEFAULT '{user-name}のVC',
+    channel_name_format     TEXT NOT NULL DEFAULT '{user-name}の部屋',
+    user_limit              INTEGER NOT NULL DEFAULT 0,   -- 0=無制限
+    auto_delete             BOOLEAN NOT NULL DEFAULT TRUE,
+    delete_delay_minutes    INTEGER NOT NULL DEFAULT 0,
+    join_leave_notification BOOLEAN NOT NULL DEFAULT TRUE,
+    enabled                 BOOLEAN NOT NULL DEFAULT TRUE,
+    created_at              TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    updated_at              TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
+
+-- temp_channelsにtemp_vc_id追加（Join-to-Create用）
+ALTER TABLE temp_channels ADD COLUMN IF NOT EXISTS temp_vc_id TEXT;
+
 -- ============================================================
 -- インデックス
 -- ============================================================
@@ -252,6 +273,8 @@ CREATE INDEX IF NOT EXISTS idx_orders_status      ON orders(status);
 CREATE INDEX IF NOT EXISTS idx_orders_shop        ON orders(shop_id);
 CREATE INDEX IF NOT EXISTS idx_temp_ch_guild      ON temp_channels(guild_id);
 CREATE INDEX IF NOT EXISTS idx_temp_ch_vc        ON temp_channels(vc_channel_id);
+CREATE INDEX IF NOT EXISTS idx_temp_vc_guild     ON temp_vc_sources(guild_id);
+CREATE INDEX IF NOT EXISTS idx_temp_vc_source    ON temp_vc_sources(source_vc_id);
 
 -- ============================================================
 -- Row Level Security（RLS）: 認証済みの全操作を許可
@@ -281,8 +304,10 @@ CREATE POLICY "Allow all for authenticated users" ON products FOR ALL USING (aut
 CREATE POLICY "Allow all for authenticated users" ON orders   FOR ALL USING (auth.role() = 'authenticated');
 ALTER TABLE temp_channel_settings ENABLE ROW LEVEL SECURITY;
 ALTER TABLE temp_channels         ENABLE ROW LEVEL SECURITY;
+ALTER TABLE temp_vc_sources       ENABLE ROW LEVEL SECURITY;
 CREATE POLICY "Allow all for authenticated users" ON temp_channel_settings   FOR ALL USING (auth.role() = 'authenticated');
 CREATE POLICY "Allow all for authenticated users" ON temp_channels            FOR ALL USING (auth.role() = 'authenticated');
+CREATE POLICY "Allow all for authenticated users" ON temp_vc_sources          FOR ALL USING (auth.role() = 'authenticated');
 
 -- ============================================================
 -- サンプルデータ（初回のみ）

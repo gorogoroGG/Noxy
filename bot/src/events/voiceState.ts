@@ -29,6 +29,21 @@ interface TempChannelSettings {
   min_members: number;
 }
 
+interface TempVCSource {
+  id: string;
+  guild_id: string;
+  source_vc_id: string;
+  name: string;
+  category_id: string;
+  vc_name_format: string;
+  channel_name_format: string;
+  user_limit: number;
+  auto_delete: boolean;
+  delete_delay_minutes: number;
+  join_leave_notification: boolean;
+  enabled: boolean;
+}
+
 // ── #2 チャンネル名レートリミット管理（Discord: 2回/10分）──────
 // 5分経過後のみ rename を許可する
 
@@ -66,8 +81,17 @@ async function tryRenameChannel(textChannel: TextChannel, settings: TempChannelS
 // #4 チャンネルトピックを参加者一覧で更新
 async function updateTopic(textChannel: TextChannel, vcChannel: VoiceChannel): Promise<void> {
   const names = [...vcChannel.members.values()].map(m => m.displayName).join('、');
-  const topic = `🎙️ ${vcChannel.name}　|　参加中: ${names || 'なし'}`;
+  const topic = `🎙️ ${vcChannel.name} | 参加中: ${names || 'なし'}`;
   await textChannel.setTopic(topic).catch(() => {});
+}
+
+// ── Join-to-Create: VC名ビルド ──────────────────────────────
+
+function buildVCName(format: string, userName: string, count: number): string {
+  return format
+    .replace(/\{user-name\}/g, userName.toLowerCase().replace(/[^a-z0-9]/g, '').slice(0, 32))
+    .replace(/\{count\}/g,     String(count))
+    .slice(0, 100);
 }
 
 // ── VC参加処理 ───────────────────────────────────────────────
@@ -77,6 +101,20 @@ async function handleVoiceJoin(state: VoiceState, settings: TempChannelSettings)
   const guild       = state.guild;
   const member      = state.member!;
 
+  // ── Join-to-Create チェック（優先） ──────────────────────
+  const { data: vcSources } = await supabase
+    .from('temp_vc_sources')
+    .select('*')
+    .eq('guild_id', guild.id)
+    .eq('source_vc_id', vcChannelId)
+    .eq('enabled', true);
+
+  if (vcSources && vcSources.length > 0) {
+    await handleJoinToCreate(state, vcSources[0] as TempVCSource);
+    return;
+  }
+
+  // ── 既存の一時チャンネル処理 ────────────────────────────
   if (!settings.watch_all_vcs && !settings.watch_vc_ids.includes(vcChannelId)) return;
 
   const vcChannel = guild.channels.cache.get(vcChannelId) as VoiceChannel | undefined;
@@ -205,6 +243,221 @@ async function handleVoiceJoin(state: VoiceState, settings: TempChannelSettings)
   console.log(`[TempChannel] 作成: ${channelName} (VC: ${vcChannel.name})`);
 }
 
+// ── Join-to-Create: 新規VC+チャンネル作成 ────────────────────
+
+async function handleJoinToCreate(state: VoiceState, source: TempVCSource): Promise<void> {
+  const guild       = state.guild;
+  const member      = state.member!;
+  const sourceVC    = guild.channels.cache.get(source.source_vc_id) as VoiceChannel | undefined;
+  if (!sourceVC) return;
+
+  // 既に一時VCが存在するかチェック
+  const { data: existing } = await supabase
+    .from('temp_channels')
+    .select('*')
+    .eq('guild_id', guild.id)
+    .eq('temp_vc_id', source.id)
+    .single();
+
+  if (existing) {
+    // 既存の一時VCに参加者を追加
+    const tempVC = guild.channels.cache.get(existing.vc_channel_id) as VoiceChannel | undefined;
+    const textCh = guild.channels.cache.get(existing.text_channel_id) as TextChannel | undefined;
+
+    if (tempVC && member) {
+      await member.voice.setChannel(tempVC).catch(() => {});
+    }
+
+    if (textCh) {
+      await textCh.permissionOverwrites.edit(member.id, {
+        ViewChannel:        true,
+        SendMessages:       true,
+        ReadMessageHistory: true,
+        AttachFiles:        true,
+      }).catch(() => {});
+
+      if (source.join_leave_notification) {
+        await textCh.send(`👤 **${member.displayName}** が参加しました。`).catch(() => {});
+      }
+    }
+    return;
+  }
+
+  // 新規作成
+  const vcName = buildVCName(source.vc_name_format, member.user.username, 1);
+  const channelName = buildChannelName(
+    source.channel_name_format,
+    vcName,
+    member.user.username,
+    1,
+  );
+
+  const overwrites: OverwriteResolvable[] = [
+    { id: guild.id,        deny:  [PermissionFlagsBits.ViewChannel] },
+    { id: client.user!.id, allow: [PermissionFlagsBits.ViewChannel, PermissionFlagsBits.SendMessages, PermissionFlagsBits.ReadMessageHistory, PermissionFlagsBits.ManageChannels, PermissionFlagsBits.ManageMessages] },
+    { id: member.id,       allow: [PermissionFlagsBits.ViewChannel, PermissionFlagsBits.SendMessages, PermissionFlagsBits.ReadMessageHistory, PermissionFlagsBits.AttachFiles, PermissionFlagsBits.Connect, PermissionFlagsBits.Speak] },
+  ];
+
+  // VC作成
+  let tempVC: VoiceChannel;
+  try {
+    tempVC = await guild.channels.create({
+      name:                 vcName,
+      type:                 ChannelType.GuildVoice,
+      parent:               source.category_id,
+      userLimit:            source.user_limit || undefined,
+      permissionOverwrites: overwrites,
+    }) as VoiceChannel;
+  } catch (e) {
+    console.error('[JoinToCreate] VC作成失敗:', e);
+    return;
+  }
+
+  // テキストチャンネル作成
+  const topic = `🎙️ ${vcName} | 参加中: ${member.displayName}`;
+  let textChannel: TextChannel;
+  try {
+    textChannel = await guild.channels.create({
+      name:                 channelName,
+      type:                 ChannelType.GuildText,
+      parent:               source.category_id,
+      topic,
+      permissionOverwrites: overwrites,
+    }) as TextChannel;
+  } catch (e) {
+    console.error('[JoinToCreate] テキストチャンネル作成失敗:', e);
+    await tempVC.delete().catch(() => {});
+    return;
+  }
+
+  // ユーザーを新しいVCに移動
+  await member.voice.setChannel(tempVC).catch(() => {});
+
+  // Supabaseに記録
+  await supabase.from('temp_channels').insert({
+    guild_id:        guild.id,
+    vc_channel_id:   tempVC.id,
+    text_channel_id: textChannel.id,
+    temp_vc_id:      source.id,
+  });
+
+  lastRenameTime.set(textChannel.id, Date.now());
+
+  // ウェルカムメッセージ
+  const joinBtn = new ButtonBuilder()
+    .setStyle(ButtonStyle.Link)
+    .setLabel(`🎙️ ${vcName} に参加する`)
+    .setURL(`https://discord.com/channels/${guild.id}/${tempVC.id}`);
+  const row = new ActionRowBuilder<ButtonBuilder>().addComponents(joinBtn);
+
+  await textChannel.send({
+    content: member.toString(),
+    embeds: [{
+      title:       `🎙️ ${vcName}`,
+      description: 'このチャンネルは VC に参加しているメンバー専用です。\n全員が退室すると自動的に削除されます。',
+      color:       0x5865f2,
+      fields: [
+        { name: 'VC',     value: `<#${tempVC.id}>`, inline: true },
+        { name: '参加者', value: '1',               inline: true },
+      ],
+      timestamp: new Date().toISOString(),
+    }],
+    components: [row],
+  }).catch(() => {});
+
+  console.log(`[JoinToCreate] 作成: ${vcName} (Source: ${source.name})`);
+}
+
+// ── Join-to-Create: 退室処理 ────────────────────────────────
+
+async function handleTempVCLeave(state: VoiceState, tempVcSourceId: string): Promise<void> {
+  const vcChannelId = state.channelId!;
+  const guild       = state.guild;
+  const member      = state.member;
+
+  const { data: tempCh } = await supabase
+    .from('temp_channels')
+    .select('*')
+    .eq('guild_id', guild.id)
+    .eq('vc_channel_id', vcChannelId)
+    .eq('temp_vc_id', tempVcSourceId)
+    .single();
+
+  if (!tempCh) return;
+
+  const textChannel = guild.channels.cache.get(tempCh.text_channel_id) as TextChannel | undefined;
+  const vcChannel   = guild.channels.cache.get(vcChannelId) as VoiceChannel | undefined;
+
+  // 退室メンバーの権限剥奪
+  if (textChannel && member) {
+    await textChannel.permissionOverwrites.edit(member.id, {
+      ViewChannel: false,
+    }).catch(() => {});
+
+    // ソース設定を取得
+    const { data: source } = await supabase
+      .from('temp_vc_sources')
+      .select('*')
+      .eq('id', tempVcSourceId)
+      .single();
+
+    if (source && (source as TempVCSource).join_leave_notification) {
+      await textChannel.send(`🚪 **${member.displayName}** が退室しました。`).catch(() => {});
+    }
+  }
+
+  // VCが空になったか確認
+  const remaining = vcChannel?.type === ChannelType.GuildVoice ? vcChannel.members.size : 0;
+
+  const { data: source } = await supabase
+    .from('temp_vc_sources')
+    .select('*')
+    .eq('id', tempVcSourceId)
+    .single();
+
+  if (!source) return;
+  const src = source as TempVCSource;
+
+  if (remaining === 0 && src.auto_delete) {
+    const delayMs    = src.delete_delay_minutes * 60 * 1000;
+    const delayLabel = src.delete_delay_minutes;
+
+    const deleteFn = async () => {
+      if (delayMs === 0) {
+        await textChannel?.send('🗑️ VC が空になりました。チャンネルを削除します。').catch(() => {});
+        await new Promise(r => setTimeout(r, 3000));
+      } else {
+        await textChannel?.send(
+          `🗑️ VC が空になりました。**${delayLabel}分後**にこのチャンネルを削除します。`
+        ).catch(() => {});
+
+        if (delayMs >= 2 * 60 * 1000) {
+          await new Promise(r => setTimeout(r, delayMs - 60 * 1000));
+          const vc = guild.channels.cache.get(vcChannelId) as VoiceChannel | undefined;
+          if (vc?.type === ChannelType.GuildVoice && vc.members.size > 0) return;
+          await textChannel?.send('⚠️ **1分後にこのチャンネルを削除します。**').catch(() => {});
+          await new Promise(r => setTimeout(r, 60 * 1000));
+        } else {
+          await new Promise(r => setTimeout(r, delayMs));
+        }
+      }
+
+      // 最終確認
+      const vc = guild.channels.cache.get(vcChannelId) as VoiceChannel | undefined;
+      if (vc?.type === ChannelType.GuildVoice && vc.members.size > 0) return;
+
+      // テキストチャンネルとVCの両方を削除
+      await textChannel?.delete('Join-to-Create 退室により削除').catch(() => {});
+      await vc?.delete('Join-to-Create 退室により削除').catch(() => {});
+      await supabase.from('temp_channels').delete().eq('id', tempCh.id);
+      lastRenameTime.delete(tempCh.text_channel_id);
+      console.log(`[JoinToCreate] 削除: ${tempCh.vc_channel_id} (Source: ${tempVcSourceId})`);
+    };
+
+    deleteFn().catch(e => console.error('[JoinToCreate] 削除失敗:', e));
+  }
+}
+
 // ── VC退室処理 ───────────────────────────────────────────────
 
 async function handleVoiceLeave(state: VoiceState, settings: TempChannelSettings): Promise<void> {
@@ -212,12 +465,21 @@ async function handleVoiceLeave(state: VoiceState, settings: TempChannelSettings
   const guild       = state.guild;
   const member      = state.member ?? null;
 
+  // temp_vc_idがあるかチェック（Join-to-Createで作成されたVC）
   const { data: tempCh } = await supabase
     .from('temp_channels')
     .select('*')
     .eq('guild_id', guild.id)
     .eq('vc_channel_id', vcChannelId)
     .single();
+
+  if (tempCh && tempCh.temp_vc_id) {
+    await handleTempVCLeave(state, tempCh.temp_vc_id);
+    return;
+  }
+
+  // 既存の一時チャンネル処理
+  if (!tempCh) return;
 
   if (!tempCh) return;
 
@@ -302,6 +564,27 @@ client.on(Events.VoiceStateUpdate, async (oldState: VoiceState, newState: VoiceS
   const guild = newState.guild;
   console.log(`[TempChannel] VoiceStateUpdate: guild=${guild.id}, oldCh=${oldState.channelId}, newCh=${newState.channelId}`);
 
+  // Join-to-Create用のソースをチェック（settingsがなくても実行）
+  const joined = newState.channelId !== oldState.channelId && newState.channelId !== null;
+  if (joined) {
+    const { data: vcSources } = await supabase
+      .from('temp_vc_sources')
+      .select('*')
+      .eq('guild_id', guild.id)
+      .eq('source_vc_id', newState.channelId)
+      .eq('enabled', true);
+
+    if (vcSources && vcSources.length > 0) {
+      try {
+        await handleJoinToCreate(newState, vcSources[0] as TempVCSource);
+        return;
+      } catch (e) {
+        console.error('[JoinToCreate] VoiceStateUpdate error:', e);
+      }
+    }
+  }
+
+  // 既存の一時チャンネル処理
   const { data: settings } = await supabase
     .from('temp_channel_settings')
     .select('*')
@@ -316,7 +599,6 @@ client.on(Events.VoiceStateUpdate, async (oldState: VoiceState, newState: VoiceS
   const s = settings as TempChannelSettings;
 
   try {
-    const joined = newState.channelId !== oldState.channelId && newState.channelId !== null;
     const left   = oldState.channelId !== newState.channelId && oldState.channelId !== null;
 
     console.log(`[TempChannel] joined=${joined}, left=${left}`);
@@ -344,6 +626,12 @@ client.once(Events.ClientReady, async () => {
     if (isEmpty) {
       const textCh = guild.channels.cache.get(row.text_channel_id);
       if (textCh) await textCh.delete('Bot再起動時の孤立一時チャンネル清掃').catch(() => {});
+
+      // Join-to-Createで作成されたVCも削除
+      if (row.temp_vc_id) {
+        await vc?.delete('Bot再起動時の孤立一時VC清掃').catch(() => {});
+      }
+
       await supabase.from('temp_channels').delete().eq('id', row.id);
       console.log(`[TempChannel] 孤立チャンネル削除: ${row.text_channel_id}`);
     }
