@@ -1506,7 +1506,7 @@ export default {
         const id = createTriggerVcMatch[1];
         const body = await request.json() as { guildId: string; triggerVcName: string; vcCategoryId: string };
 
-        // DiscordにトリガーVCを作成
+        // DiscordにトリガーVCを作成（人数制限1）
         const vcResp = await fetch(`https://discord.com/api/v10/guilds/${body.guildId}/channels`, {
           method: 'POST',
           headers: { Authorization: `Bot ${env.DISCORD_BOT_TOKEN}`, 'Content-Type': 'application/json' },
@@ -1514,6 +1514,7 @@ export default {
             name: body.triggerVcName,
             type: 2, // Voice Channel
             parent_id: body.vcCategoryId,
+            user_limit: 1,
             permission_overwrites: [
               { id: body.guildId, allow: '1048576', deny: '0' } // Connect allowed for @everyone
             ],
