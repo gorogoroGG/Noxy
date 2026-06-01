@@ -1365,7 +1365,7 @@ export default {
       }))), { headers: { 'Content-Type': 'application/json' } });
     }
 
-    // ── Join-to-Create: temp_vc_sources CRUD ───────────────────
+    // ── 一時VC: temp_vc_sources CRUD ───────────────────
 
     // GET /bot/temp-vc-sources?guild_id=xxx
     if (url.pathname === '/bot/temp-vc-sources' && request.method === 'GET') {
@@ -1375,19 +1375,20 @@ export default {
       if (!resp.ok) return new Response(await resp.text(), { status: resp.status });
       const rows = await resp.json() as Record<string, unknown>[];
       return new Response(JSON.stringify(rows.map(r => ({
-        id:                     r['id'],
-        guildId:                r['guild_id'],
-        sourceVcId:             r['source_vc_id'],
-        name:                   r['name'],
-        categoryId:             r['category_id'],
-        vcNameFormat:           r['vc_name_format'],
-        channelNameFormat:      r['channel_name_format'],
-        userLimit:              r['user_limit'],
-        autoDelete:             r['auto_delete'],
-        deleteDelayMinutes:     r['delete_delay_minutes'],
-        joinLeaveNotification:  r['join_leave_notification'],
-        enabled:                r['enabled'],
-        createdAt:              r['created_at'],
+        id:                       r['id'],
+        guildId:                  r['guild_id'],
+        triggerVcId:              r['trigger_vc_id'] ?? null,
+        triggerVcName:            r['trigger_vc_name'],
+        vcCategoryId:             r['vc_category_id'],
+        textChannelCategoryId:    r['text_channel_category_id'],
+        vcNameFormat:             r['vc_name_format'],
+        channelNameFormat:        r['channel_name_format'],
+        userLimit:                r['user_limit'],
+        autoDelete:               r['auto_delete'],
+        deleteDelayMinutes:       r['delete_delay_minutes'],
+        joinLeaveNotification:    r['join_leave_notification'],
+        enabled:                  r['enabled'],
+        createdAt:                r['created_at'],
       }))), { headers: { 'Content-Type': 'application/json' } });
     }
 
@@ -1395,23 +1396,24 @@ export default {
     if (url.pathname === '/bot/temp-vc-sources' && request.method === 'POST') {
       try {
         const body = await request.json() as {
-          guildId: string; sourceVcId: string; name?: string; categoryId: string;
-          vcNameFormat?: string; channelNameFormat?: string; userLimit?: number;
-          autoDelete?: boolean; deleteDelayMinutes?: number;
+          guildId: string; triggerVcName?: string; vcCategoryId: string;
+          textChannelCategoryId: string; vcNameFormat?: string; channelNameFormat?: string;
+          userLimit?: number; autoDelete?: boolean; deleteDelayMinutes?: number;
           joinLeaveNotification?: boolean; enabled?: boolean;
         };
         const insertData = {
-          guild_id:                body.guildId,
-          source_vc_id:            body.sourceVcId,
-          name:                    body.name ?? '',
-          category_id:             body.categoryId,
-          vc_name_format:          body.vcNameFormat ?? '{user-name}のVC',
-          channel_name_format:     body.channelNameFormat ?? '{user-name}の部屋',
-          user_limit:              body.userLimit ?? 0,
-          auto_delete:             body.autoDelete ?? true,
-          delete_delay_minutes:    body.deleteDelayMinutes ?? 0,
-          join_leave_notification: body.joinLeaveNotification ?? true,
-          enabled:                 body.enabled ?? true,
+          guild_id:                   body.guildId,
+          trigger_vc_id:              null,
+          trigger_vc_name:            body.triggerVcName ?? '一時VCを作成',
+          vc_category_id:             body.vcCategoryId,
+          text_channel_category_id:   body.textChannelCategoryId,
+          vc_name_format:             body.vcNameFormat ?? '{user-name}のVC',
+          channel_name_format:        body.channelNameFormat ?? '{user-name}の部屋',
+          user_limit:                 body.userLimit ?? 0,
+          auto_delete:                body.autoDelete ?? true,
+          delete_delay_minutes:       body.deleteDelayMinutes ?? 0,
+          join_leave_notification:    body.joinLeaveNotification ?? true,
+          enabled:                    body.enabled ?? true,
         };
         const resp = await sb('/temp_vc_sources', {
           method: 'POST',
@@ -1422,19 +1424,20 @@ export default {
         const rows = await resp.json() as Record<string, unknown>[];
         const r = rows[0];
         return new Response(JSON.stringify({
-          id:                     r['id'],
-          guildId:                r['guild_id'],
-          sourceVcId:             r['source_vc_id'],
-          name:                   r['name'],
-          categoryId:             r['category_id'],
-          vcNameFormat:           r['vc_name_format'],
-          channelNameFormat:      r['channel_name_format'],
-          userLimit:              r['user_limit'],
-          autoDelete:             r['auto_delete'],
-          deleteDelayMinutes:     r['delete_delay_minutes'],
-          joinLeaveNotification:  r['join_leave_notification'],
-          enabled:                r['enabled'],
-          createdAt:              r['created_at'],
+          id:                       r['id'],
+          guildId:                  r['guild_id'],
+          triggerVcId:              r['trigger_vc_id'] ?? null,
+          triggerVcName:            r['trigger_vc_name'],
+          vcCategoryId:             r['vc_category_id'],
+          textChannelCategoryId:    r['text_channel_category_id'],
+          vcNameFormat:             r['vc_name_format'],
+          channelNameFormat:        r['channel_name_format'],
+          userLimit:                r['user_limit'],
+          autoDelete:               r['auto_delete'],
+          deleteDelayMinutes:       r['delete_delay_minutes'],
+          joinLeaveNotification:    r['join_leave_notification'],
+          enabled:                  r['enabled'],
+          createdAt:                r['created_at'],
         }), { headers: { 'Content-Type': 'application/json' } });
       } catch (e) { return new Response(JSON.stringify({ error: String(e) }), { status: 500 }); }
     }
@@ -1447,11 +1450,12 @@ export default {
         const body = await request.json() as Record<string, unknown>;
         const updateData: Record<string, unknown> = {};
         const camelToSnake: Record<string, string> = {
-          guildId: 'guild_id', sourceVcId: 'source_vc_id', name: 'name',
-          categoryId: 'category_id', vcNameFormat: 'vc_name_format',
-          channelNameFormat: 'channel_name_format', userLimit: 'user_limit',
-          autoDelete: 'auto_delete', deleteDelayMinutes: 'delete_delay_minutes',
-          joinLeaveNotification: 'join_leave_notification', enabled: 'enabled',
+          guildId: 'guild_id', triggerVcName: 'trigger_vc_name',
+          vcCategoryId: 'vc_category_id', textChannelCategoryId: 'text_channel_category_id',
+          vcNameFormat: 'vc_name_format', channelNameFormat: 'channel_name_format',
+          userLimit: 'user_limit', autoDelete: 'auto_delete',
+          deleteDelayMinutes: 'delete_delay_minutes', joinLeaveNotification: 'join_leave_notification',
+          enabled: 'enabled', triggerVcId: 'trigger_vc_id',
         };
         for (const [k, v] of Object.entries(body)) {
           const snakeKey = camelToSnake[k] ?? k;
@@ -1468,19 +1472,20 @@ export default {
         if (!rows.length) return new Response('Not found', { status: 404 });
         const r = rows[0];
         return new Response(JSON.stringify({
-          id:                     r['id'],
-          guildId:                r['guild_id'],
-          sourceVcId:             r['source_vc_id'],
-          name:                   r['name'],
-          categoryId:             r['category_id'],
-          vcNameFormat:           r['vc_name_format'],
-          channelNameFormat:      r['channel_name_format'],
-          userLimit:              r['user_limit'],
-          autoDelete:             r['auto_delete'],
-          deleteDelayMinutes:     r['delete_delay_minutes'],
-          joinLeaveNotification:  r['join_leave_notification'],
-          enabled:                r['enabled'],
-          createdAt:              r['created_at'],
+          id:                       r['id'],
+          guildId:                  r['guild_id'],
+          triggerVcId:              r['trigger_vc_id'] ?? null,
+          triggerVcName:            r['trigger_vc_name'],
+          vcCategoryId:             r['vc_category_id'],
+          textChannelCategoryId:    r['text_channel_category_id'],
+          vcNameFormat:             r['vc_name_format'],
+          channelNameFormat:        r['channel_name_format'],
+          userLimit:                r['user_limit'],
+          autoDelete:               r['auto_delete'],
+          deleteDelayMinutes:       r['delete_delay_minutes'],
+          joinLeaveNotification:    r['join_leave_notification'],
+          enabled:                  r['enabled'],
+          createdAt:                r['created_at'],
         }), { headers: { 'Content-Type': 'application/json' } });
       } catch (e) { return new Response(JSON.stringify({ error: String(e) }), { status: 500 }); }
     }
@@ -1492,6 +1497,98 @@ export default {
       const resp = await sb(`/temp_vc_sources?id=eq.${id}`, { method: 'DELETE' });
       if (!resp.ok) return new Response(await resp.text(), { status: resp.status });
       return new Response(JSON.stringify({ success: true }), { headers: { 'Content-Type': 'application/json' } });
+    }
+
+    // POST /bot/temp-vc-sources/:id/create-trigger-vc
+    const createTriggerVcMatch = url.pathname.match(/^\/bot\/temp-vc-sources\/([^\/]+)\/create-trigger-vc$/);
+    if (createTriggerVcMatch && request.method === 'POST') {
+      try {
+        const id = createTriggerVcMatch[1];
+        const body = await request.json() as { guildId: string; triggerVcName: string; vcCategoryId: string };
+
+        // DiscordにトリガーVCを作成
+        const vcResp = await fetch(`https://discord.com/api/v10/guilds/${body.guildId}/channels`, {
+          method: 'POST',
+          headers: { Authorization: `Bot ${env.DISCORD_BOT_TOKEN}`, 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            name: body.triggerVcName,
+            type: 2, // Voice Channel
+            parent_id: body.vcCategoryId,
+            permission_overwrites: [
+              { id: body.guildId, allow: '1048576', deny: '0' } // Connect allowed for @everyone
+            ],
+          }),
+        });
+
+        if (!vcResp.ok) {
+          return new Response(await vcResp.text(), { status: vcResp.status });
+        }
+
+        const vcData = await vcResp.json() as { id: string };
+        const triggerVcId = vcData.id;
+
+        // Supabase更新
+        const resp = await sb(`/temp_vc_sources?id=eq.${id}`, {
+          method: 'PATCH',
+          body: JSON.stringify({ trigger_vc_id: triggerVcId, updated_at: new Date().toISOString() }),
+          headers: { Prefer: 'return=representation' },
+        });
+        if (!resp.ok) return new Response(await resp.text(), { status: resp.status });
+        const rows = await resp.json() as Record<string, unknown>[];
+        const r = rows[0];
+        return new Response(JSON.stringify({
+          id:                       r['id'],
+          guildId:                  r['guild_id'],
+          triggerVcId:              r['trigger_vc_id'] ?? null,
+          triggerVcName:            r['trigger_vc_name'],
+          vcCategoryId:             r['vc_category_id'],
+          textChannelCategoryId:    r['text_channel_category_id'],
+          vcNameFormat:             r['vc_name_format'],
+          channelNameFormat:        r['channel_name_format'],
+          userLimit:                r['user_limit'],
+          autoDelete:               r['auto_delete'],
+          deleteDelayMinutes:       r['delete_delay_minutes'],
+          joinLeaveNotification:    r['join_leave_notification'],
+          enabled:                  r['enabled'],
+          createdAt:                r['created_at'],
+        }), { headers: { 'Content-Type': 'application/json' } });
+      } catch (e) { return new Response(JSON.stringify({ error: String(e) }), { status: 500 }); }
+    }
+
+    // POST /bot/temp-vc-sources/:id/hide-trigger-vc
+    const hideTriggerVcMatch = url.pathname.match(/^\/bot\/temp-vc-sources\/([^\/]+)\/hide-trigger-vc$/);
+    if (hideTriggerVcMatch && request.method === 'POST') {
+      try {
+        const id = hideTriggerVcMatch[1];
+        const body = await request.json() as { guildId: string; triggerVcId: string };
+
+        // DiscordでトリガーVCを非表示（@everyoneのConnect権限を剥奪）
+        await fetch(`https://discord.com/api/v10/channels/${body.triggerVcId}/permissions/${body.guildId}`, {
+          method: 'PUT',
+          headers: { Authorization: `Bot ${env.DISCORD_BOT_TOKEN}`, 'Content-Type': 'application/json' },
+          body: JSON.stringify({ allow: '0', deny: '1048576', type: 0 }), // deny Connect
+        });
+
+        return new Response(JSON.stringify({ success: true }), { headers: { 'Content-Type': 'application/json' } });
+      } catch (e) { return new Response(JSON.stringify({ error: String(e) }), { status: 500 }); }
+    }
+
+    // POST /bot/temp-vc-sources/:id/show-trigger-vc
+    const showTriggerVcMatch = url.pathname.match(/^\/bot\/temp-vc-sources\/([^\/]+)\/show-trigger-vc$/);
+    if (showTriggerVcMatch && request.method === 'POST') {
+      try {
+        const id = showTriggerVcMatch[1];
+        const body = await request.json() as { guildId: string; triggerVcId: string };
+
+        // DiscordでトリガーVCを表示（@everyoneのConnect権限を付与）
+        await fetch(`https://discord.com/api/v10/channels/${body.triggerVcId}/permissions/${body.guildId}`, {
+          method: 'PUT',
+          headers: { Authorization: `Bot ${env.DISCORD_BOT_TOKEN}`, 'Content-Type': 'application/json' },
+          body: JSON.stringify({ allow: '1048576', deny: '0', type: 0 }), // allow Connect
+        });
+
+        return new Response(JSON.stringify({ success: true }), { headers: { 'Content-Type': 'application/json' } });
+      } catch (e) { return new Response(JSON.stringify({ error: String(e) }), { status: 500 }); }
     }
 
     // ── ショップ CRUD ────────────────────────────────────────────

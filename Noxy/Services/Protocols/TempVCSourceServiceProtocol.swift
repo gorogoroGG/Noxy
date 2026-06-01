@@ -5,6 +5,9 @@ protocol TempVCSourceServiceProtocol: Sendable {
     func createSource(_ source: TempVCSource) async throws -> TempVCSource
     func updateSource(_ source: TempVCSource) async throws -> TempVCSource
     func deleteSource(id: String) async throws
+    func createTriggerVc(id: String, guildId: String, triggerVcName: String, vcCategoryId: String) async throws -> TempVCSource
+    func hideTriggerVc(id: String, guildId: String, triggerVcId: String) async throws
+    func showTriggerVc(id: String, guildId: String, triggerVcId: String) async throws
 }
 
 struct WorkerTempVCSourceService: TempVCSourceServiceProtocol {
@@ -73,6 +76,56 @@ struct WorkerTempVCSourceService: TempVCSourceServiceProtocol {
             throw ServiceError.networkError
         }
     }
+
+    func createTriggerVc(id: String, guildId: String, triggerVcName: String, vcCategoryId: String) async throws -> TempVCSource {
+        let url = URL(string: "\(DiscordConfig.workerURL)/bot/temp-vc-sources/\(id)/create-trigger-vc")!
+        struct Body: Encodable {
+            let guildId: String
+            let triggerVcName: String
+            let vcCategoryId: String
+        }
+        var req = URLRequest(url: url, timeoutInterval: 15)
+        req.httpMethod = "POST"
+        req.setValue("application/json", forHTTPHeaderField: "Content-Type")
+        req.httpBody = try JSONEncoder().encode(Body(guildId: guildId, triggerVcName: triggerVcName, vcCategoryId: vcCategoryId))
+        let (data, resp) = try await session.data(for: req)
+        guard let http = resp as? HTTPURLResponse, (200..<300).contains(http.statusCode) else {
+            throw ServiceError.networkError
+        }
+        return try Self.decoder.decode(TempVCSource.self, from: data)
+    }
+
+    func hideTriggerVc(id: String, guildId: String, triggerVcId: String) async throws {
+        let url = URL(string: "\(DiscordConfig.workerURL)/bot/temp-vc-sources/\(id)/hide-trigger-vc")!
+        struct Body: Encodable {
+            let guildId: String
+            let triggerVcId: String
+        }
+        var req = URLRequest(url: url, timeoutInterval: 15)
+        req.httpMethod = "POST"
+        req.setValue("application/json", forHTTPHeaderField: "Content-Type")
+        req.httpBody = try JSONEncoder().encode(Body(guildId: guildId, triggerVcId: triggerVcId))
+        let (_, resp) = try await session.data(for: req)
+        guard let http = resp as? HTTPURLResponse, (200..<300).contains(http.statusCode) else {
+            throw ServiceError.networkError
+        }
+    }
+
+    func showTriggerVc(id: String, guildId: String, triggerVcId: String) async throws {
+        let url = URL(string: "\(DiscordConfig.workerURL)/bot/temp-vc-sources/\(id)/show-trigger-vc")!
+        struct Body: Encodable {
+            let guildId: String
+            let triggerVcId: String
+        }
+        var req = URLRequest(url: url, timeoutInterval: 15)
+        req.httpMethod = "POST"
+        req.setValue("application/json", forHTTPHeaderField: "Content-Type")
+        req.httpBody = try JSONEncoder().encode(Body(guildId: guildId, triggerVcId: triggerVcId))
+        let (_, resp) = try await session.data(for: req)
+        guard let http = resp as? HTTPURLResponse, (200..<300).contains(http.statusCode) else {
+            throw ServiceError.networkError
+        }
+    }
 }
 
 struct MockTempVCSourceService: TempVCSourceServiceProtocol {
@@ -81,9 +134,10 @@ struct MockTempVCSourceService: TempVCSourceServiceProtocol {
             TempVCSource(
                 id: "1",
                 guildId: guildId,
-                sourceVcId: "vc1",
-                name: "作成用VC 1",
-                categoryId: "cat1",
+                triggerVcId: "vc1",
+                triggerVcName: "一時VCを作成",
+                vcCategoryId: "cat1",
+                textChannelCategoryId: "cat2",
                 vcNameFormat: "{user-name}のVC",
                 channelNameFormat: "{user-name}の部屋",
                 userLimit: 0,
@@ -93,31 +147,15 @@ struct MockTempVCSourceService: TempVCSourceServiceProtocol {
                 enabled: true,
                 createdAt: Date()
             ),
-            TempVCSource(
-                id: "2",
-                guildId: guildId,
-                sourceVcId: "vc2",
-                name: "作成用VC 2",
-                categoryId: "cat1",
-                vcNameFormat: "{count}番目の部屋",
-                channelNameFormat: "room-{count}",
-                userLimit: 5,
-                autoDelete: true,
-                deleteDelayMinutes: 5,
-                joinLeaveNotification: false,
-                enabled: false,
-                createdAt: Date().addingTimeInterval(-3600)
-            ),
         ]
     }
 
-    func createSource(_ source: TempVCSource) async throws -> TempVCSource {
-        source
-    }
-
-    func updateSource(_ source: TempVCSource) async throws -> TempVCSource {
-        source
-    }
-
+    func createSource(_ source: TempVCSource) async throws -> TempVCSource { source }
+    func updateSource(_ source: TempVCSource) async throws -> TempVCSource { source }
     func deleteSource(id: String) async throws {}
+    func createTriggerVc(id: String, guildId: String, triggerVcName: String, vcCategoryId: String) async throws -> TempVCSource {
+        TempVCSource.defaultSource(guildId: guildId)
+    }
+    func hideTriggerVc(id: String, guildId: String, triggerVcId: String) async throws {}
+    func showTriggerVc(id: String, guildId: String, triggerVcId: String) async throws {}
 }

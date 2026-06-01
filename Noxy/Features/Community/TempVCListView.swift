@@ -10,7 +10,6 @@ struct TempVCListView: View {
     @State private var editingSource: TempVCSource? = nil
     @State private var toast: ToastMessage? = nil
     @State private var categories: [(id: String, name: String)] = []
-    @State private var voiceChannels: [(id: String, name: String)] = []
 
     var body: some View {
         List {
@@ -24,10 +23,10 @@ struct TempVCListView: View {
                             Image(systemName: "mic.slash.fill")
                                 .font(.system(size: 40))
                                 .foregroundStyle(Color.textTertiary)
-                            Text("作成用VCが登録されていません")
+                            Text("一時チャンネルが登録されていません")
                                 .font(.bodySmall)
                                 .foregroundStyle(Color.textTertiary)
-                            Text("＋ボタンをタップして、一時VCを作成するためのトリガーVCを登録してください。")
+                            Text("＋ボタンをタップして、一時チャンネルを作成するためのトリガーVCを登録してください。")
                                 .font(.captionSmall)
                                 .foregroundStyle(Color.textTertiary)
                                 .multilineTextAlignment(.center)
@@ -40,14 +39,14 @@ struct TempVCListView: View {
                         }
                     }
                 } header: {
-                    Text("作成用VC（\(sources.count)件）")
+                    Text("一時チャンネル（\(sources.count)件）")
                 }
 
                 if !sources.isEmpty {
                     Section {
                         tipRow(icon: "arrow.right.circle.fill", color: .accentIndigo,
                                title: "参加で自動作成",
-                               detail: "登録したVCに参加すると、指定カテゴリに新しいVC＋テキストチャンネルが自動作成されます。")
+                               detail: "トリガーVCに参加すると、指定カテゴリに新しいVC＋テキストチャンネルが自動作成されます。")
                         tipRow(icon: "person.2.fill", color: .accentGreen,
                                title: "参加者に移動",
                                detail: "参加したユーザーは自動的に作成されたVCに移動されます。")
@@ -59,7 +58,7 @@ struct TempVCListView: View {
             }
         }
         .listStyle(.insetGrouped)
-        .navigationTitle("Join to Create")
+        .navigationTitle("一時チャンネル")
         .navigationBarTitleDisplayMode(.large)
         .toolbar {
             ToolbarItem(placement: .topBarTrailing) {
@@ -78,7 +77,6 @@ struct TempVCListView: View {
                     guildId: guildId,
                     source: editingSource ?? TempVCSource.defaultSource(guildId: guildId),
                     categories: categories,
-                    voiceChannels: voiceChannels,
                     onSave: { source in
                         Task { await saveSource(source) }
                     }
@@ -118,13 +116,13 @@ struct TempVCListView: View {
                         .clipShape(RoundedRectangle(cornerRadius: 7))
 
                     VStack(alignment: .leading, spacing: 2) {
-                        Text(source.name.isEmpty ? "（名前未設定）" : source.name)
+                        Text(source.triggerVcName)
                             .font(.bodySmall)
                             .fontWeight(.semibold)
                             .foregroundStyle(Color.textPrimary)
-                        Text(vcName(for: source.sourceVcId))
+                        Text(source.triggerVcId != nil ? "トリガーVC作成済" : "未作成")
                             .font(.captionSmall)
-                            .foregroundStyle(Color.textTertiary)
+                            .foregroundStyle(source.triggerVcId != nil ? Color.accentGreen : Color.textTertiary)
                     }
 
                     Spacer()
@@ -135,16 +133,14 @@ struct TempVCListView: View {
                 }
 
                 HStack(spacing: .spacing12) {
-                    Label("作成先: \(categoryName(for: source.categoryId))", systemImage: "folder")
+                    Label("VC: \(categoryName(for: source.vcCategoryId))", systemImage: "folder")
+                        .font(.captionSmall)
+                        .foregroundStyle(Color.textTertiary)
+                    Label("テキスト: \(categoryName(for: source.textChannelCategoryId))", systemImage: "text.bubble")
                         .font(.captionSmall)
                         .foregroundStyle(Color.textTertiary)
                     if source.userLimit > 0 {
                         Label("\(source.userLimit)人", systemImage: "person.2")
-                            .font(.captionSmall)
-                            .foregroundStyle(Color.textTertiary)
-                    }
-                    if source.autoDelete {
-                        Label(source.deleteDelayMinutes == 0 ? "即削除" : "\(source.deleteDelayMinutes)分後", systemImage: "clock")
                             .font(.captionSmall)
                             .foregroundStyle(Color.textTertiary)
                     }
@@ -163,10 +159,6 @@ struct TempVCListView: View {
     }
 
     // MARK: - Helpers
-
-    private func vcName(for id: String) -> String {
-        voiceChannels.first(where: { $0.id == id })?.name ?? id
-    }
 
     private func categoryName(for id: String) -> String {
         categories.first(where: { $0.id == id })?.name ?? id
@@ -198,8 +190,7 @@ struct TempVCListView: View {
            let (data, _) = try? await URLSession.shared.data(from: url) {
             struct RawCh: Decodable { let id: String; let name: String; let type: Int }
             if let chs = try? JSONDecoder().decode([RawCh].self, from: data) {
-                categories    = chs.filter { $0.type == 4 }.map { ($0.id, $0.name) }
-                voiceChannels = chs.filter { $0.type == 2 }.map { ($0.id, $0.name) }
+                categories = chs.filter { $0.type == 4 }.map { ($0.id, $0.name) }
             }
         }
 
@@ -208,13 +199,45 @@ struct TempVCListView: View {
 
     private func saveSource(_ source: TempVCSource) async {
         do {
+            var saved: TempVCSource
             if source.id != nil {
-                _ = try await services.tempVCSource.updateSource(source)
+                saved = try await services.tempVCSource.updateSource(source)
+
+                // 有効/無効の切り替えを処理
+                if let triggerVcId = saved.triggerVcId {
+                    if saved.enabled {
+                        try await services.tempVCSource.showTriggerVc(
+                            id: saved.effectiveId,
+                            guildId: guildId,
+                            triggerVcId: triggerVcId
+                        )
+                    } else {
+                        try await services.tempVCSource.hideTriggerVc(
+                            id: saved.effectiveId,
+                            guildId: guildId,
+                            triggerVcId: triggerVcId
+                        )
+                    }
+                }
+
                 showToast("✅ 保存しました")
             } else {
-                _ = try await services.tempVCSource.createSource(source)
-                showToast("✅ 作成しました")
+                saved = try await services.tempVCSource.createSource(source)
+
+                // トリガーVCが未作成の場合は作成
+                if saved.triggerVcId == nil {
+                    saved = try await services.tempVCSource.createTriggerVc(
+                        id: saved.effectiveId,
+                        guildId: guildId,
+                        triggerVcName: saved.triggerVcName,
+                        vcCategoryId: saved.vcCategoryId
+                    )
+                    showToast("✅ 作成し、トリガーVCも作成しました")
+                } else {
+                    showToast("✅ 作成しました")
+                }
             }
+
             withAnimation { isEditing = false }
             await loadAll()
         } catch {

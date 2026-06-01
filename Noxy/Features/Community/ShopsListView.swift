@@ -59,7 +59,6 @@ private struct ShopPanelListView: View {
     @State private var editingShop: Shop? = nil
     @State private var deployingId: String? = nil
     @State private var deployTargetShop: Shop? = nil
-    @State private var selectedShopForProducts: Shop? = nil
     @State private var toast: String? = nil
 
     var body: some View {
@@ -81,7 +80,6 @@ private struct ShopPanelListView: View {
                             isDeploying: deployingId == shop.id,
                             hasProducts: hasProducts,
                             onEdit: { editingShop = shop },
-                            onProducts: { selectedShopForProducts = shop },
                             onDeploy: { deployTargetShop = shop }
                         )
                         .listRowInsets(EdgeInsets(top: 4, leading: 16, bottom: 4, trailing: 16))
@@ -136,9 +134,6 @@ private struct ShopPanelListView: View {
             ShopDeployChannelPickerSheet(shop: shop, guildId: guildId) { channelId in
                 Task { await deploy(shop, channelId: channelId) }
             }
-        }
-        .sheet(item: $selectedShopForProducts) { shop in
-            ProductManagementView(shop: shop, guildId: guildId)
         }
         .task { await load() }
     }
@@ -276,7 +271,6 @@ private struct ShopCard: View {
     let isDeploying: Bool
     let hasProducts: Bool
     let onEdit: () -> Void
-    let onProducts: () -> Void
     let onDeploy: () -> Void
 
     var body: some View {
@@ -342,16 +336,6 @@ private struct ShopCard: View {
                     Label("編集", systemImage: "pencil")
                         .font(.captionRegular).fontWeight(.medium)
                         .foregroundStyle(Color.accentIndigo)
-                        .frame(maxWidth: .infinity).padding(.vertical, .spacing10)
-                }
-                .buttonStyle(.plain)
-
-                Divider().frame(height: 20)
-
-                Button(action: onProducts) {
-                    Label("商品管理", systemImage: "archivebox.fill")
-                        .font(.captionRegular).fontWeight(.medium)
-                        .foregroundStyle(Color.accentPurple)
                         .frame(maxWidth: .infinity).padding(.vertical, .spacing10)
                 }
                 .buttonStyle(.plain)

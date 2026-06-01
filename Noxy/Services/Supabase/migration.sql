@@ -234,13 +234,14 @@ CREATE TABLE IF NOT EXISTS temp_channels (
     created_at      TIMESTAMPTZ NOT NULL DEFAULT NOW()
 );
 
--- 14. temp_vc_sources（一時VC作成元設定）
+-- 14. temp_vc_sources（一時VC設定）
 CREATE TABLE IF NOT EXISTS temp_vc_sources (
     id                      TEXT PRIMARY KEY DEFAULT gen_random_uuid()::text,
     guild_id                TEXT NOT NULL,
-    source_vc_id            TEXT NOT NULL,           -- トリガーとなるVCのID
-    name                    TEXT NOT NULL DEFAULT '', -- 管理用名前
-    category_id             TEXT NOT NULL,           -- 作成先カテゴリ
+    trigger_vc_id           TEXT,                  -- 作成されたトリガーVCのDiscord ID
+    trigger_vc_name         TEXT NOT NULL DEFAULT '一時VCを作成', -- トリガーVCの名前
+    vc_category_id          TEXT NOT NULL,         -- 一時VCの作成先カテゴリ
+    text_channel_category_id TEXT NOT NULL,        -- 一時テキストチャンネルの作成先カテゴリ
     vc_name_format          TEXT NOT NULL DEFAULT '{user-name}のVC',
     channel_name_format     TEXT NOT NULL DEFAULT '{user-name}の部屋',
     user_limit              INTEGER NOT NULL DEFAULT 0,   -- 0=無制限
@@ -252,8 +253,8 @@ CREATE TABLE IF NOT EXISTS temp_vc_sources (
     updated_at              TIMESTAMPTZ NOT NULL DEFAULT NOW()
 );
 
--- temp_channelsにtemp_vc_id追加（Join-to-Create用）
-ALTER TABLE temp_channels ADD COLUMN IF NOT EXISTS temp_vc_id TEXT;
+-- temp_channelsにtemp_vc_source_id追加（一時VC用）
+ALTER TABLE temp_channels ADD COLUMN IF NOT EXISTS temp_vc_source_id TEXT;
 
 -- ============================================================
 -- インデックス
@@ -274,7 +275,7 @@ CREATE INDEX IF NOT EXISTS idx_orders_shop        ON orders(shop_id);
 CREATE INDEX IF NOT EXISTS idx_temp_ch_guild      ON temp_channels(guild_id);
 CREATE INDEX IF NOT EXISTS idx_temp_ch_vc        ON temp_channels(vc_channel_id);
 CREATE INDEX IF NOT EXISTS idx_temp_vc_guild     ON temp_vc_sources(guild_id);
-CREATE INDEX IF NOT EXISTS idx_temp_vc_source    ON temp_vc_sources(source_vc_id);
+CREATE INDEX IF NOT EXISTS idx_temp_vc_trigger   ON temp_vc_sources(trigger_vc_id);
 
 -- ============================================================
 -- Row Level Security（RLS）: 認証済みの全操作を許可

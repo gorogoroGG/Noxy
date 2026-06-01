@@ -125,24 +125,22 @@ struct ShopEditView: View {
     // MARK: - パネル設定
 
     private var panelSettingsTab: some View {
-        ScrollView {
-            Form {
-                enabledToggleSection
-                appearanceSection
-                previewSection
-                channelSettingsSection
-                timeoutSection
-                footerSection
+        Form {
+            enabledToggleSection
+            appearanceSection
+            previewSection
+            channelSettingsSection
+            timeoutSection
+            footerSection
 
-                if let err = errorMessage {
-                    Section {
-                        Label(err, systemImage: "exclamationmark.triangle.fill")
-                            .foregroundStyle(.orange).font(.captionRegular)
-                    }
+            if let err = errorMessage {
+                Section {
+                    Label(err, systemImage: "exclamationmark.triangle.fill")
+                        .foregroundStyle(.orange).font(.captionRegular)
                 }
             }
-            .scrollContentBackground(.hidden)
         }
+        .scrollContentBackground(.hidden)
         .background(Color(.systemGroupedBackground))
     }
 
@@ -298,23 +296,21 @@ struct ShopEditView: View {
     // MARK: - 取引
 
     private var transactionTab: some View {
-        ScrollView {
-            Form {
-                paymentFlowSection
-                welcomeEmbedSection
-                welcomePreviewSection
-                welcomeFieldsSection
-                welcomeFooterSection
+        Form {
+            paymentFlowSection
+            welcomeEmbedSection
+            welcomePreviewSection
+            welcomeFieldsSection
+            welcomeFooterSection
 
-                if let err = errorMessage {
-                    Section {
-                        Label(err, systemImage: "exclamationmark.triangle.fill")
-                            .foregroundStyle(.orange).font(.captionRegular)
-                    }
+            if let err = errorMessage {
+                Section {
+                    Label(err, systemImage: "exclamationmark.triangle.fill")
+                        .foregroundStyle(.orange).font(.captionRegular)
                 }
             }
-            .scrollContentBackground(.hidden)
         }
+        .scrollContentBackground(.hidden)
         .background(Color(.systemGroupedBackground))
     }
 
@@ -446,7 +442,20 @@ struct ShopEditView: View {
     private var productsTab: some View {
         ZStack(alignment: .bottom) {
             List {
-                if isLoading {
+                if isNew {
+                    VStack(spacing: .spacing12) {
+                        Image(systemName: "archivebox.fill")
+                            .font(.system(size: 40)).foregroundStyle(Color.textTertiary)
+                        Text("ショップを先に保存してください")
+                            .font(.titleMedium).foregroundStyle(Color.textPrimary)
+                        Text("ショップを保存した後、再度編集画面を開いて商品を追加できます。")
+                            .font(.captionRegular).foregroundStyle(Color.textTertiary)
+                            .multilineTextAlignment(.center)
+                    }
+                    .frame(maxWidth: .infinity).padding(.top, 60)
+                    .listRowBackground(Color(.systemGroupedBackground))
+                    .listRowSeparator(.hidden)
+                } else if isLoading {
                     HStack { Spacer(); ProgressView(); Spacer() }
                         .listRowBackground(Color(.systemGroupedBackground))
                         .listRowSeparator(.hidden).padding(.top, 40)
@@ -481,17 +490,19 @@ struct ShopEditView: View {
             .listStyle(.plain)
             .background(Color(.systemGroupedBackground))
 
-            Button { showCreateProduct = true } label: {
-                HStack(spacing: .spacing8) {
-                    Image(systemName: "plus").font(.system(size: 14, weight: .bold))
-                    Text("商品を追加").font(.bodySmall).fontWeight(.semibold)
+            if !isNew {
+                Button { showCreateProduct = true } label: {
+                    HStack(spacing: .spacing8) {
+                        Image(systemName: "plus").font(.system(size: 14, weight: .bold))
+                        Text("商品を追加").font(.bodySmall).fontWeight(.semibold)
+                    }
+                    .foregroundStyle(.white)
+                    .padding(.horizontal, .spacing20).padding(.vertical, .spacing12)
+                    .background(Color.accentIndigo).clipShape(Capsule())
+                    .shadow(color: Color.accentIndigo.opacity(0.4), radius: 8, y: 4)
                 }
-                .foregroundStyle(.white)
-                .padding(.horizontal, .spacing20).padding(.vertical, .spacing12)
-                .background(Color.accentIndigo).clipShape(Capsule())
-                .shadow(color: Color.accentIndigo.opacity(0.4), radius: 8, y: 4)
+                .padding(.bottom, 24)
             }
-            .padding(.bottom, 24)
         }
         .sheet(isPresented: $showCreateProduct) {
             ProductEditView(shopId: existingShop?.id ?? "", guildId: guildId, existingProduct: nil) {

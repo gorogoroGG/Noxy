@@ -26,21 +26,12 @@ struct CommunityTabView: View {
                     }
 
                     NavigationLink {
-                        TempChannelSettingsView(guildId: appState.selectedGuildId)
+                        TempVCListView(guildId: appState.selectedGuildId)
                     } label: {
                         CommunityMenuRow(icon: "waveform.and.mic",
                                          title: "一時チャンネル",
-                                         subtitle: "VC参加時に自動作成されるプライベートチャンネル",
-                                         color: .accentGreen)
-                    }
-
-                    NavigationLink {
-                        TempVCListView(guildId: appState.selectedGuildId)
-                    } label: {
-                        CommunityMenuRow(icon: "plus.circle.fill",
-                                         title: "Join to Create",
                                          subtitle: "参加すると自動でVC＋チャンネルを作成",
-                                         color: .accentPurple)
+                                         color: .accentGreen)
                     }
 
 //                    NavigationLink {

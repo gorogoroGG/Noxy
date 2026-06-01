@@ -4,7 +4,6 @@ struct TempVCSourceEditView: View {
     let guildId: String
     let source: TempVCSource
     let categories: [(id: String, name: String)]
-    let voiceChannels: [(id: String, name: String)]
     let onSave: (TempVCSource) -> Void
 
     @Environment(\.dismiss) private var dismiss
@@ -24,13 +23,11 @@ struct TempVCSourceEditView: View {
         guildId: String,
         source: TempVCSource,
         categories: [(id: String, name: String)],
-        voiceChannels: [(id: String, name: String)],
         onSave: @escaping (TempVCSource) -> Void
     ) {
         self.guildId = guildId
         self.source = source
         self.categories = categories
-        self.voiceChannels = voiceChannels
         self.onSave = onSave
         _editedSource = State(initialValue: source)
     }
@@ -39,24 +36,24 @@ struct TempVCSourceEditView: View {
         Form {
             // 基本設定
             Section {
-                TextField("名前（管理用）", text: Binding(
-                    get: { editedSource.name },
-                    set: { editedSource.name = $0 }
+                TextField("トリガーVC名（例: 一時VCを作成）", text: Binding(
+                    get: { editedSource.triggerVcName },
+                    set: { editedSource.triggerVcName = $0 }
                 ))
 
-                Picker("トリガーVC", selection: Binding(
-                    get: { editedSource.sourceVcId },
-                    set: { editedSource.sourceVcId = $0 }
+                Picker("一時VCの作成先カテゴリ", selection: Binding(
+                    get: { editedSource.vcCategoryId },
+                    set: { editedSource.vcCategoryId = $0 }
                 )) {
                     Text("選択してください").tag("")
-                    ForEach(voiceChannels, id: \.id) {
+                    ForEach(categories, id: \.id) {
                         Text($0.name).tag($0.id)
                     }
                 }
 
-                Picker("作成先カテゴリ", selection: Binding(
-                    get: { editedSource.categoryId },
-                    set: { editedSource.categoryId = $0 }
+                Picker("テキストチャンネルの作成先カテゴリ", selection: Binding(
+                    get: { editedSource.textChannelCategoryId },
+                    set: { editedSource.textChannelCategoryId = $0 }
                 )) {
                     Text("選択してください").tag("")
                     ForEach(categories, id: \.id) {
@@ -64,11 +61,12 @@ struct TempVCSourceEditView: View {
                     }
                 }
             } header: { Text("基本設定") }
+              footer: { Text("トリガーVC名: ユーザーが参加するVCの名前です。保存時に自動作成されます。\n一時VCカテゴリ: 参加後に作成されるVCが配置されるカテゴリです。\nテキストチャンネルカテゴリ: 同時に作成されるテキストチャンネルの配置先です。") }
 
             // VC名フォーマット
             Section {
                 VStack(alignment: .leading, spacing: 6) {
-                    Text("VC名フォーマット").font(.captionSmall).foregroundStyle(Color.textTertiary)
+                    Text("一時VC名フォーマット").font(.captionSmall).foregroundStyle(Color.textTertiary)
                     TextField("例: {user-name}のVC", text: Binding(
                         get: { editedSource.vcNameFormat },
                         set: { editedSource.vcNameFormat = $0 }
@@ -87,7 +85,7 @@ struct TempVCSourceEditView: View {
                         }
                     }
                 }
-            } header: { Text("VC名フォーマット") }
+            } header: { Text("一時VC名フォーマット") }
               footer: { Text("{user-name}=最初の参加者  {count}=連番") }
 
             // チャンネル名フォーマット
@@ -112,7 +110,7 @@ struct TempVCSourceEditView: View {
                         }
                     }
                 }
-            } header: { Text("チャンネル名フォーマット") }
+            } header: { Text("テキストチャンネル名フォーマット") }
 
             // 人数制限
             Section {
@@ -157,7 +155,7 @@ struct TempVCSourceEditView: View {
                     get: { editedSource.enabled },
                     set: { editedSource.enabled = $0 }
                 )).tint(Color.accentIndigo)
-            }
+            } footer: { Text("無効にすると、トリガーVCは非表示になります。") }
         }
         .navigationTitle(source.id == nil ? "新規作成" : "編集")
         .navigationBarTitleDisplayMode(.inline)
@@ -176,7 +174,9 @@ struct TempVCSourceEditView: View {
     }
 
     private var isValid: Bool {
-        !editedSource.sourceVcId.isEmpty && !editedSource.categoryId.isEmpty
+        !editedSource.triggerVcName.isEmpty &&
+        !editedSource.vcCategoryId.isEmpty &&
+        !editedSource.textChannelCategoryId.isEmpty
     }
 
     private func save() async {
@@ -192,8 +192,7 @@ struct TempVCSourceEditView: View {
         TempVCSourceEditView(
             guildId: "g001",
             source: TempVCSource.defaultSource(guildId: "g001"),
-            categories: [("cat1", "カテゴリ1"), ("cat2", "カテゴリ2")],
-            voiceChannels: [("vc1", "一般VC"), ("vc2", "ゲームVC")]
+            categories: [("cat1", "カテゴリ1"), ("cat2", "カテゴリ2")]
         ) { _ in }
     }
     .preferredColorScheme(.dark)
