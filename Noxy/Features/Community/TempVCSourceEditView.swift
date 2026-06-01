@@ -36,10 +36,16 @@ struct TempVCSourceEditView: View {
         Form {
             // 基本設定
             Section {
-                TextField("トリガーVC名（例: 一時VCを作成）", text: Binding(
-                    get: { editedSource.triggerVcName },
-                    set: { editedSource.triggerVcName = $0 }
-                ))
+                VStack(alignment: .leading, spacing: 6) {
+                    Text("トリガーVCの名前")
+                        .font(.captionSmall)
+                        .foregroundStyle(Color.textTertiary)
+                    TextField("例: 一時VCを作ろう", text: Binding(
+                        get: { editedSource.triggerVcName },
+                        set: { editedSource.triggerVcName = $0 }
+                    ))
+                    .font(.bodySmall)
+                }
 
                 Picker("一時VCの作成先カテゴリ", selection: Binding(
                     get: { editedSource.vcCategoryId },
@@ -61,7 +67,7 @@ struct TempVCSourceEditView: View {
                     }
                 }
             } header: { Text("基本設定") }
-              footer: { Text("トリガーVC名: ユーザーが参加するVCの名前です。保存時に自動作成されます。\n一時VCカテゴリ: 参加後に作成されるVCが配置されるカテゴリです。\nテキストチャンネルカテゴリ: 同時に作成されるテキストチャンネルの配置先です。") }
+              footer: { Text("トリガーVCの名前: ユーザーが最初に参加するVCの名前です。保存時に自動作成されます。\n一時VCカテゴリ: 参加後に作成されるVCが配置されるカテゴリです。\nテキストチャンネルカテゴリ: 同時に作成されるテキストチャンネルの配置先です。") }
 
             // VC名フォーマット
             Section {

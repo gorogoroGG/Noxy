@@ -23,7 +23,7 @@ struct TempVCSource: Identifiable, Codable, Equatable {
             id: nil,
             guildId: guildId,
             triggerVcId: nil,
-            triggerVcName: "一時VCを作成",
+            triggerVcName: "🏠 一時VCを作ろう",
             vcCategoryId: "",
             textChannelCategoryId: "",
             vcNameFormat: "{user-name}のVC",

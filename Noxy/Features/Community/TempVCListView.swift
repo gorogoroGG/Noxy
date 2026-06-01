@@ -120,9 +120,15 @@ struct TempVCListView: View {
                             .font(.bodySmall)
                             .fontWeight(.semibold)
                             .foregroundStyle(Color.textPrimary)
-                        Text(source.triggerVcId != nil ? "トリガーVC作成済" : "未作成")
-                            .font(.captionSmall)
-                            .foregroundStyle(source.triggerVcId != nil ? Color.accentGreen : Color.textTertiary)
+                        if source.triggerVcId != nil {
+                            Text("トリガーVC作成済")
+                                .font(.captionSmall)
+                                .foregroundStyle(Color.accentGreen)
+                        } else {
+                            Text("トリガーVC未作成")
+                                .font(.captionSmall)
+                                .foregroundStyle(Color.textTertiary)
+                        }
                     }
 
                     Spacer()

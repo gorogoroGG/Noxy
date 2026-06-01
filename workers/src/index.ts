@@ -1404,7 +1404,7 @@ export default {
         const insertData = {
           guild_id:                   body.guildId,
           trigger_vc_id:              null,
-          trigger_vc_name:            body.triggerVcName ?? '一時VCを作成',
+          trigger_vc_name:            body.triggerVcName ?? '🏠 一時VCを作ろう',
           vc_category_id:             body.vcCategoryId,
           text_channel_category_id:   body.textChannelCategoryId,
           vc_name_format:             body.vcNameFormat ?? '{user-name}のVC',

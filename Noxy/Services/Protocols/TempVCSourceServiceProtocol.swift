@@ -135,7 +135,7 @@ struct MockTempVCSourceService: TempVCSourceServiceProtocol {
                 id: "1",
                 guildId: guildId,
                 triggerVcId: "vc1",
-                triggerVcName: "一時VCを作成",
+                triggerVcName: "🏠 一時VCを作ろう",
                 vcCategoryId: "cat1",
                 textChannelCategoryId: "cat2",
                 vcNameFormat: "{user-name}のVC",
