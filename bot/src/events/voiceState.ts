@@ -204,7 +204,7 @@ async function handleVoiceLeave(state: VoiceState): Promise<void> {
   console.log(`[TempVC] 一時チャンネル発見: text=${tempCh.text_channel_id}, source=${tempCh.temp_vc_source_id}`);
 
   // テキストチャンネルをキャッシュまたはfetchで取得
-  let textChannel = guild.channels.cache.get(tempCh.text_channel_id) as TextChannel | undefined;
+  let textChannel: TextChannel | null = guild.channels.cache.get(tempCh.text_channel_id) as TextChannel | undefined ?? null;
   if (!textChannel) {
     textChannel = await guild.channels.fetch(tempCh.text_channel_id).catch(() => null) as TextChannel | null;
     if (!textChannel) {
