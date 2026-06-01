@@ -1068,6 +1068,102 @@ export default {
       } catch (e) { return new Response(JSON.stringify({ error: String(e) }), { status: 500 }); }
     }
 
+    // ── 一時チャンネル設定 ──────────────────────────────────────
+
+    // GET /bot/temp-channel-settings?guild_id=xxx
+    if (url.pathname === '/bot/temp-channel-settings' && request.method === 'GET') {
+      const guildId = url.searchParams.get('guild_id');
+      if (!guildId) return new Response('Missing guild_id', { status: 400 });
+      const resp = await sb(`/temp_channel_settings?guild_id=eq.${guildId}`);
+      if (!resp.ok) return new Response(await resp.text(), { status: resp.status });
+      const rows = await resp.json() as Record<string, unknown>[];
+      if (!rows.length) {
+        // デフォルト設定を返す
+        return new Response(JSON.stringify({
+          guildId, enabled: false, categoryId: null,
+          channelNameFormat: '💬-{vc-name}', autoDelete: true,
+          deleteDelayMinutes: 0, joinLeaveNotification: true,
+          watchAllVcs: true, watchVcIds: [], minMembers: 1,
+        }), { headers: { 'Content-Type': 'application/json' } });
+      }
+      const r = rows[0];
+      return new Response(JSON.stringify({
+        id:                     r['id'],
+        guildId:                r['guild_id'],
+        enabled:                r['enabled'],
+        categoryId:             r['category_id'] ?? null,
+        channelNameFormat:      r['channel_name_format'],
+        autoDelete:             r['auto_delete'],
+        deleteDelayMinutes:     r['delete_delay_minutes'],
+        joinLeaveNotification:  r['join_leave_notification'],
+        watchAllVcs:            r['watch_all_vcs'],
+        watchVcIds:             r['watch_vc_ids'] ?? [],
+        minMembers:             r['min_members'],
+      }), { headers: { 'Content-Type': 'application/json' } });
+    }
+
+    // POST /bot/temp-channel-settings  (upsert)
+    if (url.pathname === '/bot/temp-channel-settings' && request.method === 'POST') {
+      try {
+        const body = await request.json() as {
+          guildId: string; enabled?: boolean; categoryId?: string | null;
+          channelNameFormat?: string; autoDelete?: boolean;
+          deleteDelayMinutes?: number; joinLeaveNotification?: boolean;
+          watchAllVcs?: boolean; watchVcIds?: string[]; minMembers?: number;
+        };
+        const upsertData = {
+          guild_id:                body.guildId,
+          enabled:                 body.enabled                ?? false,
+          category_id:             body.categoryId             ?? null,
+          channel_name_format:     body.channelNameFormat      ?? '💬-{vc-name}',
+          auto_delete:             body.autoDelete             ?? true,
+          delete_delay_minutes:    body.deleteDelayMinutes     ?? 0,
+          join_leave_notification: body.joinLeaveNotification  ?? true,
+          watch_all_vcs:           body.watchAllVcs            ?? true,
+          watch_vc_ids:            body.watchVcIds             ?? [],
+          min_members:             body.minMembers             ?? 1,
+          updated_at:              new Date().toISOString(),
+        };
+        const resp = await sb('/temp_channel_settings', {
+          method: 'POST',
+          body:   JSON.stringify(upsertData),
+          headers: { Prefer: 'resolution=merge-duplicates,return=representation' },
+        });
+        if (!resp.ok) return new Response(await resp.text(), { status: resp.status });
+        const rows = await resp.json() as Record<string, unknown>[];
+        const r = rows[0];
+        return new Response(JSON.stringify({
+          id:                    r['id'],
+          guildId:               r['guild_id'],
+          enabled:               r['enabled'],
+          categoryId:            r['category_id'] ?? null,
+          channelNameFormat:     r['channel_name_format'],
+          autoDelete:            r['auto_delete'],
+          deleteDelayMinutes:    r['delete_delay_minutes'],
+          joinLeaveNotification: r['join_leave_notification'],
+          watchAllVcs:           r['watch_all_vcs'],
+          watchVcIds:            r['watch_vc_ids'] ?? [],
+          minMembers:            r['min_members'],
+        }), { headers: { 'Content-Type': 'application/json' } });
+      } catch (e) { return new Response(JSON.stringify({ error: String(e) }), { status: 500 }); }
+    }
+
+    // GET /bot/temp-channels?guild_id=xxx  （アクティブな一時チャンネル一覧）
+    if (url.pathname === '/bot/temp-channels' && request.method === 'GET') {
+      const guildId = url.searchParams.get('guild_id');
+      if (!guildId) return new Response('Missing guild_id', { status: 400 });
+      const resp = await sb(`/temp_channels?guild_id=eq.${guildId}&order=created_at.desc`);
+      if (!resp.ok) return new Response(await resp.text(), { status: resp.status });
+      const rows = await resp.json() as Record<string, unknown>[];
+      return new Response(JSON.stringify(rows.map(r => ({
+        id:            r['id'],
+        guildId:       r['guild_id'],
+        vcChannelId:   r['vc_channel_id'],
+        textChannelId: r['text_channel_id'],
+        createdAt:     r['created_at'],
+      }))), { headers: { 'Content-Type': 'application/json' } });
+    }
+
     return new Response("Not Found", { status: 404 });
   },
 

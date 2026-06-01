@@ -18,6 +18,7 @@ final class ServiceContainer {
     let auth:               any AuthServiceProtocol
     let reactionRoles:      any ReactionRoleServiceProtocol
     let greeting:           any GreetingServiceProtocol
+    let tempChannel:        any TempChannelServiceProtocol
 
     private init(
         embeds:            any EmbedServiceProtocol,
@@ -32,7 +33,8 @@ final class ServiceContainer {
         bot:               any BotServiceProtocol,
         auth:              any AuthServiceProtocol,
         reactionRoles:     any ReactionRoleServiceProtocol,
-        greeting:          any GreetingServiceProtocol
+        greeting:          any GreetingServiceProtocol,
+        tempChannel:       any TempChannelServiceProtocol
     ) {
         self.embeds = embeds
         self.guilds = guilds
@@ -47,6 +49,7 @@ final class ServiceContainer {
         self.auth = auth
         self.reactionRoles = reactionRoles
         self.greeting = greeting
+        self.tempChannel = tempChannel
     }
 
     /// モック用（プレビュー・テスト）
@@ -64,7 +67,8 @@ final class ServiceContainer {
             bot:               MockBotService(),
             auth:              MockAuthService(),
             reactionRoles:     MockReactionRoleService(),
-            greeting:          MockGreetingService()
+            greeting:          MockGreetingService(),
+            tempChannel:       MockTempChannelService()
         )
     }
 
@@ -83,7 +87,8 @@ final class ServiceContainer {
             bot:               MockBotService(),
             auth:              SupabaseAuthService(),
             reactionRoles:     SupabaseReactionRoleService(),
-            greeting:          SupabaseGreetingService()
+            greeting:          SupabaseGreetingService(),
+            tempChannel:       WorkerTempChannelService()
         )
     }
 }

@@ -148,6 +148,33 @@ CREATE TABLE IF NOT EXISTS ticket_messages (
     created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
 );
 
+-- 10. temp_channel_settings（一時チャンネル設定）
+CREATE TABLE IF NOT EXISTS temp_channel_settings (
+    id                      TEXT PRIMARY KEY DEFAULT gen_random_uuid()::text,
+    guild_id                TEXT NOT NULL UNIQUE,
+    enabled                 BOOLEAN NOT NULL DEFAULT FALSE,
+    category_id             TEXT,
+    -- チャンネル名フォーマット: {vc-name} {user-name} {count} が使える
+    channel_name_format     TEXT NOT NULL DEFAULT '💬-{vc-name}',
+    auto_delete             BOOLEAN NOT NULL DEFAULT TRUE,
+    delete_delay_minutes    INTEGER NOT NULL DEFAULT 0,   -- 0=即削除
+    join_leave_notification BOOLEAN NOT NULL DEFAULT TRUE,
+    watch_all_vcs           BOOLEAN NOT NULL DEFAULT TRUE,
+    watch_vc_ids            JSONB NOT NULL DEFAULT '[]',  -- 特定VCのみ監視する場合のID一覧
+    min_members             INTEGER NOT NULL DEFAULT 1,   -- 最小参加人数
+    created_at              TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    updated_at              TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
+
+-- 11. temp_channels（アクティブな一時チャンネル）
+CREATE TABLE IF NOT EXISTS temp_channels (
+    id              TEXT PRIMARY KEY DEFAULT gen_random_uuid()::text,
+    guild_id        TEXT NOT NULL,
+    vc_channel_id   TEXT NOT NULL,
+    text_channel_id TEXT NOT NULL,
+    created_at      TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
+
 -- ============================================================
 -- インデックス
 -- ============================================================
@@ -159,6 +186,8 @@ CREATE INDEX IF NOT EXISTS idx_tickets_guild     ON tickets(guild_id);
 CREATE INDEX IF NOT EXISTS idx_tickets_status    ON tickets(status);
 CREATE INDEX IF NOT EXISTS idx_tickets_channel   ON tickets(channel_id);
 CREATE INDEX IF NOT EXISTS idx_ticket_msgs       ON ticket_messages(ticket_id);
+CREATE INDEX IF NOT EXISTS idx_temp_ch_guild     ON temp_channels(guild_id);
+CREATE INDEX IF NOT EXISTS idx_temp_ch_vc        ON temp_channels(vc_channel_id);
 
 -- ============================================================
 -- Row Level Security（RLS）: 認証済みの全操作を許可
@@ -179,7 +208,11 @@ CREATE POLICY "Allow all for authenticated users" ON channels           FOR ALL 
 CREATE POLICY "Allow all for authenticated users" ON reaction_roles     FOR ALL USING (auth.role() = 'authenticated');
 CREATE POLICY "Allow all for authenticated users" ON ticket_panels      FOR ALL USING (auth.role() = 'authenticated');
 CREATE POLICY "Allow all for authenticated users" ON tickets            FOR ALL USING (auth.role() = 'authenticated');
-CREATE POLICY "Allow all for authenticated users" ON ticket_messages    FOR ALL USING (auth.role() = 'authenticated');
+CREATE POLICY "Allow all for authenticated users" ON ticket_messages         FOR ALL USING (auth.role() = 'authenticated');
+ALTER TABLE temp_channel_settings ENABLE ROW LEVEL SECURITY;
+ALTER TABLE temp_channels         ENABLE ROW LEVEL SECURITY;
+CREATE POLICY "Allow all for authenticated users" ON temp_channel_settings   FOR ALL USING (auth.role() = 'authenticated');
+CREATE POLICY "Allow all for authenticated users" ON temp_channels            FOR ALL USING (auth.role() = 'authenticated');
 
 -- ============================================================
 -- サンプルデータ（初回のみ）

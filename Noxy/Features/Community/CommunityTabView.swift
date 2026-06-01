@@ -25,6 +25,15 @@ struct CommunityTabView: View {
                                          color: .accentOrange)
                     }
 
+                    NavigationLink {
+                        TempChannelSettingsView(guildId: appState.selectedGuildId)
+                    } label: {
+                        CommunityMenuRow(icon: "waveform.and.mic",
+                                         title: "一時チャンネル",
+                                         subtitle: "VC参加時に自動作成されるプライベートチャンネル",
+                                         color: .accentGreen)
+                    }
+
 //                    NavigationLink {
 //                        ModerationToolsView()
 //                    } label: {

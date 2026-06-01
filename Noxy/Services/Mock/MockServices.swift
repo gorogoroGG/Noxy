@@ -437,6 +437,21 @@ actor MockAuthService: AuthServiceProtocol {
     }
 }
 
+// MARK: - TempChannel
+
+actor MockTempChannelService: TempChannelServiceProtocol {
+    func fetchSettings(guildId: String) async throws -> TempChannelSettings {
+        try await mockDelay()
+        return TempChannelSettings.defaultSettings(guildId: guildId)
+    }
+    func saveSettings(_ settings: TempChannelSettings) async throws -> TempChannelSettings {
+        try await mockDelay(); return settings
+    }
+    func fetchActiveChannels(guildId: String) async throws -> [ActiveTempChannel] {
+        try await mockDelay(); return []
+    }
+}
+
 // MARK: - ReactionRole
 
 actor MockReactionRoleService: ReactionRoleServiceProtocol {

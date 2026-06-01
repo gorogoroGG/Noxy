@@ -10,6 +10,7 @@ import './events/reactionRemove';
 import './events/guildMemberAdd';
 import './events/guildMemberRemove';
 import './events/ticketInteraction';
+import './events/voiceState';
 
 const token = process.env.DISCORD_BOT_TOKEN;
 if (!token) {
