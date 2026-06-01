@@ -157,9 +157,12 @@ async function handleVoiceLeave(state: VoiceState, settings: TempChannelSettings
 
   const textChannel = guild.channels.cache.get(tempCh.text_channel_id) as TextChannel | undefined;
 
-  // 退室メンバーの権限を剥奪
+  // 退室メンバーの閲覧権限を明示的に DENY
+  // （delete だとロールの allow が残る場合があるため、ViewChannel: false を明示する）
   if (textChannel && member) {
-    await textChannel.permissionOverwrites.delete(member.id).catch(() => {});
+    await textChannel.permissionOverwrites.edit(member.id, {
+      ViewChannel: false,
+    }).catch(() => {});
     if (settings.join_leave_notification) {
       await textChannel.send(`🚪 **${member.displayName}** が退室しました。`).catch(() => {});
     }
