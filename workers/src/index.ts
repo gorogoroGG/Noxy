@@ -84,7 +84,13 @@ interface ShopRow {
   channel_id: string; message_id: string | null;
   order_category_id: string | null; archive_category_id: string | null;
   support_role_id: string | null; timeout_hours: number | null;
-  color: number; footer_text: string; created_at: string;
+  color: number; footer_text: string;
+  payment_flow: string; auto_deliver: boolean;
+  welcome_image_url: string | null; welcome_thumbnail_url: string | null;
+  welcome_fields: Array<{name: string; value: string; inline: boolean}>;
+  welcome_footer_text: string | null; welcome_footer_icon_url: string | null;
+  welcome_show_timestamp: boolean;
+  created_at: string;
 }
 interface ProductRow {
   id: string; shop_id: string; name: string; description: string;
@@ -99,6 +105,7 @@ interface OrderRow {
   product_name: string; product_price_display: string; status: string;
   buyer_confirmed: boolean; seller_confirmed: boolean;
   buyer_cancel_requested: boolean; seller_cancel_requested: boolean;
+  payment_url: string | null; payment_submitted_at: string | null;
   created_at: string; paid_at: string | null; delivered_at: string | null;
   completed_at: string | null; cancelled_at: string | null;
 }
@@ -108,7 +115,13 @@ function mapShop(s: ShopRow) {
     enabled: s.enabled, channelId: s.channel_id, messageId: s.message_id,
     orderCategoryId: s.order_category_id, archiveCategoryId: s.archive_category_id,
     supportRoleId: s.support_role_id, timeoutHours: s.timeout_hours,
-    color: s.color, footerText: s.footer_text, createdAt: s.created_at };
+    color: s.color, footerText: s.footer_text,
+    paymentFlow: s.payment_flow, autoDeliver: s.auto_deliver,
+    welcomeImageUrl: s.welcome_image_url, welcomeThumbnailUrl: s.welcome_thumbnail_url,
+    welcomeFields: s.welcome_fields ?? [],
+    welcomeFooterText: s.welcome_footer_text, welcomeFooterIconUrl: s.welcome_footer_icon_url,
+    welcomeShowTimestamp: s.welcome_show_timestamp,
+    createdAt: s.created_at };
 }
 function mapProduct(p: ProductRow) {
   return { id: p.id, shopId: p.shop_id, name: p.name, description: p.description,
@@ -124,6 +137,7 @@ function mapOrder(o: OrderRow) {
     productName: o.product_name, productPriceDisplay: o.product_price_display,
     status: o.status, buyerConfirmed: o.buyer_confirmed, sellerConfirmed: o.seller_confirmed,
     buyerCancelRequested: o.buyer_cancel_requested, sellerCancelRequested: o.seller_cancel_requested,
+    paymentUrl: o.payment_url, paymentSubmittedAt: o.payment_submitted_at,
     createdAt: o.created_at, paidAt: o.paid_at, deliveredAt: o.delivered_at,
     completedAt: o.completed_at, cancelledAt: o.cancelled_at };
 }
@@ -1238,7 +1252,7 @@ export default {
       if (!rows.length) {
         // デフォルト設定を返す
         return new Response(JSON.stringify({
-          guildId, enabled: false, categoryId: null,
+          id: null, guildId, enabled: false, categoryId: null,
           channelNameFormat: '💬-{vc-name}', autoDelete: true,
           deleteDelayMinutes: 0, joinLeaveNotification: true,
           watchAllVcs: true, watchVcIds: [], minMembers: 1,
@@ -1269,6 +1283,12 @@ export default {
           deleteDelayMinutes?: number; joinLeaveNotification?: boolean;
           watchAllVcs?: boolean; watchVcIds?: string[]; minMembers?: number;
         };
+        console.log('[Worker] POST /bot/temp-channel-settings body:', JSON.stringify(body));
+
+        // 既存レコードをチェック
+        const checkResp = await sb(`/temp_channel_settings?guild_id=eq.${body.guildId}`);
+        const checkRows = await checkResp.json() as Record<string, unknown>[];
+
         const upsertData = {
           guild_id:                body.guildId,
           enabled:                 body.enabled                ?? false,
@@ -1282,12 +1302,32 @@ export default {
           min_members:             body.minMembers             ?? 1,
           updated_at:              new Date().toISOString(),
         };
-        const resp = await sb('/temp_channel_settings', {
-          method: 'POST',
-          body:   JSON.stringify(upsertData),
-          headers: { Prefer: 'resolution=merge-duplicates,return=representation' },
-        });
-        if (!resp.ok) return new Response(await resp.text(), { status: resp.status });
+
+        let resp: Response;
+        if (checkRows.length > 0) {
+          // 既存 → PATCH
+          console.log('[Worker] temp-channel-settings: updating existing, id=', checkRows[0]['id']);
+          resp = await sb(`/temp_channel_settings?id=eq.${checkRows[0]['id']}`, {
+            method: 'PATCH',
+            body:   JSON.stringify(upsertData),
+            headers: { Prefer: 'return=representation' },
+          });
+        } else {
+          // 新規 → POST
+          console.log('[Worker] temp-channel-settings: creating new');
+          resp = await sb('/temp_channel_settings', {
+            method: 'POST',
+            body:   JSON.stringify(upsertData),
+            headers: { Prefer: 'return=representation' },
+          });
+        }
+
+        if (!resp.ok) {
+          const errText = await resp.text();
+          console.error('[Worker] POST /bot/temp-channel-settings FAILED:', resp.status, errText);
+          return new Response(errText, { status: resp.status });
+        }
+        console.log('[Worker] POST /bot/temp-channel-settings OK');
         const rows = await resp.json() as Record<string, unknown>[];
         const r = rows[0];
         return new Response(JSON.stringify({
@@ -1335,6 +1375,7 @@ export default {
     if (url.pathname === '/bot/shops' && request.method === 'POST') {
       try {
         const body = await request.json() as Partial<ShopRow> & Record<string, unknown>;
+        console.log('[Worker] POST /bot/shops body:', JSON.stringify(body));
         const data = {
           guild_id:            body['guildId'] ?? body.guild_id ?? '',
           name:                body['name']    ?? 'ショップ',
@@ -1346,10 +1387,24 @@ export default {
           support_role_id:     body['supportRoleId']     ?? body.support_role_id     ?? null,
           timeout_hours:       body['timeoutHours']      ?? body.timeout_hours       ?? null,
           color:               body['color']   ?? 6579201,
-          footer_text:         body['footerText'] ?? body.footer_text ?? '本Botは取引の仲介・保証・管理に一切関与しません。取引に関するトラブルはサーバー管理者および取引相手との間で解決してください。',
+          footer_text:         body['footerText'] ?? body.footer_text ?? '',
+          payment_flow:        body['paymentFlow'] ?? body.payment_flow ?? 'manual',
+          auto_deliver:        body['autoDeliver'] ?? body.auto_deliver ?? true,
+          welcome_image_url:   body['welcomeImageUrl'] ?? body.welcome_image_url ?? null,
+          welcome_thumbnail_url: body['welcomeThumbnailUrl'] ?? body.welcome_thumbnail_url ?? null,
+          welcome_fields:      body['welcomeFields'] ?? body.welcome_fields ?? [],
+          welcome_footer_text: body['welcomeFooterText'] ?? body.welcome_footer_text ?? null,
+          welcome_footer_icon_url: body['welcomeFooterIconUrl'] ?? body.welcome_footer_icon_url ?? null,
+          welcome_show_timestamp: body['welcomeShowTimestamp'] ?? body.welcome_show_timestamp ?? true,
         };
+        console.log('[Worker] POST /bot/shops data to Supabase:', JSON.stringify(data));
         const r = await sb('/shops', { method: 'POST', body: JSON.stringify(data), headers: { Prefer: 'return=representation' } });
-        if (!r.ok) return new Response(await r.text(), { status: r.status });
+        if (!r.ok) {
+          const errText = await r.text();
+          console.error('[Worker] POST /bot/shops FAILED:', r.status, errText);
+          return new Response(errText, { status: r.status });
+        }
+        console.log('[Worker] POST /bot/shops OK');
         const rows = await r.json() as ShopRow[];
         return new Response(JSON.stringify(mapShop(rows[0])), { headers: { 'Content-Type': 'application/json' } });
       } catch (e) { return new Response(JSON.stringify({ error: String(e) }), { status: 500 }); }
@@ -1364,6 +1419,11 @@ export default {
           channelId: 'channel_id', orderCategoryId: 'order_category_id',
           archiveCategoryId: 'archive_category_id', supportRoleId: 'support_role_id',
           timeoutHours: 'timeout_hours', color: 'color', footerText: 'footer_text',
+          paymentFlow: 'payment_flow', autoDeliver: 'auto_deliver',
+          welcomeImageUrl: 'welcome_image_url', welcomeThumbnailUrl: 'welcome_thumbnail_url',
+          welcomeFields: 'welcome_fields',
+          welcomeFooterText: 'welcome_footer_text', welcomeFooterIconUrl: 'welcome_footer_icon_url',
+          welcomeShowTimestamp: 'welcome_show_timestamp',
         };
         const data: Record<string, unknown> = {};
         for (const [k, v] of Object.entries(body)) { const sk = camel[k] ?? k; data[sk] = v; }
@@ -1384,15 +1444,19 @@ export default {
       try {
         const shopId = shopDeployMatch[1];
         const body   = await request.json() as { channelId: string };
+        console.log('[Worker] POST /bot/shops/:id/deploy shopId=', shopId, 'channelId=', body.channelId);
         if (!body.channelId) return new Response('channelId required', { status: 400 });
-        // Shop を取得
-        const sr  = await sb(`/shops?id=eq.${shopId}`);
+        // Shop と Products を並列取得
+        const [sr, pr] = await Promise.all([
+          sb(`/shops?id=eq.${shopId}`),
+          sb(`/products?shop_id=eq.${shopId}&enabled=eq.true&order=position.asc`),
+        ]);
         const shops = await sr.json() as ShopRow[];
+        console.log('[Worker] deploy: shops found=', shops.length);
         if (!shops.length) return new Response('Shop not found', { status: 404 });
         const shop = shops[0];
-        // Products を取得
-        const pr = await sb(`/products?shop_id=eq.${shopId}&enabled=eq.true&order=position.asc`);
         const products = await pr.json() as ProductRow[];
+        console.log('[Worker] deploy: products found=', products.length);
         if (!products.length) return new Response('No enabled products', { status: 400 });
         // セレクトメニューのオプション
         const options = products.slice(0, 25).map(p => ({
@@ -1404,7 +1468,12 @@ export default {
         // Discord にメッセージを投稿
         const discordBody = {
           embeds: [{ title: shop.name, description: shop.description || undefined, color: shop.color,
-            footer: { text: shop.footer_text }, timestamp: new Date().toISOString() }],
+            image: shop.welcome_image_url ? { url: shop.welcome_image_url } : undefined,
+            thumbnail: shop.welcome_thumbnail_url ? { url: shop.welcome_thumbnail_url } : undefined,
+            fields: (shop.welcome_fields && shop.welcome_fields.length > 0) ? shop.welcome_fields : undefined,
+            footer: { text: shop.welcome_footer_text ?? shop.footer_text ?? '',
+              icon_url: shop.welcome_footer_icon_url ?? undefined },
+            timestamp: shop.welcome_show_timestamp ? new Date().toISOString() : undefined }],
           components: [
             { type: 1, components: [{ type: 3, custom_id: `shop_select_${shopId}`,
               placeholder: '🛒 商品を選択してください', min_values: 1, max_values: 1, options }] },
@@ -1412,15 +1481,25 @@ export default {
               custom_id: `shop_dispute_${shopId}` }] },
           ],
         };
+        console.log('[Worker] deploy: posting to Discord channel', body.channelId);
         const postR = await fetch(`https://discord.com/api/v10/channels/${body.channelId}/messages`, {
           method: 'POST', headers: { Authorization: `Bot ${env.DISCORD_BOT_TOKEN}`, 'Content-Type': 'application/json' },
           body: JSON.stringify(discordBody),
         });
-        if (!postR.ok) return new Response(JSON.stringify({ error: await postR.text() }), { status: 502 });
+        if (!postR.ok) {
+          const errText = await postR.text();
+          console.error('[Worker] deploy: Discord API error', postR.status, errText);
+          return new Response(JSON.stringify({ error: errText }), { status: 502 });
+        }
         const posted = await postR.json() as { id: string };
-        await sb(`/shops?id=eq.${shopId}`, { method: 'PATCH', body: JSON.stringify({ channel_id: body.channelId, message_id: posted.id }) });
-        const updR = await sb(`/shops?id=eq.${shopId}`);
-        const updRows = await updR.json() as ShopRow[];
+        console.log('[Worker] deploy: Discord message posted, id=', posted.id);
+        // PATCH で message_id を更新し、結果を返す（再取得不要）
+        const updRows = await sb(`/shops?id=eq.${shopId}`, {
+          method: 'PATCH',
+          body: JSON.stringify({ channel_id: body.channelId, message_id: posted.id }),
+          headers: { Prefer: 'return=representation' },
+        }).then(r => r.json()) as ShopRow[];
+        console.log('[Worker] deploy: complete');
         return new Response(JSON.stringify(mapShop(updRows[0])), { headers: { 'Content-Type': 'application/json' } });
       } catch (e) { return new Response(JSON.stringify({ error: String(e) }), { status: 500 }); }
     }

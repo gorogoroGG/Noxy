@@ -28,6 +28,7 @@ struct OrdersListView: View {
     private var paidCount:    Int { orders.filter { $0.status == .paid || $0.status == .delivered }.count }
     private var completedCount: Int { orders.filter { $0.status == .completed }.count }
     private var cancelledCount: Int { orders.filter { $0.status == .cancelled }.count }
+    private var disputedCount: Int { orders.filter { $0.status == .disputed }.count }
 
     var body: some View {
         VStack(spacing: 0) {
@@ -89,6 +90,8 @@ struct OrdersListView: View {
             statCell(value: "\(completedCount)", label: "完了", color: .accentGreen)
             Divider().frame(height: 32)
             statCell(value: "\(cancelledCount)", label: "取消", color: Color.textTertiary)
+            Divider().frame(height: 32)
+            statCell(value: "\(disputedCount)", label: "異議", color: .red)
         }
         .padding(.vertical, .spacing12)
         .background(Color(.secondarySystemGroupedBackground))
@@ -186,6 +189,14 @@ private struct OrderCard: View {
                             .font(.captionSmall).foregroundStyle(Color.textTertiary)
                         Label(order.productPriceDisplay, systemImage: "tag.fill")
                             .font(.captionSmall).foregroundStyle(Color.textTertiary)
+                        if order.paymentUrl != nil {
+                            Label("URL済", systemImage: "link.badge.plus")
+                                .font(.system(size: 9, weight: .medium))
+                                .foregroundStyle(Color.accentIndigo)
+                                .padding(.horizontal, 6).padding(.vertical, 2)
+                                .background(Color.accentIndigo.opacity(0.12))
+                                .clipShape(Capsule())
+                        }
                         Spacer()
                         Text(order.createdAt.formatted(.relative(presentation: .named)))
                             .font(.captionSmall).foregroundStyle(Color.textTertiary)

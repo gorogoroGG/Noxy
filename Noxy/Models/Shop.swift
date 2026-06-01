@@ -16,6 +16,14 @@ struct Shop: Identifiable, Codable, Hashable {
     var timeoutHours: Int?
     var color: Int
     var footerText: String
+    var paymentFlow: PaymentFlow
+    var autoDeliver: Bool
+    var welcomeImageUrl: String?
+    var welcomeThumbnailUrl: String?
+    var welcomeFields: [EmbedFieldModel]
+    var welcomeFooterText: String?
+    var welcomeFooterIconUrl: String?
+    var welcomeShowTimestamp: Bool
     let createdAt: Date
 
     var isDeployed: Bool { messageId != nil && !(messageId!.isEmpty) }
@@ -34,9 +42,45 @@ struct Shop: Identifiable, Codable, Hashable {
             supportRoleId: nil,
             timeoutHours: nil,
             color: 0x6366f1,
-            footerText: "本Botは取引の仲介・保証・管理に一切関与しません。取引に関するトラブルはサーバー管理者および取引相手との間で解決してください。",
+            footerText: "",
+            paymentFlow: .manual,
+            autoDeliver: true,
+            welcomeImageUrl: nil,
+            welcomeThumbnailUrl: nil,
+            welcomeFields: [],
+            welcomeFooterText: nil,
+            welcomeFooterIconUrl: nil,
+            welcomeShowTimestamp: true,
             createdAt: .now
         )
+    }
+}
+
+// MARK: - PaymentFlow
+
+enum PaymentFlow: String, Codable, CaseIterable {
+    case manual = "manual"
+    case urlInput = "url_input"
+
+    var label: String {
+        switch self {
+        case .manual: return "手動取引"
+        case .urlInput: return "URL入力"
+        }
+    }
+
+    var icon: String {
+        switch self {
+        case .manual: return "hand.tap.fill"
+        case .urlInput: return "link.badge.plus"
+        }
+    }
+
+    var description: String {
+        switch self {
+        case .manual: return "管理者が直接取引を確認し、対応します。"
+        case .urlInput: return "購入者に支払いURLの入力を求め、アプリで確認できます。"
+        }
     }
 }
 
@@ -152,9 +196,13 @@ struct Order: Identifiable, Codable, Hashable {
     var sellerConfirmed: Bool
     var buyerCancelRequested: Bool
     var sellerCancelRequested: Bool
+    var paymentUrl: String?
+    var paymentSubmittedAt: Date?
     let createdAt: Date
     var paidAt: Date?
     var deliveredAt: Date?
     var completedAt: Date?
     var cancelledAt: Date?
 }
+
+

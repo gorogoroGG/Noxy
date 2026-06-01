@@ -238,7 +238,8 @@ struct TempChannelSettingsView: View {
         s.minMembers           = minMembers
 
         do {
-            settings = try await services.tempChannel.saveSettings(s)
+            let saved = try await services.tempChannel.saveSettings(s)
+            settings = saved
             showToast("✅ 保存しました")
         } catch {
             showToast("❌ 保存に失敗しました")

@@ -53,11 +53,13 @@ private struct ShopPanelListView: View {
     let guildId: String
     @Environment(\.services) private var services
     @State private var shops: [Shop] = []
+    @State private var productCounts: [String: Int] = [:]
     @State private var isLoading = true
     @State private var showCreate = false
     @State private var editingShop: Shop? = nil
     @State private var deployingId: String? = nil
     @State private var deployTargetShop: Shop? = nil
+    @State private var selectedShopForProducts: Shop? = nil
     @State private var toast: String? = nil
 
     var body: some View {
@@ -73,14 +75,15 @@ private struct ShopPanelListView: View {
                         .listRowSeparator(.hidden)
                 } else {
                     ForEach(shops) { shop in
-                        NavigationLink(destination: ProductManagementView(shop: shop, guildId: guildId)) {
-                            ShopCard(
-                                shop: shop,
-                                isDeploying: deployingId == shop.id,
-                                onEdit: { editingShop = shop },
-                                onDeploy: { deployTargetShop = shop }
-                            )
-                        }
+                        let hasProducts = (productCounts[shop.id] ?? 0) > 0
+                        ShopCard(
+                            shop: shop,
+                            isDeploying: deployingId == shop.id,
+                            hasProducts: hasProducts,
+                            onEdit: { editingShop = shop },
+                            onProducts: { selectedShopForProducts = shop },
+                            onDeploy: { deployTargetShop = shop }
+                        )
                         .listRowInsets(EdgeInsets(top: 4, leading: 16, bottom: 4, trailing: 16))
                         .listRowBackground(Color(.systemGroupedBackground))
                         .listRowSeparator(.hidden)
@@ -134,6 +137,9 @@ private struct ShopPanelListView: View {
                 Task { await deploy(shop, channelId: channelId) }
             }
         }
+        .sheet(item: $selectedShopForProducts) { shop in
+            ProductManagementView(shop: shop, guildId: guildId)
+        }
         .task { await load() }
     }
 
@@ -153,6 +159,21 @@ private struct ShopPanelListView: View {
     private func load() async {
         isLoading = true
         shops = (try? await services.shops.fetchShops(guildId: guildId)) ?? []
+        // 各ショップの商品数を並列取得
+        var counts: [String: Int] = [:]
+        await withTaskGroup(of: (String, Int).self) { group in
+            for shop in shops {
+                let shopId = shop.id
+                group.addTask {
+                    let products = (try? await services.shops.fetchProducts(shopId: shopId)) ?? []
+                    return (shopId, products.count)
+                }
+            }
+            for await (shopId, count) in group {
+                counts[shopId] = count
+            }
+        }
+        productCounts = counts
         isLoading = false
     }
 
@@ -253,7 +274,9 @@ private struct ShopDeployChannelPickerSheet: View {
 private struct ShopCard: View {
     let shop: Shop
     let isDeploying: Bool
+    let hasProducts: Bool
     let onEdit: () -> Void
+    let onProducts: () -> Void
     let onDeploy: () -> Void
 
     var body: some View {
@@ -261,16 +284,34 @@ private struct ShopCard: View {
             HStack(spacing: .spacing12) {
                 ZStack {
                     RoundedRectangle(cornerRadius: 10)
-                        .fill(Color(uiColor: UIColor(hex: UInt32(shop.color))))
+                        .fill(shop.enabled ? Color(uiColor: UIColor(hex: UInt32(shop.color))) : Color(.systemGray4))
                         .frame(width: 42, height: 42)
-                    Image(systemName: "cart.fill").font(.system(size: 18)).foregroundStyle(.white)
+                    Image(systemName: shop.enabled ? "cart.fill" : "cart.badge.xmark")
+                        .font(.system(size: 18)).foregroundStyle(.white)
                 }
+                .opacity(shop.enabled ? 1 : 0.6)
 
                 VStack(alignment: .leading, spacing: 3) {
-                    Text(shop.name)
-                        .font(.bodySmall).fontWeight(.semibold).foregroundStyle(Color.textPrimary)
-                    Text(shop.description)
-                        .font(.captionSmall).foregroundStyle(Color.textTertiary).lineLimit(1)
+                    HStack(spacing: 6) {
+                        Text(shop.name)
+                            .font(.bodySmall).fontWeight(.semibold)
+                            .foregroundStyle(shop.enabled ? Color.textPrimary : Color.textTertiary)
+                        if !shop.enabled {
+                            Text("無効").font(.system(size: 9, weight: .semibold))
+                                .foregroundStyle(Color.textTertiary)
+                                .padding(.horizontal, 6).padding(.vertical, 2)
+                                .background(Color(.tertiarySystemGroupedBackground))
+                                .clipShape(Capsule())
+                        }
+                    }
+                    HStack(spacing: 4) {
+                        Text(shop.description)
+                            .font(.captionSmall).foregroundStyle(Color.textTertiary).lineLimit(1)
+                        Text("・").foregroundStyle(Color.textTertiary)
+                        Label(shop.paymentFlow.label, systemImage: shop.paymentFlow.icon)
+                            .font(.system(size: 9))
+                            .foregroundStyle(Color.accentIndigo)
+                    }
                 }
 
                 Spacer()
@@ -292,6 +333,7 @@ private struct ShopCard: View {
                 }
             }
             .padding(.spacing12)
+            .opacity(shop.enabled ? 1 : 0.7)
 
             Divider().padding(.horizontal, .spacing12)
 
@@ -300,6 +342,16 @@ private struct ShopCard: View {
                     Label("編集", systemImage: "pencil")
                         .font(.captionRegular).fontWeight(.medium)
                         .foregroundStyle(Color.accentIndigo)
+                        .frame(maxWidth: .infinity).padding(.vertical, .spacing10)
+                }
+                .buttonStyle(.plain)
+
+                Divider().frame(height: 20)
+
+                Button(action: onProducts) {
+                    Label("商品管理", systemImage: "archivebox.fill")
+                        .font(.captionRegular).fontWeight(.medium)
+                        .foregroundStyle(Color.accentPurple)
                         .frame(maxWidth: .infinity).padding(.vertical, .spacing10)
                 }
                 .buttonStyle(.plain)
@@ -321,11 +373,23 @@ private struct ShopCard: View {
                     }
                 }
                 .buttonStyle(.plain)
-                .disabled(isDeploying)
+                .disabled(isDeploying || !hasProducts)
             }
             .background(Color(.tertiarySystemGroupedBackground))
+
+            if !hasProducts {
+                HStack(spacing: 4) {
+                    Image(systemName: "info.circle").font(.system(size: 9))
+                    Text("送信するには商品を追加してください")
+                        .font(.system(size: 9, weight: .medium))
+                }
+                .foregroundStyle(Color.textTertiary)
+                .padding(.vertical, 6)
+                .frame(maxWidth: .infinity)
+                .background(Color(.tertiarySystemGroupedBackground))
+            }
         }
-        .background(Color(.secondarySystemGroupedBackground))
+        .background(shop.enabled ? Color(.secondarySystemGroupedBackground) : Color(.tertiarySystemGroupedBackground))
         .clipShape(RoundedRectangle(cornerRadius: 14))
     }
 }

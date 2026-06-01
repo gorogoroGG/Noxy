@@ -14,11 +14,79 @@ struct WorkerShopService: ShopServiceProtocol {
     }
 
     func createShop(_ shop: Shop) async throws -> Shop {
-        try await postReturning("/bot/shops", body: shop)
+        struct Body: Encodable {
+            let guildId: String
+            let name: String
+            let description: String
+            let enabled: Bool
+            let channelId: String
+            let orderCategoryId: String?
+            let archiveCategoryId: String?
+            let supportRoleId: String?
+            let timeoutHours: Int?
+            let color: Int
+            let footerText: String
+            let paymentFlow: String
+            let autoDeliver: Bool
+            let welcomeImageUrl: String?
+            let welcomeThumbnailUrl: String?
+            let welcomeFields: [EmbedFieldModel]
+            let welcomeFooterText: String?
+            let welcomeFooterIconUrl: String?
+            let welcomeShowTimestamp: Bool
+        }
+        let body = Body(
+            guildId: shop.guildId, name: shop.name, description: shop.description,
+            enabled: shop.enabled, channelId: shop.channelId,
+            orderCategoryId: shop.orderCategoryId, archiveCategoryId: shop.archiveCategoryId,
+            supportRoleId: shop.supportRoleId, timeoutHours: shop.timeoutHours,
+            color: shop.color, footerText: shop.footerText,
+            paymentFlow: shop.paymentFlow.rawValue, autoDeliver: shop.autoDeliver,
+            welcomeImageUrl: shop.welcomeImageUrl, welcomeThumbnailUrl: shop.welcomeThumbnailUrl,
+            welcomeFields: shop.welcomeFields,
+            welcomeFooterText: shop.welcomeFooterText, welcomeFooterIconUrl: shop.welcomeFooterIconUrl,
+            welcomeShowTimestamp: shop.welcomeShowTimestamp
+        )
+        let jsonData = try JSONEncoder().encode(body)
+        if let jsonStr = String(data: jsonData, encoding: .utf8) {
+            print("[ShopService] createShop body: \(jsonStr)")
+        }
+        return try await postReturning("/bot/shops", body: body)
     }
 
     func updateShop(_ shop: Shop) async throws -> Shop {
-        try await patchReturning("/bot/shops/\(shop.id)", body: shop)
+        struct Body: Encodable {
+            let name: String
+            let description: String
+            let enabled: Bool
+            let channelId: String
+            let orderCategoryId: String?
+            let archiveCategoryId: String?
+            let supportRoleId: String?
+            let timeoutHours: Int?
+            let color: Int
+            let footerText: String
+            let paymentFlow: String
+            let autoDeliver: Bool
+            let welcomeImageUrl: String?
+            let welcomeThumbnailUrl: String?
+            let welcomeFields: [EmbedFieldModel]
+            let welcomeFooterText: String?
+            let welcomeFooterIconUrl: String?
+            let welcomeShowTimestamp: Bool
+        }
+        let body = Body(
+            name: shop.name, description: shop.description, enabled: shop.enabled,
+            channelId: shop.channelId, orderCategoryId: shop.orderCategoryId,
+            archiveCategoryId: shop.archiveCategoryId, supportRoleId: shop.supportRoleId,
+            timeoutHours: shop.timeoutHours, color: shop.color, footerText: shop.footerText,
+            paymentFlow: shop.paymentFlow.rawValue, autoDeliver: shop.autoDeliver,
+            welcomeImageUrl: shop.welcomeImageUrl, welcomeThumbnailUrl: shop.welcomeThumbnailUrl,
+            welcomeFields: shop.welcomeFields,
+            welcomeFooterText: shop.welcomeFooterText, welcomeFooterIconUrl: shop.welcomeFooterIconUrl,
+            welcomeShowTimestamp: shop.welcomeShowTimestamp
+        )
+        return try await patchReturning("/bot/shops/\(shop.id)", body: body)
     }
 
     func deleteShop(id: String) async throws {
@@ -37,11 +105,51 @@ struct WorkerShopService: ShopServiceProtocol {
     }
 
     func createProduct(_ product: Product) async throws -> Product {
-        try await postReturning("/bot/shops/\(product.shopId)/products", body: product)
+        struct Body: Encodable {
+            let shopId: String
+            let name: String
+            let description: String
+            let priceDisplay: String
+            let imageUrl: String?
+            let stock: Int?
+            let rewardType: String
+            let rewardContent: String?
+            let rewardRoleId: String?
+            let rewardDmContent: String?
+            let position: Int
+            let enabled: Bool
+        }
+        let body = Body(
+            shopId: product.shopId, name: product.name, description: product.description,
+            priceDisplay: product.priceDisplay, imageUrl: product.imageUrl, stock: product.stock,
+            rewardType: product.rewardType.rawValue, rewardContent: product.rewardContent,
+            rewardRoleId: product.rewardRoleId, rewardDmContent: product.rewardDmContent,
+            position: product.position, enabled: product.enabled
+        )
+        return try await postReturning("/bot/shops/\(product.shopId)/products", body: body)
     }
 
     func updateProduct(_ product: Product) async throws -> Product {
-        try await patchReturning("/bot/products/\(product.id)", body: product)
+        struct Body: Encodable {
+            let name: String
+            let description: String
+            let priceDisplay: String
+            let imageUrl: String?
+            let stock: Int?
+            let rewardType: String
+            let rewardContent: String?
+            let rewardRoleId: String?
+            let rewardDmContent: String?
+            let position: Int
+            let enabled: Bool
+        }
+        let body = Body(
+            name: product.name, description: product.description, priceDisplay: product.priceDisplay,
+            imageUrl: product.imageUrl, stock: product.stock, rewardType: product.rewardType.rawValue,
+            rewardContent: product.rewardContent, rewardRoleId: product.rewardRoleId,
+            rewardDmContent: product.rewardDmContent, position: product.position, enabled: product.enabled
+        )
+        return try await patchReturning("/bot/products/\(product.id)", body: body)
     }
 
     func deleteProduct(id: String) async throws {
@@ -127,9 +235,16 @@ struct WorkerShopService: ShopServiceProtocol {
         req.setValue("application/json", forHTTPHeaderField: "Content-Type")
         req.httpBody = try JSONEncoder().encode(body)
         let (data, resp) = try await session.data(for: req)
-        guard let http = resp as? HTTPURLResponse, (200..<300).contains(http.statusCode) else {
+        guard let http = resp as? HTTPURLResponse else {
+            print("[ShopService] postReturning: no HTTP response for \(path)")
             throw ServiceError.networkError
         }
+        if !(200..<300).contains(http.statusCode) {
+            let errorBody = String(data: data, encoding: .utf8) ?? "(no body)"
+            print("[ShopService] postReturning FAILED: \(path) -> status \(http.statusCode), body: \(errorBody)")
+            throw ServiceError.networkError
+        }
+        print("[ShopService] postReturning OK: \(path) -> status \(http.statusCode)")
         return try Self.decoder.decode(T.self, from: data)
     }
 }

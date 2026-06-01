@@ -81,6 +81,10 @@ struct OrderDetailView: View {
             infoRow("購入者", value: "@\(order.buyerUsername)")
             Divider().padding(.leading, .spacing16)
             infoRow("注文日時", value: order.createdAt.formatted(date: .abbreviated, time: .shortened))
+            if let paymentUrl = order.paymentUrl {
+                Divider().padding(.leading, .spacing16)
+                paymentUrlRow(paymentUrl)
+            }
             if let paidAt = order.paidAt {
                 Divider().padding(.leading, .spacing16)
                 infoRow("支払確認", value: paidAt.formatted(date: .abbreviated, time: .shortened))
@@ -100,6 +104,26 @@ struct OrderDetailView: View {
         }
         .background(Color(.secondarySystemGroupedBackground))
         .clipShape(RoundedRectangle(cornerRadius: 14))
+    }
+
+    private func paymentUrlRow(_ url: String) -> some View {
+        VStack(alignment: .leading, spacing: 4) {
+            HStack {
+                Text("支払いURL").font(.bodySmall).foregroundStyle(Color.textSecondary)
+                Spacer()
+                Text(url).font(.system(size: 11, weight: .medium)).foregroundStyle(Color.accentIndigo)
+                    .lineLimit(1)
+            }
+            Button("URLを開く") {
+                if let nsUrl = URL(string: url) {
+                    UIApplication.shared.open(nsUrl)
+                }
+            }
+            .font(.captionSmall)
+            .foregroundStyle(Color.accentIndigo)
+            .frame(maxWidth: .infinity, alignment: .trailing)
+        }
+        .padding(.horizontal, .spacing16).padding(.vertical, .spacing12)
     }
 
     // MARK: - Timeline Card

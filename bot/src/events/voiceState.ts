@@ -300,6 +300,7 @@ async function handleVoiceLeave(state: VoiceState, settings: TempChannelSettings
 
 client.on(Events.VoiceStateUpdate, async (oldState: VoiceState, newState: VoiceState) => {
   const guild = newState.guild;
+  console.log(`[TempChannel] VoiceStateUpdate: guild=${guild.id}, oldCh=${oldState.channelId}, newCh=${newState.channelId}`);
 
   const { data: settings } = await supabase
     .from('temp_channel_settings')
@@ -308,6 +309,8 @@ client.on(Events.VoiceStateUpdate, async (oldState: VoiceState, newState: VoiceS
     .eq('enabled', true)
     .single();
 
+  console.log(`[TempChannel] settings for guild=${guild.id}:`, settings ? 'found' : 'not found');
+
   if (!settings) return;
 
   const s = settings as TempChannelSettings;
@@ -315,6 +318,8 @@ client.on(Events.VoiceStateUpdate, async (oldState: VoiceState, newState: VoiceS
   try {
     const joined = newState.channelId !== oldState.channelId && newState.channelId !== null;
     const left   = oldState.channelId !== newState.channelId && oldState.channelId !== null;
+
+    console.log(`[TempChannel] joined=${joined}, left=${left}`);
 
     if (joined) await handleVoiceJoin(newState, s);
     if (left)   await handleVoiceLeave({ ...oldState, channelId: oldState.channelId } as VoiceState, s);

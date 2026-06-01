@@ -133,14 +133,18 @@ private struct ProductCard: View {
         VStack(spacing: 0) {
             HStack(spacing: .spacing12) {
                 ZStack {
-                    Circle().fill(Color.accentPurple.opacity(0.15)).frame(width: 36, height: 36)
-                    Text("\(index + 1)").font(.system(size: 14, weight: .bold)).foregroundStyle(Color.accentPurple)
+                    Circle().fill(product.enabled ? Color.accentPurple.opacity(0.15) : Color(.systemGray4))
+                        .frame(width: 36, height: 36)
+                    Text("\(index + 1)").font(.system(size: 14, weight: .bold))
+                        .foregroundStyle(product.enabled ? Color.accentPurple : Color.textTertiary)
                 }
+                .opacity(product.enabled ? 1 : 0.6)
 
                 VStack(alignment: .leading, spacing: 3) {
                     HStack(spacing: 6) {
                         Text(product.name)
-                            .font(.bodySmall).fontWeight(.semibold).foregroundStyle(Color.textPrimary)
+                            .font(.bodySmall).fontWeight(.semibold)
+                            .foregroundStyle(product.enabled ? Color.textPrimary : Color.textTertiary)
                         if product.isSoldOut {
                             Text("売り切れ")
                                 .font(.system(size: 9, weight: .semibold))
@@ -175,12 +179,13 @@ private struct ProductCard: View {
 
                 Label(product.rewardType.label, systemImage: product.rewardType.icon)
                     .font(.system(size: 10, weight: .semibold))
-                    .foregroundStyle(Color.accentPurple)
+                    .foregroundStyle(product.enabled ? Color.accentPurple : Color.textTertiary)
                     .padding(.horizontal, 8).padding(.vertical, 4)
-                    .background(Color.accentPurple.opacity(0.12))
+                    .background(product.enabled ? Color.accentPurple.opacity(0.12) : Color(.tertiarySystemGroupedBackground))
                     .clipShape(Capsule())
             }
             .padding(.spacing12)
+            .opacity(product.enabled ? 1 : 0.7)
 
             Divider().padding(.horizontal, .spacing12)
 
@@ -193,7 +198,7 @@ private struct ProductCard: View {
             .buttonStyle(.plain)
             .background(Color(.tertiarySystemGroupedBackground))
         }
-        .background(Color(.secondarySystemGroupedBackground))
+        .background(product.enabled ? Color(.secondarySystemGroupedBackground) : Color(.tertiarySystemGroupedBackground))
         .clipShape(RoundedRectangle(cornerRadius: 14))
     }
 }
@@ -231,10 +236,10 @@ struct ProductEditView: View {
     var body: some View {
         NavigationStack {
             Form {
+                enabledSection
                 basicInfoSection
                 stockSection
                 rewardSection
-                optionsSection
 
                 if let err = errorMessage {
                     Section {
@@ -258,6 +263,13 @@ struct ProductEditView: View {
             }
             .task { await loadData() }
         }
+    }
+
+    private var enabledSection: some View {
+        Section {
+            Toggle("商品を有効にする", isOn: $enabled)
+        } header: { Text("有効/無効") }
+          footer: { Text("無効にすると、ショップパネルに表示されなくなります。") }
     }
 
     private var basicInfoSection: some View {

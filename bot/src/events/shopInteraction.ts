@@ -10,14 +10,44 @@ import { supabase } from '../db.js';
 
 // ── 型 ──────────────────────────────────────────────────────
 
-interface ShopRow { id: string; guild_id: string; name: string; color: number; footer_text: string;
-  order_category_id: string|null; archive_category_id: string|null; support_role_id: string|null; }
+interface ShopRow { id: string; guild_id: string; name: string; description: string; color: number; footer_text: string;
+  order_category_id: string|null; archive_category_id: string|null; support_role_id: string|null;
+  payment_flow: string; auto_deliver: boolean;
+  welcome_image_url: string|null; welcome_thumbnail_url: string|null;
+  welcome_fields: Array<{name: string; value: string; inline: boolean}>;
+  welcome_footer_text: string|null; welcome_footer_icon_url: string|null;
+  welcome_show_timestamp: boolean; }
 interface ProductRow { id: string; shop_id: string; name: string; description: string;
   price_display: string; stock: number|null; reward_type: string; reward_content: string|null;
   reward_role_id: string|null; reward_dm_content: string|null; }
 interface OrderRow { id: string; shop_id: string; product_id: string; channel_id: string;
   buyer_user_id: string; buyer_username: string; product_name: string; product_price_display: string;
-  status: string; buyer_confirmed: boolean; seller_confirmed: boolean; buyer_cancel_requested: boolean; }
+  status: string; buyer_confirmed: boolean; seller_confirmed: boolean; buyer_cancel_requested: boolean;
+  payment_url: string|null; payment_submitted_at: string|null; }
+
+// ── 変数展開 ─────────────────────────────────────────────────
+
+function expandVariables(text: string, vars: Record<string, string>): string {
+  let result = text;
+  for (const [key, value] of Object.entries(vars)) {
+    result = result.replaceAll(`{${key}}`, value);
+  }
+  return result;
+}
+
+function buildOrderVars(buyer: GuildMember, product: ProductRow, shop: ShopRow, orderId: string): Record<string, string> {
+  return {
+    'buyer.mention': buyer.toString(),
+    'buyer.username': buyer.user.username,
+    'buyer.id': buyer.user.id,
+    'product.name': product.name,
+    'product.description': product.description ?? '',
+    'product.price': product.price_display,
+    'shop.name': shop.name,
+    'order.id': orderId,
+    'order.id.short': orderId.slice(-6),
+  };
+}
 
 // ── ユーティリティ ───────────────────────────────────────────
 
@@ -36,24 +66,32 @@ async function archiveChannel(guild: import('discord.js').Guild, channelId: stri
   if (!ch.name.startsWith('archive-')) await ch.setName(`archive-${ch.name}`).catch(() => {});
 }
 
-async function deliverRewardBot(guild: import('discord.js').Guild, channel: TextChannel, order: OrderRow, product: ProductRow, shop: ShopRow): Promise<void> {
-  const embedBase = { color: shop.color, footer: { text: shop.footer_text }, timestamp: new Date().toISOString() };
+async function deliverRewardBot(guild: import('discord.js').Guild, channel: TextChannel, order: OrderRow, product: ProductRow, shop: ShopRow, vars: Record<string, string>): Promise<void> {
+  const footerText = shop.welcome_footer_text ?? shop.footer_text;
+  const embedBase = {
+    color: shop.color,
+    footer: footerText ? { text: expandVariables(footerText, vars) } : undefined,
+    timestamp: shop.welcome_show_timestamp ? new Date().toISOString() : undefined,
+  };
   switch (product.reward_type) {
     case 'text': case 'url':
-      await channel.send({ embeds: [{ ...embedBase, title: '📦 商品をお届けします', description: product.reward_content ?? '（内容なし）' }] });
+      await channel.send({ embeds: [{ ...embedBase, title: '📦 商品をお届けします',
+        description: expandVariables(product.reward_content ?? '（内容なし）', vars) }] });
       break;
     case 'role': {
       if (product.reward_role_id) {
         const member = await guild.members.fetch(order.buyer_user_id).catch(() => null);
         if (member) await member.roles.add(product.reward_role_id).catch(() => {});
-        await channel.send({ embeds: [{ ...embedBase, title: '🎭 ロールを付与しました', description: `<@&${product.reward_role_id}> を付与しました。` }] });
+        await channel.send({ embeds: [{ ...embedBase, title: '🎭 ロールを付与しました',
+          description: expandVariables(`<@&${product.reward_role_id}> を付与しました。`, vars) }] });
       }
       break;
     }
     case 'dm': {
       const member = await guild.members.fetch(order.buyer_user_id).catch(() => null);
       if (member) {
-        await member.send({ embeds: [{ ...embedBase, title: '📦 商品のお届け', description: product.reward_dm_content ?? '（内容なし）' }] }).catch(() => {});
+        await member.send({ embeds: [{ ...embedBase, title: '📦 商品のお届け',
+          description: expandVariables(product.reward_dm_content ?? '（内容なし）', vars) }] }).catch(() => {});
       }
       await channel.send({ embeds: [{ ...embedBase, title: '📩 DMで商品をお届けしました' }] });
       break;
@@ -131,6 +169,7 @@ async function handleConfirmPurchase(interaction: ButtonInteraction, shopId: str
   if (!order) { await interaction.editReply({ content: '❌ 注文の作成に失敗しました。', embeds: [], components: [] }); return; }
 
   const orderId = (order as OrderRow).id;
+  const vars = buildOrderVars(buyer, product, shop, orderId);
 
   // Discord チャンネルを作成
   const overwrites = [
@@ -155,37 +194,104 @@ async function handleConfirmPurchase(interaction: ButtonInteraction, shopId: str
   }
   await supabase.from('orders').update({ channel_id: channel.id }).eq('id', orderId);
 
-  // ウェルカムメッセージ（閉じるボタン付き）
+  // ウェルカムメッセージ（カスタマイズ可能）
+  const welcomeFooter = shop.welcome_footer_text ?? shop.footer_text;
+  const welcomeFields = (shop.welcome_fields && shop.welcome_fields.length > 0)
+    ? shop.welcome_fields.map(f => ({
+        name: expandVariables(f.name, vars),
+        value: expandVariables(f.value, vars),
+        inline: f.inline,
+      }))
+    : [
+        { name: '商品', value: expandVariables(product.name, vars), inline: true },
+        { name: '価格', value: expandVariables(product.price_display, vars), inline: true },
+        { name: '購入者', value: buyer.toString(), inline: true },
+      ];
+
+  const welcomeEmbed: Record<string, unknown> = {
+    title: expandVariables(`🛒 注文 #{order.id.short}`, vars),
+    description: expandVariables(`${buyer.toString()} から注文が届きました。`, vars),
+    color: shop.color,
+    fields: welcomeFields,
+    footer: welcomeFooter ? { text: expandVariables(welcomeFooter, vars), icon_url: shop.welcome_footer_icon_url ?? undefined } : undefined,
+    timestamp: shop.welcome_show_timestamp ? new Date().toISOString() : undefined,
+  };
+  if (shop.welcome_image_url) welcomeEmbed['image'] = { url: shop.welcome_image_url };
+  if (shop.welcome_thumbnail_url) welcomeEmbed['thumbnail'] = { url: shop.welcome_thumbnail_url };
+
   const closeBtn = new ButtonBuilder().setCustomId(`order_close_${orderId}`)
     .setLabel('🔒 クローズ').setStyle(ButtonStyle.Danger);
   const closeRow = new ActionRowBuilder<ButtonBuilder>().addComponents(closeBtn);
   const supportMention = shop.support_role_id ? `<@&${shop.support_role_id}> ` : '';
 
   await channel.send({
-    content: `${supportMention}${buyer.toString()}`,
-    embeds: [{
-      title:       `🛒 注文 #${orderId.slice(-6)}`,
-      description: `${buyer.toString()} から注文が届きました。`,
-      color:       shop.color,
-      fields: [
-        { name: '商品',   value: product.name,           inline: true },
-        { name: '価格',   value: product.price_display,   inline: true },
-        { name: '購入者', value: buyer.toString(),         inline: true },
-      ],
-      footer:    { text: shop.footer_text },
-      timestamp: new Date().toISOString(),
-    }],
+    content: expandVariables(`${supportMention}{buyer.mention}`, vars),
+    embeds: [welcomeEmbed],
     components: [closeRow],
   });
 
-  // 管理者アクション（支払い確認ボタン）
-  const payBtn = new ButtonBuilder().setCustomId(`order_pay_${orderId}`)
-    .setLabel('✅ 支払いを確認しました').setStyle(ButtonStyle.Success);
-  const payRow = new ActionRowBuilder<ButtonBuilder>().addComponents(payBtn);
-  await channel.send({ content: '**📋 管理者アクション**', components: [payRow] });
+  // 支払いフローに応じたアクション
+  if (shop.payment_flow === 'url_input') {
+    // URL入力ボタン
+    const urlInputBtn = new ButtonBuilder().setCustomId(`order_url_input_${orderId}`)
+      .setLabel('💳 支払いURLを入力').setStyle(ButtonStyle.Primary);
+    const urlRow = new ActionRowBuilder<ButtonBuilder>().addComponents(urlInputBtn);
+    await channel.send({ content: '**💳 支払いURLの入力**\n支払いURLを入力して、管理者の確認を待ってください。', components: [urlRow] });
+  } else {
+    // 管理者アクション（支払い確認ボタン）
+    const payBtn = new ButtonBuilder().setCustomId(`order_pay_${orderId}`)
+      .setLabel('✅ 支払いを確認しました').setStyle(ButtonStyle.Success);
+    const payRow = new ActionRowBuilder<ButtonBuilder>().addComponents(payBtn);
+    await channel.send({ content: '**📋 管理者アクション**', components: [payRow] });
+  }
 
   await interaction.editReply({ content: `✅ 注文チャンネルを作成しました → <#${channel.id}>`, embeds: [], components: [] });
   console.log(`[Shop] 注文作成: ${orderId} (${product.name} by ${buyer.user.username})`);
+}
+
+// ── 支払いURL入力（購入者）────────────────────────────────────
+
+async function handleUrlInput(interaction: ButtonInteraction, orderId: string): Promise<void> {
+  const modal = new ModalBuilder().setCustomId(`order_url_modal_${orderId}`).setTitle('支払いURLを入力');
+  modal.addComponents(new ActionRowBuilder<TextInputBuilder>().addComponents(
+    new TextInputBuilder().setCustomId('payment_url').setLabel('支払いURL')
+      .setPlaceholder('https://...')
+      .setStyle(TextInputStyle.Short).setRequired(true).setMaxLength(500),
+  ));
+  await interaction.showModal(modal);
+}
+
+async function handleUrlModalSubmit(interaction: import('discord.js').ModalSubmitInteraction, orderId: string): Promise<void> {
+  const paymentUrl = interaction.fields.getTextInputValue('payment_url');
+  await interaction.deferReply({ ephemeral: true });
+
+  const { data: orderData } = await supabase.from('orders').select('*').eq('id', orderId).single();
+  if (!orderData) { await interaction.editReply('❌ 注文が見つかりません。'); return; }
+  const order = orderData as OrderRow;
+
+  if (interaction.user.id !== order.buyer_user_id) {
+    await interaction.editReply('❌ 購入者のみ入力できます。'); return;
+  }
+
+  const now = new Date().toISOString();
+  await supabase.from('orders').update({ payment_url: paymentUrl, payment_submitted_at: now }).eq('id', orderId);
+
+  const channel = interaction.channel as TextChannel|undefined;
+  if (channel) {
+    // 管理者に通知
+    const payBtn = new ButtonBuilder().setCustomId(`order_pay_${orderId}`)
+      .setLabel('✅ 支払いを確認しました').setStyle(ButtonStyle.Success);
+    const payRow = new ActionRowBuilder<ButtonBuilder>().addComponents(payBtn);
+    await channel.send({
+      embeds: [{ title: '💳 支払いURLが送信されました',
+        description: `購入者から支払いURLが送信されました。\n\`${paymentUrl}\`\n\n確認後、「支払いを確認しました」ボタンを押してください。`,
+        color: 0x6366f1, timestamp: now }],
+      components: [payRow],
+    });
+  }
+
+  await interaction.editReply('✅ 支払いURLを送信しました。管理者の確認を待ってください。');
+  console.log(`[Shop] 支払いURL送信: ${orderId}`);
 }
 
 // ── 支払い確認（管理者）→ 対価を送信 ─────────────────────────
@@ -210,9 +316,14 @@ async function handleConfirmPayment(interaction: ButtonInteraction, orderId: str
   const { data: productData } = await supabase.from('products').select('*').eq('id', order.product_id).single();
   const channel = guild.channels.cache.get(order.channel_id) as TextChannel | undefined;
 
-  // 対価を送信
-  if (channel && productData && shopData) {
-    await deliverRewardBot(guild, channel, order, productData as ProductRow, shopData as ShopRow);
+  // 変数展開用のvarsを構築
+  const buyer = await guild.members.fetch(order.buyer_user_id).catch(() => null);
+  const vars = buyer ? buildOrderVars(buyer, productData as ProductRow, shopData as ShopRow, orderId) : {};
+
+  // auto_deliver の場合のみ対価を送信
+  const shop = shopData as ShopRow;
+  if (channel && productData && shop.auto_deliver) {
+    await deliverRewardBot(guild, channel, order, productData as ProductRow, shop, vars);
   }
 
   // ステータス更新
@@ -228,13 +339,17 @@ async function handleConfirmPayment(interaction: ButtonInteraction, orderId: str
     const cancelReqBtn  = new ButtonBuilder().setCustomId(`order_cancel_req_${orderId}`)
       .setLabel('⚠️ キャンセルを申し出る').setStyle(ButtonStyle.Secondary);
     const doneRow = new ActionRowBuilder<ButtonBuilder>().addComponents(buyerDoneBtn, sellerDoneBtn, cancelReqBtn);
+
+    const desc = shop.auto_deliver
+      ? '商品をお届けしました。受け取ったら「取引完了」を押してください。\n双方が押すとチャンネルがアーカイブされます。'
+      : '支払いが確認されました。対価の引き渡し後、「取引完了」を押してください。\n双方が押すとチャンネルがアーカイブされます。';
+
     await channel.send({
-      embeds: [{ title: '✅ 支払い確認済・対価送信済', description: '商品を受け取ったら「取引完了」を押してください。\n双方が押すとチャンネルがアーカイブされます。', color: 0x10b981, timestamp: now }],
+      embeds: [{ title: '✅ 支払い確認済', description: desc, color: 0x10b981, timestamp: now }],
       components: [doneRow],
     });
     // 購入者に DM 通知
-    const buyer = await guild.members.fetch(order.buyer_user_id).catch(() => null);
-    await buyer?.send(`✅ **${order.product_name}** の支払いが確認され、対価が送信されました。チャンネルをご確認ください。`).catch(() => {});
+    await buyer?.send(`✅ **${order.product_name}** の支払いが確認されました。チャンネルをご確認ください。`).catch(() => {});
   }
   console.log(`[Shop] 支払確認: ${orderId}`);
 }
@@ -399,7 +514,8 @@ async function handleDisputeModalSubmit(interaction: import('discord.js').ModalS
     content: `${supportMention} ${member.toString()}`,
     embeds: [{ title: '⚠️ 異議申し立て', description: description, color: 0xf59e0b,
       fields: [{ name: '申立者', value: member.toString(), inline: true }],
-      footer: { text: shop?.footer_text ?? '' }, timestamp: new Date().toISOString() }],
+      footer: shop?.footer_text ? { text: shop.footer_text } : undefined,
+      timestamp: new Date().toISOString() }],
   });
   await interaction.editReply(`⚠️ 異議チャンネルを作成しました → <#${channel.id}>`);
 }
@@ -422,6 +538,7 @@ client.on(Events.InteractionCreate, async (interaction: Interaction) => {
       const buyMatch    = id.match(/^shop_buy_([^_]+)_(.+)$/);
       if (buyMatch) { await handleConfirmPurchase(interaction, buyMatch[1], buyMatch[2]); return; }
 
+      if (id.startsWith('order_url_input_'))    { await handleUrlInput(interaction, id.replace('order_url_input_', '')); return; }
       if (id.startsWith('order_pay_'))          { await handleConfirmPayment(interaction, id.replace('order_pay_', '')); return; }
       if (id.startsWith('order_done_buyer_'))   { await handleOrderDone(interaction, 'buyer',  id.replace('order_done_buyer_', '')); return; }
       if (id.startsWith('order_done_seller_'))  { await handleOrderDone(interaction, 'seller', id.replace('order_done_seller_', '')); return; }
@@ -432,8 +549,12 @@ client.on(Events.InteractionCreate, async (interaction: Interaction) => {
     }
 
     // モーダル送信
-    if (interaction.isModalSubmit() && interaction.customId.startsWith('shop_dispute_modal_')) {
-      await handleDisputeModalSubmit(interaction, interaction.customId.replace('shop_dispute_modal_', ''));
+    if (interaction.isModalSubmit()) {
+      const urlModalMatch = interaction.customId.match(/^order_url_modal_(.+)$/);
+      if (urlModalMatch) { await handleUrlModalSubmit(interaction, urlModalMatch[1]); return; }
+
+      const disputeModalMatch = interaction.customId.match(/^shop_dispute_modal_(.+)$/);
+      if (disputeModalMatch) { await handleDisputeModalSubmit(interaction, disputeModalMatch[1]); return; }
     }
   } catch (e) {
     console.error('[Shop] interaction error:', e);

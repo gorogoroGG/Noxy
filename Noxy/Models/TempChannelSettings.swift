@@ -1,7 +1,7 @@
 import Foundation
 
 struct TempChannelSettings: Identifiable, Codable {
-    var id: String
+    var id: String?
     var guildId: String
     var enabled: Bool
     var categoryId: String?
@@ -13,9 +13,11 @@ struct TempChannelSettings: Identifiable, Codable {
     var watchVcIds: [String]
     var minMembers: Int
 
+    var effectiveId: String { id ?? UUID().uuidString }
+
     static func defaultSettings(guildId: String) -> TempChannelSettings {
         TempChannelSettings(
-            id: UUID().uuidString,
+            id: nil,
             guildId: guildId,
             enabled: false,
             categoryId: nil,
