@@ -2,8 +2,12 @@ import {
   Events,
   ChannelType,
   PermissionFlagsBits,
+  ActionRowBuilder,
+  ButtonBuilder,
+  ButtonStyle,
   type VoiceState,
   type TextChannel,
+  type VoiceChannel,
   type OverwriteResolvable,
 } from 'discord.js';
 import { client } from '../client.js';
@@ -25,15 +29,45 @@ interface TempChannelSettings {
   min_members: number;
 }
 
-// ── チャンネル名生成 ──────────────────────────────────────────
+// ── #2 チャンネル名レートリミット管理（Discord: 2回/10分）──────
+// 5分経過後のみ rename を許可する
+
+const lastRenameTime = new Map<string, number>(); // textChannelId → timestamp
+
+// ── ユーティリティ ───────────────────────────────────────────
 
 function buildChannelName(format: string, vcName: string, userName: string, count: number): string {
   return format
-    .replace(/\{vc-name\}/g,    vcName.toLowerCase().replace(/[^a-z0-9ぁ-んァ-ヶ一-龠]/g, '-').replace(/-+/g, '-').slice(0, 32))
-    .replace(/\{user-name\}/g,  userName.toLowerCase().replace(/[^a-z0-9]/g, ''))
-    .replace(/\{count\}/g,      String(count))
+    .replace(/\{vc-name\}/g,   vcName.toLowerCase().replace(/[^a-z0-9ぁ-んァ-ヶ一-龠]/g, '-').replace(/-+/g, '-').slice(0, 32))
+    .replace(/\{user-name\}/g, userName.toLowerCase().replace(/[^a-z0-9]/g, ''))
+    .replace(/\{count\}/g,     String(count))
     .toLowerCase()
     .slice(0, 100);
+}
+
+// #2 チャンネル名を更新（レートリミット付き）
+async function tryRenameChannel(textChannel: TextChannel, settings: TempChannelSettings, vcChannel: VoiceChannel): Promise<void> {
+  if (!settings.channel_name_format.includes('{count}')) return;
+
+  const now  = Date.now();
+  const last = lastRenameTime.get(textChannel.id) ?? 0;
+  if (now - last < 5 * 60 * 1000) return; // 5分以内はスキップ
+
+  const newName = buildChannelName(
+    settings.channel_name_format,
+    vcChannel.name,
+    '',
+    vcChannel.members.size,
+  );
+  await textChannel.setName(newName).catch(() => {});
+  lastRenameTime.set(textChannel.id, now);
+}
+
+// #4 チャンネルトピックを参加者一覧で更新
+async function updateTopic(textChannel: TextChannel, vcChannel: VoiceChannel): Promise<void> {
+  const names = [...vcChannel.members.values()].map(m => m.displayName).join('、');
+  const topic = `🎙️ ${vcChannel.name}　|　参加中: ${names || 'なし'}`;
+  await textChannel.setTopic(topic).catch(() => {});
 }
 
 // ── VC参加処理 ───────────────────────────────────────────────
@@ -43,16 +77,12 @@ async function handleVoiceJoin(state: VoiceState, settings: TempChannelSettings)
   const guild       = state.guild;
   const member      = state.member!;
 
-  // 特定VC監視モードのチェック
   if (!settings.watch_all_vcs && !settings.watch_vc_ids.includes(vcChannelId)) return;
 
-  // VC チャンネルを取得
-  const vcChannel = guild.channels.cache.get(vcChannelId);
+  const vcChannel = guild.channels.cache.get(vcChannelId) as VoiceChannel | undefined;
   if (!vcChannel || vcChannel.type !== ChannelType.GuildVoice) return;
 
   const memberCount = vcChannel.members.size;
-
-  // 最小参加人数チェック
   if (memberCount < settings.min_members) return;
 
   // 既存の一時チャンネルを確認
@@ -64,21 +94,35 @@ async function handleVoiceJoin(state: VoiceState, settings: TempChannelSettings)
     .single();
 
   if (existing) {
-    // 既存チャンネルに参加ユーザーの権限を追加
+    // ────────────────────────────────────────────────
+    // #1 再入室: ViewChannel を明示的に ALLOW に戻す
+    //    (以前 deny にしたまま残っているため上書きが必要)
+    // ────────────────────────────────────────────────
     const textCh = guild.channels.cache.get(existing.text_channel_id) as TextChannel | undefined;
     if (textCh) {
       await textCh.permissionOverwrites.edit(member.id, {
-        ViewChannel: true, SendMessages: true, ReadMessageHistory: true, AttachFiles: true,
+        ViewChannel:        true,
+        SendMessages:       true,
+        ReadMessageHistory: true,
+        AttachFiles:        true,
       }).catch(() => {});
 
       if (settings.join_leave_notification) {
-        await textCh.send(`👤 **${member.displayName}** が <#${vcChannelId}> に参加しました。`).catch(() => {});
+        await textCh.send(`👤 **${member.displayName}** が参加しました。`).catch(() => {});
       }
+
+      // #2 チャンネル名を人数に合わせて更新
+      await tryRenameChannel(textCh, settings, vcChannel);
+      // #4 トピックを更新
+      await updateTopic(textCh, vcChannel);
     }
     return;
   }
 
+  // ─────────────────────────────────────────
   // 新規一時チャンネルを作成
+  // ─────────────────────────────────────────
+
   const channelName = buildChannelName(
     settings.channel_name_format,
     vcChannel.name,
@@ -86,7 +130,7 @@ async function handleVoiceJoin(state: VoiceState, settings: TempChannelSettings)
     memberCount,
   );
 
-  // 全員分の権限オーバーライドを用意
+  // 参加者全員の権限
   const overwrites: OverwriteResolvable[] = [
     { id: guild.id,        deny:  [PermissionFlagsBits.ViewChannel] },
     { id: client.user!.id, allow: [PermissionFlagsBits.ViewChannel, PermissionFlagsBits.SendMessages, PermissionFlagsBits.ReadMessageHistory, PermissionFlagsBits.ManageChannels, PermissionFlagsBits.ManageMessages] },
@@ -98,18 +142,32 @@ async function handleVoiceJoin(state: VoiceState, settings: TempChannelSettings)
     });
   }
 
+  // #8 カテゴリ: 設定があればそれ、なければ VC と同じカテゴリ
+  const parentId = settings.category_id ?? vcChannel.parentId ?? undefined;
+
+  // #4 初期トピック（参加者リスト）
+  const memberNames = [...vcChannel.members.values()].map(m => m.displayName).join('、');
+  const topic = `🎙️ ${vcChannel.name}　|　参加中: ${memberNames}`;
+
   let textChannel: TextChannel;
   try {
     textChannel = await guild.channels.create({
       name:                 channelName,
       type:                 ChannelType.GuildText,
-      parent:               settings.category_id ?? undefined,
-      topic:                `🎙️ ${vcChannel.name} を使用中のメンバー専用チャンネル`,
+      parent:               parentId,
+      topic,
       permissionOverwrites: overwrites,
     }) as TextChannel;
   } catch (e) {
     console.error('[TempChannel] チャンネル作成失敗:', e);
     return;
+  }
+
+  // #8 VCチャンネルの直下（rawPosition + 1）に配置
+  try {
+    await textChannel.setPosition(vcChannel.rawPosition + 1);
+  } catch {
+    // 位置設定失敗は無視（カテゴリ順が変わるだけ）
   }
 
   // Supabase に記録
@@ -119,7 +177,15 @@ async function handleVoiceJoin(state: VoiceState, settings: TempChannelSettings)
     text_channel_id: textChannel.id,
   });
 
-  // ウェルカムメッセージ
+  lastRenameTime.set(textChannel.id, Date.now());
+
+  // #3 VCへの誘導ボタン付きウェルカムメッセージ
+  const joinBtn = new ButtonBuilder()
+    .setStyle(ButtonStyle.Link)
+    .setLabel(`🎙️ ${vcChannel.name} に参加する`)
+    .setURL(`https://discord.com/channels/${guild.id}/${vcChannelId}`);
+  const row = new ActionRowBuilder<ButtonBuilder>().addComponents(joinBtn);
+
   const memberMentions = [...vcChannel.members.values()].map(m => m.toString()).join(' ');
   await textChannel.send({
     content: memberMentions,
@@ -128,11 +194,12 @@ async function handleVoiceJoin(state: VoiceState, settings: TempChannelSettings)
       description: 'このチャンネルは VC に参加しているメンバー専用です。\n全員が退室すると自動的に削除されます。',
       color:       0x5865f2,
       fields: [
-        { name: 'VC',         value: `<#${vcChannelId}>`, inline: true },
-        { name: '参加者',     value: String(memberCount),  inline: true },
+        { name: 'VC',     value: `<#${vcChannelId}>`, inline: true },
+        { name: '参加者', value: String(memberCount),  inline: true },
       ],
       timestamp: new Date().toISOString(),
     }],
+    components: [row],
   }).catch(() => {});
 
   console.log(`[TempChannel] 作成: ${channelName} (VC: ${vcChannel.name})`);
@@ -145,7 +212,6 @@ async function handleVoiceLeave(state: VoiceState, settings: TempChannelSettings
   const guild       = state.guild;
   const member      = state.member ?? null;
 
-  // 一時チャンネルを確認
   const { data: tempCh } = await supabase
     .from('temp_channels')
     .select('*')
@@ -158,36 +224,71 @@ async function handleVoiceLeave(state: VoiceState, settings: TempChannelSettings
   const textChannel = guild.channels.cache.get(tempCh.text_channel_id) as TextChannel | undefined;
 
   // 退室メンバーの閲覧権限を明示的に DENY
-  // （delete だとロールの allow が残る場合があるため、ViewChannel: false を明示する）
   if (textChannel && member) {
     await textChannel.permissionOverwrites.edit(member.id, {
       ViewChannel: false,
     }).catch(() => {});
+
     if (settings.join_leave_notification) {
       await textChannel.send(`🚪 **${member.displayName}** が退室しました。`).catch(() => {});
+    }
+
+    // #2 チャンネル名を人数に合わせて更新
+    const vcCh = guild.channels.cache.get(vcChannelId) as VoiceChannel | undefined;
+    if (vcCh) {
+      await tryRenameChannel(textChannel, settings, vcCh);
+      // #4 トピックを更新
+      await updateTopic(textChannel, vcCh);
     }
   }
 
   // VC が空になったか確認
-  const vcChannel = guild.channels.cache.get(vcChannelId);
-  const remaining = vcChannel?.type === ChannelType.GuildVoice ? vcChannel.members.size : 0;
+  const vcChannel = guild.channels.cache.get(vcChannelId) as VoiceChannel | undefined;
+  const remaining  = vcChannel?.type === ChannelType.GuildVoice ? vcChannel.members.size : 0;
 
   if (remaining === 0 && settings.auto_delete) {
-    const delayMs = (settings.delete_delay_minutes ?? 0) * 60 * 1000;
+    const delayMs    = (settings.delete_delay_minutes ?? 0) * 60 * 1000;
+    const delayLabel = settings.delete_delay_minutes;
 
     const deleteFn = async () => {
-      // 削除前に再確認（猶予中に再入室した場合はスキップ）
-      const vc = guild.channels.cache.get(vcChannelId);
+      // #5 ─────────────────────────────────────────────
+      // 削除前カウントダウン通知
+      // ─────────────────────────────────────────────────
+
+      if (delayMs === 0) {
+        // 即削除
+        await textChannel?.send('🗑️ VC が空になりました。チャンネルを削除します。').catch(() => {});
+        await new Promise(r => setTimeout(r, 3000)); // 3秒猶予
+
+      } else {
+        // 猶予あり: まず「X分後に削除」を通知
+        await textChannel?.send(
+          `🗑️ VC が空になりました。**${delayLabel}分後**にこのチャンネルを削除します。`
+        ).catch(() => {});
+
+        // 1分前警告（猶予が 2分以上の場合のみ）
+        if (delayMs >= 2 * 60 * 1000) {
+          await new Promise(r => setTimeout(r, delayMs - 60 * 1000));
+
+          // 猶予中に再入室した場合はキャンセル
+          const vc = guild.channels.cache.get(vcChannelId) as VoiceChannel | undefined;
+          if (vc?.type === ChannelType.GuildVoice && vc.members.size > 0) return;
+
+          await textChannel?.send('⚠️ **1分後にこのチャンネルを削除します。**').catch(() => {});
+          await new Promise(r => setTimeout(r, 60 * 1000));
+
+        } else {
+          await new Promise(r => setTimeout(r, delayMs));
+        }
+      }
+
+      // 最終確認: 猶予中に再入室した場合はキャンセル
+      const vc = guild.channels.cache.get(vcChannelId) as VoiceChannel | undefined;
       if (vc?.type === ChannelType.GuildVoice && vc.members.size > 0) return;
 
-      if (textChannel) {
-        if (delayMs > 0) {
-          await textChannel.send(`🗑️ VC が空になりました。${settings.delete_delay_minutes}分後にこのチャンネルを削除します。`).catch(() => {});
-        }
-        await new Promise(r => setTimeout(r, delayMs));
-        await textChannel.delete('VC 退室により一時チャンネルを削除').catch(() => {});
-      }
+      await textChannel?.delete('VC 退室により一時チャンネルを削除').catch(() => {});
       await supabase.from('temp_channels').delete().eq('id', tempCh.id);
+      lastRenameTime.delete(tempCh.text_channel_id);
       console.log(`[TempChannel] 削除: ${tempCh.text_channel_id} (VC: ${vcChannelId})`);
     };
 
@@ -200,7 +301,6 @@ async function handleVoiceLeave(state: VoiceState, settings: TempChannelSettings
 client.on(Events.VoiceStateUpdate, async (oldState: VoiceState, newState: VoiceState) => {
   const guild = newState.guild;
 
-  // 設定を取得
   const { data: settings } = await supabase
     .from('temp_channel_settings')
     .select('*')
@@ -233,7 +333,7 @@ client.once(Events.ClientReady, async () => {
     const guild = client.guilds.cache.get(row.guild_id);
     if (!guild) continue;
 
-    const vc = guild.channels.cache.get(row.vc_channel_id);
+    const vc      = guild.channels.cache.get(row.vc_channel_id);
     const isEmpty = !vc || vc.type !== ChannelType.GuildVoice || vc.members.size === 0;
 
     if (isEmpty) {
