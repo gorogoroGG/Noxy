@@ -478,3 +478,89 @@ actor MockReactionRoleService: ReactionRoleServiceProtocol {
     }
 }
 
+// MARK: - Shop
+
+actor MockShopService: ShopServiceProtocol {
+    nonisolated(unsafe) private var shops: [Shop] = []
+    nonisolated(unsafe) private var products: [Product] = []
+    nonisolated(unsafe) private var orders: [Order] = []
+
+    func fetchShops(guildId: String) async throws -> [Shop] {
+        try await mockDelay()
+        return shops.filter { $0.guildId == guildId }
+    }
+    func createShop(_ shop: Shop) async throws -> Shop {
+        try await mockDelay()
+        shops.append(shop)
+        return shop
+    }
+    func updateShop(_ shop: Shop) async throws -> Shop {
+        try await mockDelay()
+        guard let idx = shops.firstIndex(where: { $0.id == shop.id }) else { throw ServiceError.notFound }
+        shops[idx] = shop
+        return shop
+    }
+    func deleteShop(id: String) async throws {
+        try await mockDelay()
+        shops.removeAll { $0.id == id }
+    }
+    func deployShop(id: String, channelId: String) async throws -> Shop {
+        try await mockDelay()
+        guard let idx = shops.firstIndex(where: { $0.id == id }) else { throw ServiceError.notFound }
+        shops[idx].channelId = channelId
+        shops[idx].messageId = "mock-msg-\(UUID().uuidString.prefix(8))"
+        return shops[idx]
+    }
+
+    func fetchProducts(shopId: String) async throws -> [Product] {
+        try await mockDelay()
+        return products.filter { $0.shopId == shopId }
+    }
+    func createProduct(_ product: Product) async throws -> Product {
+        try await mockDelay()
+        products.append(product)
+        return product
+    }
+    func updateProduct(_ product: Product) async throws -> Product {
+        try await mockDelay()
+        guard let idx = products.firstIndex(where: { $0.id == product.id }) else { throw ServiceError.notFound }
+        products[idx] = product
+        return product
+    }
+    func deleteProduct(id: String) async throws {
+        try await mockDelay()
+        products.removeAll { $0.id == id }
+    }
+
+    func fetchOrders(guildId: String, status: OrderStatus?) async throws -> [Order] {
+        try await mockDelay()
+        var base = orders.filter { $0.guildId == guildId }
+        if let status { base = base.filter { $0.status == status } }
+        return base
+    }
+    func fetchOrder(id: String) async throws -> Order {
+        try await mockDelay()
+        guard let order = orders.first(where: { $0.id == id }) else { throw ServiceError.notFound }
+        return order
+    }
+    func confirmPayment(orderId: String) async throws -> Order {
+        try await mockDelay()
+        guard let idx = orders.firstIndex(where: { $0.id == orderId }) else { throw ServiceError.notFound }
+        orders[idx].status = .delivered
+        orders[idx].paidAt = .now
+        orders[idx].deliveredAt = .now
+        return orders[idx]
+    }
+    func completeOrder(orderId: String, party: String) async throws -> Order {
+        try await mockDelay()
+        guard let idx = orders.firstIndex(where: { $0.id == orderId }) else { throw ServiceError.notFound }
+        if party == "buyer" { orders[idx].buyerConfirmed = true }
+        if party == "seller" { orders[idx].sellerConfirmed = true }
+        if orders[idx].buyerConfirmed && orders[idx].sellerConfirmed {
+            orders[idx].status = .completed
+            orders[idx].completedAt = .now
+        }
+        return orders[idx]
+    }
+}
+

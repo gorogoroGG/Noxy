@@ -104,6 +104,22 @@ struct FeatureItem: Identifiable {
         ) { id in AnyView(TicketsListView(guildId: id)) },
 
         FeatureItem(
+            id: "shops",
+            icon: "cart.fill",
+            color: .accentPurple,
+            title: "ショップ",
+            subtitle: "商品販売・注文管理"
+        ) { id in AnyView(ShopsListView(guildId: id)) },
+
+        FeatureItem(
+            id: "sales-analytics",
+            icon: "chart.bar.fill",
+            color: .accentGreen,
+            title: "売上分析",
+            subtitle: "注文データ・ランキング"
+        ) { id in AnyView(SalesAnalyticsView(guildId: id)) },
+
+        FeatureItem(
             id: "roles",
             icon: "shield.fill",
             color: .accentPurple,

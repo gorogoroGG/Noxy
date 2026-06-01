@@ -148,7 +148,66 @@ CREATE TABLE IF NOT EXISTS ticket_messages (
     created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
 );
 
--- 10. temp_channel_settings（一時チャンネル設定）
+-- 10. shops（ショップ）
+CREATE TABLE IF NOT EXISTS shops (
+    id                  TEXT PRIMARY KEY DEFAULT gen_random_uuid()::text,
+    guild_id            TEXT NOT NULL,
+    name                TEXT NOT NULL,
+    description         TEXT NOT NULL DEFAULT '',
+    enabled             BOOLEAN NOT NULL DEFAULT TRUE,
+    channel_id          TEXT NOT NULL DEFAULT '',
+    message_id          TEXT,
+    order_category_id   TEXT,
+    archive_category_id TEXT,
+    support_role_id     TEXT,
+    timeout_hours       INTEGER,               -- NULL=タイムアウトなし
+    color               INTEGER NOT NULL DEFAULT 6579201,
+    footer_text         TEXT NOT NULL DEFAULT '本Botは取引の仲介・保証・管理に一切関与しません。取引に関するトラブルはサーバー管理者および取引相手との間で解決してください。',
+    created_at          TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
+
+-- 11. products（商品）
+CREATE TABLE IF NOT EXISTS products (
+    id                TEXT PRIMARY KEY DEFAULT gen_random_uuid()::text,
+    shop_id           TEXT NOT NULL REFERENCES shops(id) ON DELETE CASCADE,
+    name              TEXT NOT NULL,
+    description       TEXT NOT NULL DEFAULT '',
+    price_display     TEXT NOT NULL DEFAULT '要相談',
+    image_url         TEXT,
+    stock             INTEGER,                 -- NULL=無制限
+    reward_type       TEXT NOT NULL DEFAULT 'text',  -- text/url/role/dm
+    reward_content    TEXT,
+    reward_role_id    TEXT,
+    reward_dm_content TEXT,
+    position          INTEGER NOT NULL DEFAULT 0,
+    enabled           BOOLEAN NOT NULL DEFAULT TRUE,
+    created_at        TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
+
+-- 12. orders（注文）
+CREATE TABLE IF NOT EXISTS orders (
+    id                      TEXT PRIMARY KEY DEFAULT gen_random_uuid()::text,
+    shop_id                 TEXT NOT NULL REFERENCES shops(id),
+    product_id              TEXT NOT NULL REFERENCES products(id),
+    guild_id                TEXT NOT NULL,
+    channel_id              TEXT NOT NULL DEFAULT '',
+    buyer_user_id           TEXT NOT NULL,
+    buyer_username          TEXT NOT NULL,
+    product_name            TEXT NOT NULL,
+    product_price_display   TEXT NOT NULL DEFAULT '',
+    status                  TEXT NOT NULL DEFAULT 'open',  -- open/paid/delivered/completed/cancelled/disputed
+    buyer_confirmed         BOOLEAN NOT NULL DEFAULT FALSE,
+    seller_confirmed        BOOLEAN NOT NULL DEFAULT FALSE,
+    buyer_cancel_requested  BOOLEAN NOT NULL DEFAULT FALSE,
+    seller_cancel_requested BOOLEAN NOT NULL DEFAULT FALSE,
+    created_at              TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    paid_at                 TIMESTAMPTZ,
+    delivered_at            TIMESTAMPTZ,
+    completed_at            TIMESTAMPTZ,
+    cancelled_at            TIMESTAMPTZ
+);
+
+-- 13. temp_channel_settings（一時チャンネル設定）
 CREATE TABLE IF NOT EXISTS temp_channel_settings (
     id                      TEXT PRIMARY KEY DEFAULT gen_random_uuid()::text,
     guild_id                TEXT NOT NULL UNIQUE,
@@ -186,7 +245,12 @@ CREATE INDEX IF NOT EXISTS idx_tickets_guild     ON tickets(guild_id);
 CREATE INDEX IF NOT EXISTS idx_tickets_status    ON tickets(status);
 CREATE INDEX IF NOT EXISTS idx_tickets_channel   ON tickets(channel_id);
 CREATE INDEX IF NOT EXISTS idx_ticket_msgs       ON ticket_messages(ticket_id);
-CREATE INDEX IF NOT EXISTS idx_temp_ch_guild     ON temp_channels(guild_id);
+CREATE INDEX IF NOT EXISTS idx_shops_guild        ON shops(guild_id);
+CREATE INDEX IF NOT EXISTS idx_products_shop      ON products(shop_id);
+CREATE INDEX IF NOT EXISTS idx_orders_guild       ON orders(guild_id);
+CREATE INDEX IF NOT EXISTS idx_orders_status      ON orders(status);
+CREATE INDEX IF NOT EXISTS idx_orders_shop        ON orders(shop_id);
+CREATE INDEX IF NOT EXISTS idx_temp_ch_guild      ON temp_channels(guild_id);
 CREATE INDEX IF NOT EXISTS idx_temp_ch_vc        ON temp_channels(vc_channel_id);
 
 -- ============================================================
@@ -209,6 +273,12 @@ CREATE POLICY "Allow all for authenticated users" ON reaction_roles     FOR ALL 
 CREATE POLICY "Allow all for authenticated users" ON ticket_panels      FOR ALL USING (auth.role() = 'authenticated');
 CREATE POLICY "Allow all for authenticated users" ON tickets            FOR ALL USING (auth.role() = 'authenticated');
 CREATE POLICY "Allow all for authenticated users" ON ticket_messages         FOR ALL USING (auth.role() = 'authenticated');
+ALTER TABLE shops   ENABLE ROW LEVEL SECURITY;
+ALTER TABLE products ENABLE ROW LEVEL SECURITY;
+ALTER TABLE orders   ENABLE ROW LEVEL SECURITY;
+CREATE POLICY "Allow all for authenticated users" ON shops    FOR ALL USING (auth.role() = 'authenticated');
+CREATE POLICY "Allow all for authenticated users" ON products FOR ALL USING (auth.role() = 'authenticated');
+CREATE POLICY "Allow all for authenticated users" ON orders   FOR ALL USING (auth.role() = 'authenticated');
 ALTER TABLE temp_channel_settings ENABLE ROW LEVEL SECURITY;
 ALTER TABLE temp_channels         ENABLE ROW LEVEL SECURITY;
 CREATE POLICY "Allow all for authenticated users" ON temp_channel_settings   FOR ALL USING (auth.role() = 'authenticated');

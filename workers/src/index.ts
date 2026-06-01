@@ -77,6 +77,129 @@ function mapTicketMessage(m: TicketMessageRow) {
   };
 }
 
+// ── ショップ型定義 ────────────────────────────────────────────
+
+interface ShopRow {
+  id: string; guild_id: string; name: string; description: string; enabled: boolean;
+  channel_id: string; message_id: string | null;
+  order_category_id: string | null; archive_category_id: string | null;
+  support_role_id: string | null; timeout_hours: number | null;
+  color: number; footer_text: string; created_at: string;
+}
+interface ProductRow {
+  id: string; shop_id: string; name: string; description: string;
+  price_display: string; image_url: string | null; stock: number | null;
+  reward_type: string; reward_content: string | null;
+  reward_role_id: string | null; reward_dm_content: string | null;
+  position: number; enabled: boolean; created_at: string;
+}
+interface OrderRow {
+  id: string; shop_id: string; product_id: string; guild_id: string;
+  channel_id: string; buyer_user_id: string; buyer_username: string;
+  product_name: string; product_price_display: string; status: string;
+  buyer_confirmed: boolean; seller_confirmed: boolean;
+  buyer_cancel_requested: boolean; seller_cancel_requested: boolean;
+  created_at: string; paid_at: string | null; delivered_at: string | null;
+  completed_at: string | null; cancelled_at: string | null;
+}
+
+function mapShop(s: ShopRow) {
+  return { id: s.id, guildId: s.guild_id, name: s.name, description: s.description,
+    enabled: s.enabled, channelId: s.channel_id, messageId: s.message_id,
+    orderCategoryId: s.order_category_id, archiveCategoryId: s.archive_category_id,
+    supportRoleId: s.support_role_id, timeoutHours: s.timeout_hours,
+    color: s.color, footerText: s.footer_text, createdAt: s.created_at };
+}
+function mapProduct(p: ProductRow) {
+  return { id: p.id, shopId: p.shop_id, name: p.name, description: p.description,
+    priceDisplay: p.price_display, imageUrl: p.image_url, stock: p.stock,
+    rewardType: p.reward_type, rewardContent: p.reward_content,
+    rewardRoleId: p.reward_role_id, rewardDmContent: p.reward_dm_content,
+    position: p.position, enabled: p.enabled, createdAt: p.created_at };
+}
+function mapOrder(o: OrderRow) {
+  return { id: o.id, shopId: o.shop_id, productId: o.product_id,
+    guildId: o.guild_id, channelId: o.channel_id,
+    buyerUserId: o.buyer_user_id, buyerUsername: o.buyer_username,
+    productName: o.product_name, productPriceDisplay: o.product_price_display,
+    status: o.status, buyerConfirmed: o.buyer_confirmed, sellerConfirmed: o.seller_confirmed,
+    buyerCancelRequested: o.buyer_cancel_requested, sellerCancelRequested: o.seller_cancel_requested,
+    createdAt: o.created_at, paidAt: o.paid_at, deliveredAt: o.delivered_at,
+    completedAt: o.completed_at, cancelledAt: o.cancelled_at };
+}
+
+// ショップ: 対価の送信（confirm-payment から呼ぶ）
+async function deliverReward(order: OrderRow, product: ProductRow, shop: ShopRow, env: Env): Promise<void> {
+  const { reward_type: type, reward_content, reward_role_id, reward_dm_content } = product;
+  const channelId   = order.channel_id;
+  const buyerUserId = order.buyer_user_id;
+  const guildId     = order.guild_id;
+  const token       = env.DISCORD_BOT_TOKEN;
+
+  const embedBase = {
+    color:  shop.color,
+    footer: { text: shop.footer_text },
+    timestamp: new Date().toISOString(),
+  };
+
+  switch (type) {
+    case 'text':
+    case 'url':
+      await fetch(`https://discord.com/api/v10/channels/${channelId}/messages`, {
+        method: 'POST', headers: { Authorization: `Bot ${token}`, 'Content-Type': 'application/json' },
+        body: JSON.stringify({ embeds: [{ ...embedBase, title: '📦 商品を受け取りました',
+          description: reward_content ?? '（対価なし）' }] }),
+      });
+      break;
+    case 'role':
+      if (reward_role_id) {
+        await fetch(`https://discord.com/api/v10/guilds/${guildId}/members/${buyerUserId}/roles/${reward_role_id}`, {
+          method: 'PUT', headers: { Authorization: `Bot ${token}` },
+        });
+        await fetch(`https://discord.com/api/v10/channels/${channelId}/messages`, {
+          method: 'POST', headers: { Authorization: `Bot ${token}`, 'Content-Type': 'application/json' },
+          body: JSON.stringify({ embeds: [{ ...embedBase, title: '🎭 ロールを付与しました',
+            description: `<@&${reward_role_id}> を付与しました。` }] }),
+        });
+      }
+      break;
+    case 'dm': {
+      const dmCh = await fetch('https://discord.com/api/v10/users/@me/channels', {
+        method: 'POST', headers: { Authorization: `Bot ${token}`, 'Content-Type': 'application/json' },
+        body: JSON.stringify({ recipient_id: buyerUserId }),
+      });
+      if (dmCh.ok) {
+        const { id: dmId } = await dmCh.json() as { id: string };
+        await fetch(`https://discord.com/api/v10/channels/${dmId}/messages`, {
+          method: 'POST', headers: { Authorization: `Bot ${token}`, 'Content-Type': 'application/json' },
+          body: JSON.stringify({ embeds: [{ ...embedBase, title: '📦 商品のお届け',
+            description: reward_dm_content ?? '（内容なし）' }] }),
+        });
+        await fetch(`https://discord.com/api/v10/channels/${channelId}/messages`, {
+          method: 'POST', headers: { Authorization: `Bot ${token}`, 'Content-Type': 'application/json' },
+          body: JSON.stringify({ embeds: [{ ...embedBase, title: '📩 DMで商品をお届けしました' }] }),
+        });
+      }
+      break;
+    }
+  }
+}
+
+// ショップ: チャンネルのアーカイブ（購入者の権限を剥奪して移動）
+async function archiveOrderChannel(channelId: string, buyerUserId: string, archiveCategoryId: string | null, env: Env): Promise<void> {
+  const token = env.DISCORD_BOT_TOKEN;
+  await fetch(`https://discord.com/api/v10/channels/${channelId}/permissions/${buyerUserId}`, {
+    method: 'PUT', headers: { Authorization: `Bot ${token}`, 'Content-Type': 'application/json' },
+    body: JSON.stringify({ deny: '1024', type: 1 }),
+  });
+  if (archiveCategoryId) {
+    await fetch(`https://discord.com/api/v10/channels/${channelId}`, {
+      method: 'PATCH', headers: { Authorization: `Bot ${token}`, 'Content-Type': 'application/json' },
+      body: JSON.stringify({ parent_id: archiveCategoryId }),
+    });
+  }
+}
+
 // ── チケットパネル型定義 ─────────────────────────────────────
 
 interface TicketPanelRow {
@@ -330,6 +453,41 @@ async function processScheduledMessages(): Promise<{
   }
 
   return { sent, rescheduled, errors };
+}
+
+// ── 注文タイムアウト処理 ──────────────────────────────────────
+
+async function processOrderTimeouts(env: Env): Promise<void> {
+  // open 状態の注文をすべて取得
+  const resp = await supabaseFetch('/orders?status=eq.open&order=created_at.asc');
+  if (!resp.ok) return;
+  const orders: OrderRow[] = await resp.json();
+
+  for (const order of orders) {
+    const shopR  = await supabaseFetch(`/shops?id=eq.${order.shop_id}`);
+    const shopArr: ShopRow[] = await shopR.json();
+    if (!shopArr.length) continue;
+    const shop = shopArr[0];
+    if (!shop.timeout_hours) continue;
+
+    const createdAt  = new Date(order.created_at);
+    const timeoutAt  = new Date(createdAt.getTime() + shop.timeout_hours * 3600 * 1000);
+    if (new Date() < timeoutAt) continue;
+
+    // タイムアウト: キャンセル
+    await supabaseFetch(`/orders?id=eq.${order.id}`, {
+      method: 'PATCH',
+      body: JSON.stringify({ status: 'cancelled', cancelled_at: new Date().toISOString() }),
+    });
+    if (order.channel_id) {
+      await fetch(`https://discord.com/api/v10/channels/${order.channel_id}/messages`, {
+        method: 'POST', headers: { Authorization: `Bot ${env.DISCORD_BOT_TOKEN}`, 'Content-Type': 'application/json' },
+        body: JSON.stringify({ content: `⏰ **注文がタイムアウトしました。** ${shop.timeout_hours}時間以内に支払いが確認されなかったため自動キャンセルされました。` }),
+      });
+      await archiveOrderChannel(order.channel_id, order.buyer_user_id, shop.archive_category_id, env);
+    }
+    console.log(`[Order] タイムアウトキャンセル: ${order.id}`);
+  }
 }
 
 // ── Worker Entry Point ───────────────────────────────────────
@@ -1164,6 +1322,241 @@ export default {
       }))), { headers: { 'Content-Type': 'application/json' } });
     }
 
+    // ── ショップ CRUD ────────────────────────────────────────────
+
+    // GET /bot/shops?guild_id=xxx
+    if (url.pathname === '/bot/shops' && request.method === 'GET') {
+      const guildId = url.searchParams.get('guild_id');
+      if (!guildId) return new Response('Missing guild_id', { status: 400 });
+      const r = await sb(`/shops?guild_id=eq.${guildId}&order=created_at.desc`);
+      const rows = await r.json() as ShopRow[];
+      return new Response(JSON.stringify(rows.map(mapShop)), { headers: { 'Content-Type': 'application/json' } });
+    }
+    if (url.pathname === '/bot/shops' && request.method === 'POST') {
+      try {
+        const body = await request.json() as Partial<ShopRow> & Record<string, unknown>;
+        const data = {
+          guild_id:            body['guildId'] ?? body.guild_id ?? '',
+          name:                body['name']    ?? 'ショップ',
+          description:         body['description'] ?? '',
+          enabled:             body['enabled']  ?? true,
+          channel_id:          body['channelId'] ?? body.channel_id ?? '',
+          order_category_id:   body['orderCategoryId']   ?? body.order_category_id   ?? null,
+          archive_category_id: body['archiveCategoryId'] ?? body.archive_category_id ?? null,
+          support_role_id:     body['supportRoleId']     ?? body.support_role_id     ?? null,
+          timeout_hours:       body['timeoutHours']      ?? body.timeout_hours       ?? null,
+          color:               body['color']   ?? 6579201,
+          footer_text:         body['footerText'] ?? body.footer_text ?? '本Botは取引の仲介・保証・管理に一切関与しません。取引に関するトラブルはサーバー管理者および取引相手との間で解決してください。',
+        };
+        const r = await sb('/shops', { method: 'POST', body: JSON.stringify(data), headers: { Prefer: 'return=representation' } });
+        if (!r.ok) return new Response(await r.text(), { status: r.status });
+        const rows = await r.json() as ShopRow[];
+        return new Response(JSON.stringify(mapShop(rows[0])), { headers: { 'Content-Type': 'application/json' } });
+      } catch (e) { return new Response(JSON.stringify({ error: String(e) }), { status: 500 }); }
+    }
+    const shopIdMatch = url.pathname.match(/^\/bot\/shops\/([^\/]+)$/);
+    if (shopIdMatch && request.method === 'PATCH') {
+      try {
+        const id   = shopIdMatch[1];
+        const body = await request.json() as Record<string, unknown>;
+        const camel: Record<string, string> = {
+          name: 'name', description: 'description', enabled: 'enabled',
+          channelId: 'channel_id', orderCategoryId: 'order_category_id',
+          archiveCategoryId: 'archive_category_id', supportRoleId: 'support_role_id',
+          timeoutHours: 'timeout_hours', color: 'color', footerText: 'footer_text',
+        };
+        const data: Record<string, unknown> = {};
+        for (const [k, v] of Object.entries(body)) { const sk = camel[k] ?? k; data[sk] = v; }
+        const r = await sb(`/shops?id=eq.${id}`, { method: 'PATCH', body: JSON.stringify(data), headers: { Prefer: 'return=representation' } });
+        if (!r.ok) return new Response(await r.text(), { status: r.status });
+        const rows = await r.json() as ShopRow[];
+        return new Response(JSON.stringify(mapShop(rows[0])), { headers: { 'Content-Type': 'application/json' } });
+      } catch (e) { return new Response(JSON.stringify({ error: String(e) }), { status: 500 }); }
+    }
+    if (shopIdMatch && request.method === 'DELETE') {
+      await sb(`/shops?id=eq.${shopIdMatch[1]}`, { method: 'DELETE' });
+      return new Response(JSON.stringify({ ok: true }), { headers: { 'Content-Type': 'application/json' } });
+    }
+
+    // ── ショップデプロイ POST /bot/shops/:id/deploy { channelId } ──
+    const shopDeployMatch = url.pathname.match(/^\/bot\/shops\/([^\/]+)\/deploy$/);
+    if (shopDeployMatch && request.method === 'POST') {
+      try {
+        const shopId = shopDeployMatch[1];
+        const body   = await request.json() as { channelId: string };
+        if (!body.channelId) return new Response('channelId required', { status: 400 });
+        // Shop を取得
+        const sr  = await sb(`/shops?id=eq.${shopId}`);
+        const shops = await sr.json() as ShopRow[];
+        if (!shops.length) return new Response('Shop not found', { status: 404 });
+        const shop = shops[0];
+        // Products を取得
+        const pr = await sb(`/products?shop_id=eq.${shopId}&enabled=eq.true&order=position.asc`);
+        const products = await pr.json() as ProductRow[];
+        if (!products.length) return new Response('No enabled products', { status: 400 });
+        // セレクトメニューのオプション
+        const options = products.slice(0, 25).map(p => ({
+          label:       (p.stock !== null && p.stock <= 0 ? '[売り切れ] ' : '') + p.name.slice(0, 100),
+          description: `${p.price_display}${p.description ? ' ・ ' + p.description.slice(0, 50) : ''}`.slice(0, 100),
+          value:       p.id,
+          default:     false,
+        }));
+        // Discord にメッセージを投稿
+        const discordBody = {
+          embeds: [{ title: shop.name, description: shop.description || undefined, color: shop.color,
+            footer: { text: shop.footer_text }, timestamp: new Date().toISOString() }],
+          components: [
+            { type: 1, components: [{ type: 3, custom_id: `shop_select_${shopId}`,
+              placeholder: '🛒 商品を選択してください', min_values: 1, max_values: 1, options }] },
+            { type: 1, components: [{ type: 2, style: 4, label: '⚠️ 異議を申し立てる',
+              custom_id: `shop_dispute_${shopId}` }] },
+          ],
+        };
+        const postR = await fetch(`https://discord.com/api/v10/channels/${body.channelId}/messages`, {
+          method: 'POST', headers: { Authorization: `Bot ${env.DISCORD_BOT_TOKEN}`, 'Content-Type': 'application/json' },
+          body: JSON.stringify(discordBody),
+        });
+        if (!postR.ok) return new Response(JSON.stringify({ error: await postR.text() }), { status: 502 });
+        const posted = await postR.json() as { id: string };
+        await sb(`/shops?id=eq.${shopId}`, { method: 'PATCH', body: JSON.stringify({ channel_id: body.channelId, message_id: posted.id }) });
+        const updR = await sb(`/shops?id=eq.${shopId}`);
+        const updRows = await updR.json() as ShopRow[];
+        return new Response(JSON.stringify(mapShop(updRows[0])), { headers: { 'Content-Type': 'application/json' } });
+      } catch (e) { return new Response(JSON.stringify({ error: String(e) }), { status: 500 }); }
+    }
+
+    // ── 商品 CRUD ─────────────────────────────────────────────
+
+    // GET /bot/shops/:shopId/products
+    const shopProductsMatch = url.pathname.match(/^\/bot\/shops\/([^\/]+)\/products$/);
+    if (shopProductsMatch && request.method === 'GET') {
+      const r = await sb(`/products?shop_id=eq.${shopProductsMatch[1]}&order=position.asc`);
+      const rows = await r.json() as ProductRow[];
+      return new Response(JSON.stringify(rows.map(mapProduct)), { headers: { 'Content-Type': 'application/json' } });
+    }
+    if (shopProductsMatch && request.method === 'POST') {
+      try {
+        const body = await request.json() as Record<string, unknown>;
+        const data = {
+          shop_id:          shopProductsMatch[1],
+          name:             body['name']             ?? '商品',
+          description:      body['description']      ?? '',
+          price_display:    body['priceDisplay']     ?? '要相談',
+          image_url:        body['imageUrl']         ?? null,
+          stock:            body['stock']            ?? null,
+          reward_type:      body['rewardType']       ?? 'text',
+          reward_content:   body['rewardContent']    ?? null,
+          reward_role_id:   body['rewardRoleId']     ?? null,
+          reward_dm_content:body['rewardDmContent']  ?? null,
+          position:         body['position']         ?? 0,
+          enabled:          body['enabled']          ?? true,
+        };
+        const r = await sb('/products', { method: 'POST', body: JSON.stringify(data), headers: { Prefer: 'return=representation' } });
+        if (!r.ok) return new Response(await r.text(), { status: r.status });
+        const rows = await r.json() as ProductRow[];
+        return new Response(JSON.stringify(mapProduct(rows[0])), { headers: { 'Content-Type': 'application/json' } });
+      } catch (e) { return new Response(JSON.stringify({ error: String(e) }), { status: 500 }); }
+    }
+    const productIdMatch = url.pathname.match(/^\/bot\/products\/([^\/]+)$/);
+    if (productIdMatch && request.method === 'PATCH') {
+      try {
+        const id   = productIdMatch[1];
+        const body = await request.json() as Record<string, unknown>;
+        const camel: Record<string, string> = {
+          name: 'name', description: 'description', priceDisplay: 'price_display',
+          imageUrl: 'image_url', stock: 'stock', rewardType: 'reward_type',
+          rewardContent: 'reward_content', rewardRoleId: 'reward_role_id',
+          rewardDmContent: 'reward_dm_content', position: 'position', enabled: 'enabled',
+        };
+        const data: Record<string, unknown> = {};
+        for (const [k, v] of Object.entries(body)) { const sk = camel[k] ?? k; data[sk] = v; }
+        const r = await sb(`/products?id=eq.${id}`, { method: 'PATCH', body: JSON.stringify(data), headers: { Prefer: 'return=representation' } });
+        if (!r.ok) return new Response(await r.text(), { status: r.status });
+        const rows = await r.json() as ProductRow[];
+        return new Response(JSON.stringify(mapProduct(rows[0])), { headers: { 'Content-Type': 'application/json' } });
+      } catch (e) { return new Response(JSON.stringify({ error: String(e) }), { status: 500 }); }
+    }
+    if (productIdMatch && request.method === 'DELETE') {
+      await sb(`/products?id=eq.${productIdMatch[1]}`, { method: 'DELETE' });
+      return new Response(JSON.stringify({ ok: true }), { headers: { 'Content-Type': 'application/json' } });
+    }
+
+    // ── 注文 API ────────────────────────────────────────────────
+
+    // GET /bot/orders?guild_id=xxx[&status=xxx]
+    if (url.pathname === '/bot/orders' && request.method === 'GET') {
+      const guildId = url.searchParams.get('guild_id');
+      if (!guildId) return new Response('Missing guild_id', { status: 400 });
+      const status  = url.searchParams.get('status');
+      let query = `/orders?guild_id=eq.${guildId}&order=created_at.desc`;
+      if (status) query += `&status=eq.${status}`;
+      const r = await sb(query);
+      const rows = await r.json() as OrderRow[];
+      return new Response(JSON.stringify(rows.map(mapOrder)), { headers: { 'Content-Type': 'application/json' } });
+    }
+    // GET /bot/orders/:id
+    const orderIdMatch = url.pathname.match(/^\/bot\/orders\/([^\/]+)$/);
+    if (orderIdMatch && request.method === 'GET') {
+      const r = await sb(`/orders?id=eq.${orderIdMatch[1]}`);
+      const rows = await r.json() as OrderRow[];
+      if (!rows.length) return new Response('Not found', { status: 404 });
+      return new Response(JSON.stringify(mapOrder(rows[0])), { headers: { 'Content-Type': 'application/json' } });
+    }
+    // POST /bot/orders/:id/confirm-payment （iOS から支払確認 → 対価を自動送信）
+    const orderPayMatch = url.pathname.match(/^\/bot\/orders\/([^\/]+)\/confirm-payment$/);
+    if (orderPayMatch && request.method === 'POST') {
+      try {
+        const id = orderPayMatch[1];
+        const or = await sb(`/orders?id=eq.${id}`); const orders = await or.json() as OrderRow[];
+        if (!orders.length) return new Response('Not found', { status: 404 });
+        const order = orders[0];
+        if (order.status !== 'open') return new Response(JSON.stringify({ error: 'Not open' }), { status: 400 });
+        const pr = await sb(`/products?id=eq.${order.product_id}`); const products = await pr.json() as ProductRow[];
+        const shr = await sb(`/shops?id=eq.${order.shop_id}`);       const shopArr  = await shr.json() as ShopRow[];
+        if (!products.length || !shopArr.length) return new Response('Data not found', { status: 404 });
+        // 対価を送信
+        await deliverReward(order, products[0], shopArr[0], env);
+        // ステータス更新: paid → delivered
+        const now = new Date().toISOString();
+        await sb(`/orders?id=eq.${id}`, { method: 'PATCH', body: JSON.stringify({ status: 'delivered', paid_at: now, delivered_at: now }) });
+        // チャンネルに通知
+        if (order.channel_id) {
+          await fetch(`https://discord.com/api/v10/channels/${order.channel_id}/messages`, {
+            method: 'POST', headers: { Authorization: `Bot ${env.DISCORD_BOT_TOKEN}`, 'Content-Type': 'application/json' },
+            body: JSON.stringify({ embeds: [{ title: '✅ 支払いが確認されました', description: '対価を送信しました。受け取りを確認して「取引完了」を押してください。', color: 0x10b981, timestamp: now }] }),
+          });
+        }
+        const upR = await sb(`/orders?id=eq.${id}`); const upRows = await upR.json() as OrderRow[];
+        return new Response(JSON.stringify(mapOrder(upRows[0])), { headers: { 'Content-Type': 'application/json' } });
+      } catch (e) { return new Response(JSON.stringify({ error: String(e) }), { status: 500 }); }
+    }
+    // POST /bot/orders/:id/complete { party: 'buyer'|'seller' }
+    const orderCompleteMatch = url.pathname.match(/^\/bot\/orders\/([^\/]+)\/complete$/);
+    if (orderCompleteMatch && request.method === 'POST') {
+      try {
+        const id   = orderCompleteMatch[1];
+        const body = await request.json() as { party: 'buyer' | 'seller' };
+        const or   = await sb(`/orders?id=eq.${id}`); const orders = await or.json() as OrderRow[];
+        if (!orders.length) return new Response('Not found', { status: 404 });
+        const order = orders[0];
+        const update: Record<string, unknown> = {};
+        if (body.party === 'buyer')  update['buyer_confirmed']  = true;
+        if (body.party === 'seller') update['seller_confirmed'] = true;
+        await sb(`/orders?id=eq.${id}`, { method: 'PATCH', body: JSON.stringify(update) });
+        const upR = await sb(`/orders?id=eq.${id}`); const upRows = await upR.json() as OrderRow[];
+        const updated = upRows[0];
+        // 双方確認済みなら完了処理
+        if (updated.buyer_confirmed && updated.seller_confirmed) {
+          const shr = await sb(`/shops?id=eq.${order.shop_id}`); const shopArr = await shr.json() as ShopRow[];
+          const shop = shopArr[0];
+          await sb(`/orders?id=eq.${id}`, { method: 'PATCH', body: JSON.stringify({ status: 'completed', completed_at: new Date().toISOString() }) });
+          if (order.channel_id) await archiveOrderChannel(order.channel_id, order.buyer_user_id, shop?.archive_category_id ?? null, env);
+        }
+        const finalR = await sb(`/orders?id=eq.${id}`); const finalRows = await finalR.json() as OrderRow[];
+        return new Response(JSON.stringify(mapOrder(finalRows[0])), { headers: { 'Content-Type': 'application/json' } });
+      } catch (e) { return new Response(JSON.stringify({ error: String(e) }), { status: 500 }); }
+    }
+
     return new Response("Not Found", { status: 404 });
   },
 
@@ -1178,9 +1571,10 @@ export default {
 
     console.log("Noxy Scheduler: checking pending messages...");
     const result = await processScheduledMessages();
-    console.log(
-      `Done: sent=${result.sent} rescheduled=${result.rescheduled} errors=${result.errors}`
-    );
+    console.log(`Done: sent=${result.sent} rescheduled=${result.rescheduled} errors=${result.errors}`);
+
+    // 注文タイムアウトチェック
+    await processOrderTimeouts(env);
   },
 };
 

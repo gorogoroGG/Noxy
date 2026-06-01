@@ -19,6 +19,7 @@ final class ServiceContainer {
     let reactionRoles:      any ReactionRoleServiceProtocol
     let greeting:           any GreetingServiceProtocol
     let tempChannel:        any TempChannelServiceProtocol
+    let shops:              any ShopServiceProtocol
 
     private init(
         embeds:            any EmbedServiceProtocol,
@@ -34,7 +35,8 @@ final class ServiceContainer {
         auth:              any AuthServiceProtocol,
         reactionRoles:     any ReactionRoleServiceProtocol,
         greeting:          any GreetingServiceProtocol,
-        tempChannel:       any TempChannelServiceProtocol
+        tempChannel:       any TempChannelServiceProtocol,
+        shops:             any ShopServiceProtocol
     ) {
         self.embeds = embeds
         self.guilds = guilds
@@ -50,6 +52,7 @@ final class ServiceContainer {
         self.reactionRoles = reactionRoles
         self.greeting = greeting
         self.tempChannel = tempChannel
+        self.shops = shops
     }
 
     /// モック用（プレビュー・テスト）
@@ -68,7 +71,8 @@ final class ServiceContainer {
             auth:              MockAuthService(),
             reactionRoles:     MockReactionRoleService(),
             greeting:          MockGreetingService(),
-            tempChannel:       MockTempChannelService()
+            tempChannel:       MockTempChannelService(),
+            shops:             MockShopService()
         )
     }
 
@@ -88,7 +92,8 @@ final class ServiceContainer {
             auth:              SupabaseAuthService(),
             reactionRoles:     SupabaseReactionRoleService(),
             greeting:          SupabaseGreetingService(),
-            tempChannel:       WorkerTempChannelService()
+            tempChannel:       WorkerTempChannelService(),
+            shops:             WorkerShopService()
         )
     }
 }
