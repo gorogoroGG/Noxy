@@ -126,19 +126,6 @@ interface OrderRow {
   completed_at: string | null; cancelled_at: string | null;
 }
 
-function mapShop(s: ShopRow) {
-  return { id: s.id, guildId: s.guild_id, name: s.name, description: s.description,
-    enabled: s.enabled, channelId: s.channel_id, messageId: s.message_id,
-    orderCategoryId: s.order_category_id, archiveCategoryId: s.archive_category_id,
-    supportRoleId: s.support_role_id, timeoutHours: s.timeout_hours,
-    color: s.color, footerText: s.footer_text,
-    paymentFlow: s.payment_flow, autoDeliver: s.auto_deliver,
-    welcomeImageUrl: s.welcome_image_url, welcomeThumbnailUrl: s.welcome_thumbnail_url,
-    welcomeFields: s.welcome_fields ?? [],
-    welcomeFooterText: s.welcome_footer_text, welcomeFooterIconUrl: s.welcome_footer_icon_url,
-    welcomeShowTimestamp: s.welcome_show_timestamp,
-    createdAt: s.created_at };
-}
 function mapProduct(p: ProductRow) {
   return { id: p.id, shopId: p.shop_id, name: p.name, description: p.description,
     priceDisplay: p.price_display, imageUrl: p.image_url, stock: p.stock,
