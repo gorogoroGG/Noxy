@@ -239,7 +239,7 @@ struct WelcomeMessageView: View {
                 }
             }
             .pickerStyle(.menu)
-            .onChange(of: id.wrappedValue) { newId in
+            .onChange(of: id.wrappedValue) { _, newId in
                 name.wrappedValue = channels.first(where: { $0.id == newId })?.name ?? ""
             }
         }
@@ -257,7 +257,7 @@ struct WelcomeMessageView: View {
                 }
             }
             .pickerStyle(.menu)
-            .onChange(of: id.wrappedValue) { newId in
+            .onChange(of: id.wrappedValue) { _, newId in
                 name.wrappedValue = roles.first(where: { $0.id == newId })?.name ?? ""
             }
         }

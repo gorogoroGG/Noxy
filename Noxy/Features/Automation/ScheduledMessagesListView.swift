@@ -243,7 +243,7 @@ struct ScheduledMessagesListView: View {
         }
         let msgs = (try? await services.scheduledMessages.fetchAll()) ?? []
         let ems  = (try? await services.embeds.fetchAll()) ?? []
-        messages = msgs.filter { $0.guildId == appState.selectedGuildId || $0.guildId == nil }
+        messages = msgs.filter { $0.guildId == appState.selectedGuildId }
         displayCount = min(Self.pageSize, messages.count)
         embeds = ems
         isLoading = false
@@ -252,7 +252,7 @@ struct ScheduledMessagesListView: View {
     private func reloadAfterCreate() async {
         let msgs = (try? await services.scheduledMessages.fetchAll()) ?? []
         let ems  = (try? await services.embeds.fetchAll()) ?? []
-        messages = msgs.filter { $0.guildId == appState.selectedGuildId || $0.guildId == nil }
+        messages = msgs.filter { $0.guildId == appState.selectedGuildId }
         displayCount = min(Self.pageSize, messages.count)
         embeds = ems
     }

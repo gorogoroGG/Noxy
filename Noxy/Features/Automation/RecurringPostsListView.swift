@@ -296,7 +296,7 @@ struct RecurringPostsListView: View {
         }
         let msgs = (try? await services.scheduledMessages.fetchAll()) ?? []
         let ems  = (try? await services.embeds.fetchAll()) ?? []
-        allMessages = msgs.filter { $0.guildId == appState.selectedGuildId || $0.guildId == nil }
+        allMessages = msgs.filter { $0.guildId == appState.selectedGuildId }
         displayCount = min(pageSize, allMessages.count)
         embeds = ems
         isLoading = false
@@ -305,7 +305,7 @@ struct RecurringPostsListView: View {
     private func reloadAfterCreate() async {
         let msgs = (try? await services.scheduledMessages.fetchAll()) ?? []
         let ems  = (try? await services.embeds.fetchAll()) ?? []
-        allMessages = msgs.filter { $0.guildId == appState.selectedGuildId || $0.guildId == nil }
+        allMessages = msgs.filter { $0.guildId == appState.selectedGuildId }
         embeds = ems
     }
 

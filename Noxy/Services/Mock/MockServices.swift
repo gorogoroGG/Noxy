@@ -4,12 +4,14 @@ enum ServiceError: LocalizedError {
     case networkError
     case notFound
     case unauthorized
+    case invalidData
 
     var errorDescription: String? {
         switch self {
         case .networkError:   "Network connection failed"
         case .notFound:       "Resource not found"
         case .unauthorized:   "Not authorized"
+        case .invalidData:    "Invalid data"
         }
     }
 }
@@ -80,8 +82,8 @@ actor MockEmbedService: EmbedServiceProtocol {
 // MARK: - Guild
 
 actor MockGuildService: GuildServiceProtocol {
-    nonisolated(unsafe) private let guilds = MockData.guilds
-    nonisolated(unsafe) private let channels = MockData.channels
+    private let guilds = MockData.guilds
+    private let channels = MockData.channels
 
     func fetchAll() async throws -> [Guild] {
         try await mockDelay()
@@ -103,7 +105,7 @@ actor MockGuildService: GuildServiceProtocol {
 // MARK: - Member
 
 actor MockMemberService: MemberServiceProtocol {
-    nonisolated(unsafe) private var members = MockData.members
+    private var members = MockData.members
 
     func fetchMembers(guildId: String) async throws -> [Member] {
         try await mockDelay()
@@ -158,8 +160,8 @@ actor MockMemberService: MemberServiceProtocol {
 // MARK: - Ticket
 
 actor MockTicketService: TicketServiceProtocol {
-    nonisolated(unsafe) private var tickets = MockData.tickets
-    nonisolated(unsafe) private var messages = MockData.ticketMessages
+    private var tickets = MockData.tickets
+    private var messages = MockData.ticketMessages
 
     func fetchAll(guildId: String) async throws -> [Ticket] {
         try await mockDelay()
@@ -251,7 +253,7 @@ actor MockTicketService: TicketServiceProtocol {
 // MARK: - AutoResponse
 
 actor MockAutoResponseService: AutoResponseServiceProtocol {
-    nonisolated(unsafe) private var items = MockData.autoResponses
+    private var items = MockData.autoResponses
 
     func fetchAll(guildId: String) async throws -> [AutoResponse] {
         try await mockDelay()
@@ -351,7 +353,7 @@ struct MockAuditLogService: AuditLogServiceProtocol {
 // MARK: - Notification
 
 actor MockNotificationService: NotificationServiceProtocol {
-    nonisolated(unsafe) private var notifications = MockData.notifications
+    private var notifications = MockData.notifications
 
     func fetchAll() async throws -> [AppNotification] {
         try await mockDelay()

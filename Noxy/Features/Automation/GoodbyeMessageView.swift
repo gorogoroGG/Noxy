@@ -37,7 +37,7 @@ struct GoodbyeMessageView: View {
                                 Label("#\(ch.name)", systemImage: ch.type == .announcement ? "megaphone" : "number").tag(ch.id)
                             }
                         }
-                        .onChange(of: channelId) { id in
+                        .onChange(of: channelId) { _, id in
                             channelName = channels.first(where: { $0.id == id })?.name ?? ""
                         }
                     }

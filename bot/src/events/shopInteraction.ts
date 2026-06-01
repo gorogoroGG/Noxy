@@ -226,7 +226,7 @@ async function handleConfirmPurchase(interaction: ButtonInteraction, shopId: str
 
   // 管理者宛てメッセージ
   await channel.send({
-    content: expandVariables(`${supportMention}${buyer.mention}`, vars),
+    content: expandVariables(`${supportMention}${buyer.toString()}`, vars),
     embeds: [welcomeEmbed],
     components: [closeRow],
   });
