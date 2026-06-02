@@ -1869,6 +1869,179 @@ export default {
       } catch (e) { return new Response(JSON.stringify({ error: String(e) }), { status: 500 }); }
     }
 
+    // ── モデレーション ────────────────────────────────────────────
+
+    // GET /bot/bans?guild_id=  BAN一覧
+    if (url.pathname === '/bot/bans' && request.method === 'GET') {
+      const guildId = url.searchParams.get('guild_id');
+      if (!guildId) return new Response('Missing guild_id', { status: 400 });
+      const resp = await fetch(`https://discord.com/api/v10/guilds/${guildId}/bans?limit=1000`, {
+        headers: { Authorization: `Bot ${env.DISCORD_BOT_TOKEN}` },
+      });
+      if (!resp.ok) return new Response(await resp.text(), { status: resp.status });
+      return new Response(JSON.stringify(await resp.json()), { headers: { 'Content-Type': 'application/json' } });
+    }
+
+    // DELETE /bot/bans/:userId?guild_id=  アンBAN
+    const unbanMatch = url.pathname.match(/^\/bot\/bans\/([^\/]+)$/);
+    if (unbanMatch && request.method === 'DELETE') {
+      const userId = unbanMatch[1];
+      const guildId = url.searchParams.get('guild_id');
+      if (!guildId) return new Response('Missing guild_id', { status: 400 });
+      const resp = await fetch(`https://discord.com/api/v10/guilds/${guildId}/bans/${userId}`, {
+        method: 'DELETE',
+        headers: { Authorization: `Bot ${env.DISCORD_BOT_TOKEN}` },
+      });
+      if (!resp.ok && resp.status !== 204) return new Response(await resp.text(), { status: resp.status });
+      return new Response(JSON.stringify({ success: true }), { headers: { 'Content-Type': 'application/json' } });
+    }
+
+    // PATCH /bot/members/:userId/untimeout  タイムアウト解除
+    const untimeoutMatch = url.pathname.match(/^\/bot\/members\/([^\/]+)\/untimeout$/);
+    if (untimeoutMatch && request.method === 'PATCH') {
+      try {
+        const userId = untimeoutMatch[1];
+        const body = await request.json() as { guildId: string };
+        const resp = await fetch(`https://discord.com/api/v10/guilds/${body.guildId}/members/${userId}`, {
+          method: 'PATCH',
+          headers: { Authorization: `Bot ${env.DISCORD_BOT_TOKEN}`, 'Content-Type': 'application/json' },
+          body: JSON.stringify({ communication_disabled_until: null }),
+        });
+        if (!resp.ok) return new Response(await resp.text(), { status: resp.status });
+        return new Response(JSON.stringify({ success: true }), { headers: { 'Content-Type': 'application/json' } });
+      } catch (e) { return new Response(JSON.stringify({ error: String(e) }), { status: 500 }); }
+    }
+
+    // GET /bot/warnings?guild_id=&user_id=  警告一覧
+    if (url.pathname === '/bot/warnings' && request.method === 'GET') {
+      const guildId = url.searchParams.get('guild_id');
+      const userId  = url.searchParams.get('user_id');
+      if (!guildId) return new Response('Missing guild_id', { status: 400 });
+      let query = `/mod_warnings?guild_id=eq.${guildId}&order=created_at.desc`;
+      if (userId) query += `&user_id=eq.${userId}`;
+      const resp = await sb(query);
+      if (!resp.ok) return new Response(await resp.text(), { status: resp.status });
+      return new Response(JSON.stringify(await resp.json()), { headers: { 'Content-Type': 'application/json' } });
+    }
+
+    // POST /bot/warnings  警告追加（自動アクション付き）
+    if (url.pathname === '/bot/warnings' && request.method === 'POST') {
+      try {
+        const body = await request.json() as {
+          guildId: string; userId: string; username: string; displayName: string;
+          reason: string; staffId: string; staffName: string; autoAction?: string;
+        };
+        const insertResp = await sb('/mod_warnings', {
+          method: 'POST',
+          body: JSON.stringify({
+            guild_id: body.guildId, user_id: body.userId, username: body.username,
+            display_name: body.displayName, reason: body.reason,
+            staff_id: body.staffId, staff_name: body.staffName, is_revoked: false,
+          }),
+          headers: { Prefer: 'return=representation' },
+        });
+        if (!insertResp.ok) return new Response(await insertResp.text(), { status: insertResp.status });
+
+        // 自動アクション
+        if (body.autoAction === 'ban') {
+          await fetch(`https://discord.com/api/v10/guilds/${body.guildId}/bans/${body.userId}`, {
+            method: 'PUT',
+            headers: { Authorization: `Bot ${env.DISCORD_BOT_TOKEN}`, 'Content-Type': 'application/json' },
+            body: JSON.stringify({ delete_message_seconds: 0 }),
+          });
+        } else if (body.autoAction?.startsWith('timeout_')) {
+          const hours = body.autoAction === 'timeout_1h' ? 1 : 24;
+          const until = new Date(Date.now() + hours * 3600 * 1000).toISOString();
+          await fetch(`https://discord.com/api/v10/guilds/${body.guildId}/members/${body.userId}`, {
+            method: 'PATCH',
+            headers: { Authorization: `Bot ${env.DISCORD_BOT_TOKEN}`, 'Content-Type': 'application/json' },
+            body: JSON.stringify({ communication_disabled_until: until }),
+          });
+        }
+
+        const rows = await insertResp.json() as Record<string, unknown>[];
+        return new Response(JSON.stringify(rows[0]), { headers: { 'Content-Type': 'application/json' } });
+      } catch (e) { return new Response(JSON.stringify({ error: String(e) }), { status: 500 }); }
+    }
+
+    // PATCH /bot/warnings/:id/revoke  警告取り消し
+    const warnRevokeMatch = url.pathname.match(/^\/bot\/warnings\/([^\/]+)\/revoke$/);
+    if (warnRevokeMatch && request.method === 'PATCH') {
+      const id = warnRevokeMatch[1];
+      await sb(`/mod_warnings?id=eq.${id}`, { method: 'PATCH', body: JSON.stringify({ is_revoked: true }) });
+      return new Response(JSON.stringify({ success: true }), { headers: { 'Content-Type': 'application/json' } });
+    }
+
+    // ── ロール管理 ────────────────────────────────────────────────
+
+    // PATCH /bot/roles/reorder  ロール並び替え
+    if (url.pathname === '/bot/roles/reorder' && request.method === 'PATCH') {
+      try {
+        const body = await request.json() as { guildId: string; positions: Array<{ id: string; position: number }> };
+        const resp = await fetch(`https://discord.com/api/v10/guilds/${body.guildId}/roles`, {
+          method: 'PATCH',
+          headers: { Authorization: `Bot ${env.DISCORD_BOT_TOKEN}`, 'Content-Type': 'application/json' },
+          body: JSON.stringify(body.positions),
+        });
+        if (!resp.ok) return new Response(await resp.text(), { status: resp.status });
+        return new Response(JSON.stringify(await resp.json()), { headers: { 'Content-Type': 'application/json' } });
+      } catch (e) { return new Response(JSON.stringify({ error: String(e) }), { status: 500 }); }
+    }
+
+    // POST /bot/roles  ロール作成
+    if (url.pathname === '/bot/roles' && request.method === 'POST') {
+      try {
+        const body = await request.json() as { guildId: string; name?: string; color?: number; permissions?: string };
+        const resp = await fetch(`https://discord.com/api/v10/guilds/${body.guildId}/roles`, {
+          method: 'POST',
+          headers: { Authorization: `Bot ${env.DISCORD_BOT_TOKEN}`, 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            name:        body.name        ?? '新しいロール',
+            color:       body.color       ?? 0,
+            permissions: body.permissions ?? '0',
+          }),
+        });
+        if (!resp.ok) return new Response(await resp.text(), { status: resp.status });
+        return new Response(JSON.stringify(await resp.json()), { headers: { 'Content-Type': 'application/json' } });
+      } catch (e) { return new Response(JSON.stringify({ error: String(e) }), { status: 500 }); }
+    }
+
+    // PATCH /bot/roles/:roleId  ロール更新（名前・色・権限）
+    const rolePatchMatch = url.pathname.match(/^\/bot\/roles\/([^\/]+)$/);
+    if (rolePatchMatch && request.method === 'PATCH') {
+      const roleId = rolePatchMatch[1];
+      try {
+        const body = await request.json() as { guildId: string; name?: string; color?: number; permissions?: string };
+        const patch: Record<string, unknown> = {};
+        if (body.name        !== undefined) patch.name        = body.name;
+        if (body.color       !== undefined) patch.color       = body.color;
+        if (body.permissions !== undefined) patch.permissions = body.permissions;
+        const resp = await fetch(`https://discord.com/api/v10/guilds/${body.guildId}/roles/${roleId}`, {
+          method: 'PATCH',
+          headers: { Authorization: `Bot ${env.DISCORD_BOT_TOKEN}`, 'Content-Type': 'application/json' },
+          body: JSON.stringify(patch),
+        });
+        if (!resp.ok) return new Response(await resp.text(), { status: resp.status });
+        return new Response(JSON.stringify(await resp.json()), { headers: { 'Content-Type': 'application/json' } });
+      } catch (e) { return new Response(JSON.stringify({ error: String(e) }), { status: 500 }); }
+    }
+
+    // DELETE /bot/roles/:roleId  ロール削除
+    const roleDeleteMatch = url.pathname.match(/^\/bot\/roles\/([^\/]+)$/);
+    if (roleDeleteMatch && request.method === 'DELETE') {
+      const roleId = roleDeleteMatch[1];
+      try {
+        const guildId = url.searchParams.get('guild_id');
+        if (!guildId) return new Response('Missing guild_id', { status: 400 });
+        const resp = await fetch(`https://discord.com/api/v10/guilds/${guildId}/roles/${roleId}`, {
+          method: 'DELETE',
+          headers: { Authorization: `Bot ${env.DISCORD_BOT_TOKEN}` },
+        });
+        if (!resp.ok && resp.status !== 204) return new Response(await resp.text(), { status: resp.status });
+        return new Response(JSON.stringify({ success: true }), { headers: { 'Content-Type': 'application/json' } });
+      } catch (e) { return new Response(JSON.stringify({ error: String(e) }), { status: 500 }); }
+    }
+
     return new Response("Not Found", { status: 404 });
   },
 

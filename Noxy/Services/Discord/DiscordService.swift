@@ -33,12 +33,22 @@ private struct DiscordChannel: Decodable {
     let parentId: String?
 }
 
-struct DiscordRole: Decodable, Identifiable {
+struct DiscordRole: Codable, Identifiable, Equatable {
     let id: String
-    let name: String
-    let color: Int
-    let position: Int
+    var name: String
+    var color: Int
+    var position: Int
     let managed: Bool
+    var permissions: String
+    var mentionable: Bool
+
+    // デフォルト値付きイニシャライザ（既存コードとの互換性維持）
+    init(id: String, name: String, color: Int, position: Int, managed: Bool,
+         permissions: String = "0", mentionable: Bool = false) {
+        self.id = id; self.name = name; self.color = color
+        self.position = position; self.managed = managed
+        self.permissions = permissions; self.mentionable = mentionable
+    }
 }
 
 // MARK: - DiscordService

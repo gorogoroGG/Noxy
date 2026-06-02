@@ -1,238 +1,120 @@
 import SwiftUI
 
-struct ModerationToolsView: View {
-    @State private var searchText = ""
-    @State private var selectedTab = 0
-    @State private var toast: ToastMessage? = nil
+// MARK: - ModerationCenterView
 
-    private let tabs = ["処罰", "警告履歴", "BAN一覧"]
+struct ModerationCenterView: View {
+    @State private var tab: ModTab = .overview
+
+    enum ModTab: String, CaseIterable {
+        case overview  = "概要"
+        case ban       = "BAN"
+        case timeout   = "タイムアウト"
+        case warning   = "警告"
+
+        var icon: String {
+            switch self {
+            case .overview: "shield.lefthalf.filled"
+            case .ban:      "hand.raised.slash.fill"
+            case .timeout:  "timer"
+            case .warning:  "exclamationmark.triangle.fill"
+            }
+        }
+    }
 
     var body: some View {
-        NavigationStack {
-            VStack(spacing: 0) {
-                Picker("", selection: $selectedTab) {
-                    ForEach(tabs.indices, id: \.self) { index in
-                        Text(tabs[index]).tag(index)
+        VStack(spacing: 0) {
+            tabBar
+            Divider()
+            tabContent
+        }
+        .background(Color.bgPrimary)
+        .navigationTitle("モデレーション")
+        .navigationBarTitleDisplayMode(.large)
+    }
+
+    // MARK: - Tab Bar
+
+    private var tabBar: some View {
+        ScrollView(.horizontal, showsIndicators: false) {
+            HStack(spacing: 0) {
+                ForEach(ModTab.allCases, id: \.self) { t in
+                    Button {
+                        withAnimation(.easeInOut(duration: 0.2)) { tab = t }
+                        UIImpactFeedbackGenerator(style: .light).impactOccurred()
+                    } label: {
+                        VStack(spacing: 4) {
+                            HStack(spacing: 5) {
+                                Image(systemName: t.icon)
+                                    .font(.system(size: 12, weight: .semibold))
+                                Text(t.rawValue)
+                                    .font(.bodySmall)
+                                    .fontWeight(tab == t ? .semibold : .regular)
+                            }
+                            .foregroundStyle(tab == t ? Color.accentIndigo : Color.textSecondary)
+
+                            Rectangle()
+                                .fill(tab == t ? Color.accentIndigo : Color.clear)
+                                .frame(height: 2)
+                                .clipShape(Capsule())
+                        }
+                        .padding(.horizontal, .spacing16)
+                        .padding(.top, .spacing8)
                     }
-                }
-                .pickerStyle(.segmented)
-                .padding()
-
-                switch selectedTab {
-                case 0: PunishmentView(toast: $toast)
-                case 1: WarnHistoryView()
-                case 2: BanListView()
-                default: EmptyView()
+                    .buttonStyle(.plain)
                 }
             }
-            .navigationTitle("モデレーション")
-            .navigationBarTitleDisplayMode(.large)
-            .searchable(text: $searchText, prompt: "ユーザーを検索")
         }
-        .toast($toast)
+        .background(Color.bgSurface)
+    }
+
+    // MARK: - Content
+
+    @ViewBuilder
+    private var tabContent: some View {
+        switch tab {
+        case .overview: ModOverviewView()
+        case .ban:      ModBanListView()
+        case .timeout:  ModTimeoutView()
+        case .warning:  ModWarningView()
+        }
     }
 }
 
-// MARK: - Punishment View
+// MARK: - Stat Card (shared)
 
-private struct PunishmentView: View {
-    @Binding var toast: ToastMessage?
-    @State private var selectedUser = ""
-    @State private var reason = ""
-    @State private var duration: Int = 60
-    @State private var deleteMessageDays = 0
-
-    private let users = ["ShadowX", "NoobPlayer", "TrollUser", "SpamBot", "ToxicGamer"]
-    private let reasons = ["スパム", "暴言", "荒らし", "規約違反", "その他"]
-    private let durations = [1, 5, 10, 30, 60, 360, 1440, 10080]
+struct ModStatCard: View {
+    let icon: String
+    let color: Color
+    let value: String
+    let label: String
 
     var body: some View {
-        List {
-            Section("対象ユーザー") {
-                Picker("ユーザー", selection: $selectedUser) {
-                    Text("選択してください").tag("")
-                    ForEach(users, id: \.self) { user in
-                        Text(user).tag(user)
-                    }
-                }
-            }
+        VStack(spacing: .spacing8) {
+            Image(systemName: icon)
+                .font(.system(size: 20, weight: .medium))
+                .foregroundStyle(color)
+                .frame(width: 44, height: 44)
+                .background(color.opacity(0.12))
+                .clipShape(RoundedRectangle(cornerRadius: 12))
 
-            Section("理由") {
-                Picker("理由", selection: $reason) {
-                    Text("選択してください").tag("")
-                    ForEach(reasons, id: \.self) { reason in
-                        Text(reason).tag(reason)
-                    }
-                }
-                TextField("詳細を入力...", text: .constant(""), axis: .vertical)
-                    .lineLimit(2...4)
-            }
+            Text(value)
+                .font(.displayMedium)
+                .foregroundStyle(Color.textPrimary)
 
-            Section("タイムアウト") {
-                Picker("期間", selection: $duration) {
-                    Text("1分").tag(1)
-                    Text("5分").tag(5)
-                    Text("10分").tag(10)
-                    Text("30分").tag(30)
-                    Text("1時間").tag(60)
-                    Text("6時間").tag(360)
-                    Text("1日").tag(1440)
-                    Text("1週間").tag(10080)
-                }
-            }
-
-            Section("BANオプション") {
-                Picker("メッセージ削除（日）", selection: $deleteMessageDays) {
-                    Text("削除しない").tag(0)
-                    Text("過去1日分").tag(1)
-                    Text("過去2日分").tag(2)
-                    Text("過去3日分").tag(3)
-                    Text("過去7日分").tag(7)
-                }
-            }
-
-            Section {
-                Button {
-                    toast = ToastMessage(type: .success, message: "\(selectedUser) をタイムアウトしました")
-                } label: {
-                    Label("タイムアウト", systemImage: "clock.badge.exclamationmark.fill")
-                        .foregroundStyle(Color.accentOrange)
-                }
-                .disabled(selectedUser.isEmpty)
-
-                Button {
-                    toast = ToastMessage(type: .success, message: "\(selectedUser) をキックしました")
-                } label: {
-                    Label("キック", systemImage: "person.fill.xmark")
-                        .foregroundStyle(Color.accentOrange)
-                }
-                .disabled(selectedUser.isEmpty)
-
-                Button {
-                    toast = ToastMessage(type: .success, message: "\(selectedUser) をBANしました")
-                } label: {
-                    Label("BAN", systemImage: "xmark.shield.fill")
-                        .foregroundStyle(Color(uiColor: UIColor(hex: 0xEF4444)))
-                }
-                .disabled(selectedUser.isEmpty)
-            }
+            Text(label)
+                .font(.captionSmall)
+                .foregroundStyle(Color.textSecondary)
+                .multilineTextAlignment(.center)
         }
-        .listStyle(.insetGrouped)
-    }
-}
-
-// MARK: - Warn History
-
-private struct WarnHistoryView: View {
-    private let warns = [
-        WarnItem(user: "ShadowX", reason: "スパム", issuer: "Admin", date: Date().addingTimeInterval(-3600), count: 1),
-        WarnItem(user: "NoobPlayer", reason: "暴言", issuer: "Mod", date: Date().addingTimeInterval(-86400), count: 2),
-        WarnItem(user: "TrollUser", reason: "荒らし", issuer: "Admin", date: Date().addingTimeInterval(-172800), count: 3),
-        WarnItem(user: "SpamBot", reason: "規約違反", issuer: "System", date: Date().addingTimeInterval(-259200), count: 1),
-    ]
-
-    var body: some View {
-        List {
-            ForEach(warns) { warn in
-                WarnRow(warn: warn)
-            }
-        }
-        .listStyle(.insetGrouped)
-    }
-}
-
-private struct WarnItem: Identifiable {
-    let id = UUID()
-    let user: String
-    let reason: String
-    let issuer: String
-    let date: Date
-    let count: Int
-}
-
-private struct WarnRow: View {
-    let warn: WarnItem
-
-    var body: some View {
-        HStack(spacing: .spacing12) {
-            VStack(alignment: .leading, spacing: 4) {
-                HStack(spacing: .spacing8) {
-                    Text(warn.user)
-                        .font(.bodySmall)
-                        .fontWeight(.semibold)
-                        .foregroundStyle(Color.textPrimary)
-                    Badge(text: "Warn #\(warn.count)", color: .accentOrange, style: .outlined)
-                }
-                Text("理由: \(warn.reason)")
-                    .font(.captionRegular)
-                    .foregroundStyle(Color.textSecondary)
-                Text("実行者: \(warn.issuer) · \(warn.date.formatted(.relative(presentation: .named)))")
-                    .font(.captionSmall)
-                    .foregroundStyle(Color.textTertiary)
-            }
-            Spacer()
-        }
-        .padding(.vertical, .spacing4)
-    }
-}
-
-// MARK: - Ban List
-
-private struct BanListView: View {
-    private let bans = [
-        BanItem(user: "ToxicGamer", reason: "暴言", date: Date().addingTimeInterval(-604800)),
-        BanItem(user: "SpamBot", reason: "スパム", date: Date().addingTimeInterval(-2592000)),
-    ]
-
-    var body: some View {
-        List {
-            ForEach(bans) { ban in
-                BanRow(ban: ban)
-            }
-        }
-        .listStyle(.insetGrouped)
-    }
-}
-
-private struct BanItem: Identifiable {
-    let id = UUID()
-    let user: String
-    let reason: String
-    let date: Date
-}
-
-private struct BanRow: View {
-    let ban: BanItem
-
-    var body: some View {
-        HStack(spacing: .spacing12) {
-            Avatar(name: ban.user, size: 40, accentColor: Color(uiColor: UIColor(hex: 0xEF4444)))
-
-            VStack(alignment: .leading, spacing: 4) {
-                Text(ban.user)
-                    .font(.bodySmall)
-                    .fontWeight(.semibold)
-                    .foregroundStyle(Color.textPrimary)
-                Text("理由: \(ban.reason)")
-                    .font(.captionRegular)
-                    .foregroundStyle(Color.textSecondary)
-                Text("BAN日: \(ban.date.formatted(date: .abbreviated, time: .omitted))")
-                    .font(.captionSmall)
-                    .foregroundStyle(Color.textTertiary)
-            }
-
-            Spacer()
-
-            Button("解除") {}
-                .font(.captionRegular)
-                .fontWeight(.semibold)
-                .foregroundStyle(Color.accentGreen)
-        }
-        .padding(.vertical, .spacing4)
+        .frame(maxWidth: .infinity)
+        .padding(.spacing16)
+        .background(Color.bgSurface)
+        .clipShape(RoundedRectangle(cornerRadius: .cornerRadiusMedium))
+        .overlay(RoundedRectangle(cornerRadius: .cornerRadiusMedium).stroke(Color.border, lineWidth: 1))
     }
 }
 
 #Preview {
-    NavigationStack { ModerationToolsView() }
+    NavigationStack { ModerationCenterView() }
         .preferredColorScheme(.dark)
 }

@@ -1,4 +1,4 @@
-import { Events, EmbedBuilder, ActionRowBuilder, ButtonBuilder, ButtonStyle, ChannelType } from 'discord.js';
+import { Events, EmbedBuilder, ActionRowBuilder, ButtonBuilder, ButtonStyle, ChannelType, type GuildMember } from 'discord.js';
 import { client } from '../client';
 
 client.on(Events.GuildCreate, async (guild) => {
@@ -7,15 +7,19 @@ client.on(Events.GuildCreate, async (guild) => {
   const discordServerUrl = process.env.DISCORD_SERVER_URL || 'https://discord.gg/your-server';
   const appStoreUrl = process.env.APP_STORE_URL || 'https://apps.apple.com/app/your-app';
 
-  // 招待したユーザーを取得（最新のメンバーから探す）
+  // 招待したユーザーを取得（オーナー）
   let owner = guild.ownerId ? await guild.members.fetch(guild.ownerId).catch(() => null) : null;
 
   // オーナーが見つからない場合は、最近参加したメンバーを探す
   if (!owner) {
-    const members = await guild.members.fetch({ limit: 100 }).catch(() => []);
-    const humanMembers = members.filter(m => !m.user.bot);
-    if (humanMembers.size > 0) {
-      owner = humanMembers.first();
+    try {
+      const fetched = await guild.members.fetch({ limit: 100 });
+      const humans = fetched.filter((m: GuildMember) => !m.user.bot);
+      if (humans.size > 0) {
+        owner = humans.first() ?? null;
+      }
+    } catch {
+      // fetch失敗した場合はスキップ
     }
   }
 
@@ -64,8 +68,9 @@ client.on(Events.GuildCreate, async (guild) => {
 
   // システムチャンネルにメッセージ送信
   const systemChannel = guild.systemChannel ??
-    guild.channels.cache.find(ch =>
+    guild.channels.cache.find((ch) =>
       ch.type === ChannelType.GuildText &&
+      ch.isTextBased() &&
       ch.permissionsFor(guild.members.me!)?.has(['ViewChannel', 'SendMessages'])
     );
 
