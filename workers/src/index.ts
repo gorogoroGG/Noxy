@@ -834,7 +834,8 @@ export default {
     // Bot招待URL
     if (url.pathname === "/bot/invite-url") {
       const guildId = url.searchParams.get("guild_id") || "";
-      const permissions = "2147485696";
+      // MoveMembers (16777216) を追加
+      const permissions = "2164262912";
       const inviteUrl = "https://discord.com/api/oauth2/authorize"
         + `?client_id=${env.DISCORD_CLIENT_ID}`
         + `&permissions=${permissions}`

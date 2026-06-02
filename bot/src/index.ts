@@ -12,6 +12,7 @@ import './events/guildMemberRemove';
 import './events/ticketInteraction';
 import './events/shopInteraction';
 import './events/voiceState';
+import './events/guildCreate';
 
 const token = process.env.DISCORD_BOT_TOKEN;
 if (!token) {

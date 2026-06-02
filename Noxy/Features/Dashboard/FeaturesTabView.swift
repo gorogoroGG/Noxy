@@ -48,6 +48,14 @@ struct FeatureItem: Identifiable {
 
     static let all: [FeatureItem] = [
         FeatureItem(
+            id: "server-setup",
+            icon: "server.rack",
+            color: .accentIndigo,
+            title: "サーバーセットアップ",
+            subtitle: "テンプレートから一括でサーバー構成を作成"
+        ) { _ in AnyView(ServerSetupLandingView()) },
+
+        FeatureItem(
             id: "embeds",
             icon: "rectangle.stack.fill",
             color: .accentIndigo,
