@@ -16,6 +16,10 @@ struct APIGuildService: GuildServiceProtocol {
     func fetchChannels(guildId: String) async throws -> [Channel] {
         try await client.get("/api/v1/guilds/\(guildId)/channels")
     }
+    func fetchBotGuildIds() async throws -> Set<String> {
+        let guilds: [Guild] = try await fetchAll()
+        return Set(guilds.map(\.id))
+    }
 }
 
 // ============================================================

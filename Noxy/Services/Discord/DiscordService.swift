@@ -74,10 +74,16 @@ struct DiscordService: GuildServiceProtocol {
             token: DiscordConfig.userAccessToken
         )
         return discordGuilds.map { g in
-            Guild(
+            let isOwner = g.owner == true
+            let hasAdmin = isOwner || (Int64(g.permissions ?? "0") ?? 0) & (1 << 3) != 0
+            let role: GuildRole
+            if isOwner { role = .owner }
+            else if hasAdmin { role = .admin }
+            else { role = .moderator }
+            return Guild(
                 id: g.id, discordId: g.id, name: g.name,
                 iconUrl: g.iconUrl, memberCount: 0,
-                userRole: g.owner == true ? .owner : .admin,
+                userRole: role,
                 category: .community
             )
         }

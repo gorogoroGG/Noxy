@@ -58,7 +58,7 @@ struct WorkerClient: Sendable {
             throw ServiceError.networkError
         }
         let (data, response) = try await session.data(for: makeRequest(url: url))
-        try validate(response)
+        try validate(response, data: data)
         return try Self.decoder.decode(T.self, from: data)
     }
 
@@ -67,8 +67,8 @@ struct WorkerClient: Sendable {
             throw ServiceError.networkError
         }
         let req = makeRequest(url: url, method: "POST")
-        let (_, response) = try await session.data(for: req)
-        try validate(response)
+        let (data, response) = try await session.data(for: req)
+        try validate(response, data: data)
     }
 
     func post<B: Encodable, T: Decodable>(_ path: String, body: B) async throws -> T {
@@ -78,7 +78,7 @@ struct WorkerClient: Sendable {
         let bodyData = try Self.encoder.encode(body)
         let req = makeRequest(url: url, method: "POST", body: bodyData)
         let (data, response) = try await session.data(for: req)
-        try validate(response)
+        try validate(response, data: data)
         return try Self.decoder.decode(T.self, from: data)
     }
 
@@ -88,8 +88,8 @@ struct WorkerClient: Sendable {
         }
         let bodyData = try Self.encoder.encode(body)
         let req = makeRequest(url: url, method: "POST", body: bodyData)
-        let (_, response) = try await session.data(for: req)
-        try validate(response)
+        let (data, response) = try await session.data(for: req)
+        try validate(response, data: data)
     }
 
     func patch<B: Encodable, T: Decodable>(_ path: String, body: B) async throws -> T {
@@ -99,7 +99,7 @@ struct WorkerClient: Sendable {
         let bodyData = try Self.encoder.encode(body)
         let req = makeRequest(url: url, method: "PATCH", body: bodyData)
         let (data, response) = try await session.data(for: req)
-        try validate(response)
+        try validate(response, data: data)
         return try Self.decoder.decode(T.self, from: data)
     }
 
@@ -108,19 +108,23 @@ struct WorkerClient: Sendable {
             throw ServiceError.networkError
         }
         let req = makeRequest(url: url, method: "DELETE")
-        let (_, response) = try await session.data(for: req)
-        try validate(response)
+        let (data, response) = try await session.data(for: req)
+        try validate(response, data: data)
     }
 
     // MARK: - Helpers
 
-    private func validate(_ response: URLResponse) throws {
+    private func validate(_ response: URLResponse, data: Data) throws {
         guard let http = response as? HTTPURLResponse else { throw ServiceError.networkError }
         switch http.statusCode {
         case 200..<300: return
-        case 401:       throw ServiceError.unauthorized
+        case 401:
+            let msg = String(data: data, encoding: .utf8) ?? ""
+            throw ServiceError.unauthorizedWithDetail(msg)
         case 404:       throw ServiceError.notFound
-        default:        throw ServiceError.networkError
+        default:
+            let msg = String(data: data, encoding: .utf8) ?? ""
+            throw ServiceError.workerError(status: http.statusCode, message: msg)
         }
     }
 }

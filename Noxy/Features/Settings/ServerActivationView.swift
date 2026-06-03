@@ -9,6 +9,7 @@ struct ServerActivationView: View {
 
     @State private var subStatus:    SubscriptionStatus = .inactive
     @State private var ownerGuilds:  [Guild]            = []
+    @State private var botGuildIds:  Set<String>        = []
     @State private var isLoading     = true
     @State private var processingId: String?             = nil  // 処理中のサーバーID
     @State private var errorMessage: String?             = nil
@@ -144,9 +145,13 @@ struct ServerActivationView: View {
                         Image(systemName: "server.rack")
                             .font(.system(size: 32))
                             .foregroundStyle(Color.textTertiary)
-                        Text("オーナーのサーバーがありません")
+                        Text("条件に合うサーバーがありません")
                             .font(.bodySmall)
                             .foregroundStyle(Color.textSecondary)
+                        Text("ボットが導入されていて、あなたが管理者権限を持つサーバーが表示されます")
+                            .font(.captionSmall)
+                            .foregroundStyle(Color.textTertiary)
+                            .multilineTextAlignment(.center)
                     }
                     Spacer()
                 }
@@ -164,9 +169,9 @@ struct ServerActivationView: View {
                 }
             }
         } header: {
-            Text("所有サーバー（\(ownerGuilds.count)件）")
+            Text("管理サーバー（\(ownerGuilds.count)件）")
         } footer: {
-            Text("有効化すると1スロットを消費します。無効化するとスロットが戻ります。")
+            Text("表示条件: ボットが導入されている かつ あなたがオーナーまたは管理者権限を持つサーバーのみ表示されます。")
         }
     }
 
@@ -178,9 +183,14 @@ struct ServerActivationView: View {
         let userId = KeychainHelper.load(forKey: "discord_user_id") ?? ""
         async let statusTask = services.subscription.fetchStatus(discordUserId: userId)
         async let guildsTask = services.guilds.fetchAll()
+        async let botIdsTask = services.guilds.fetchBotGuildIds()
         subStatus   = (try? await statusTask) ?? .inactive
-        let all     = (try? await guildsTask) ?? []
-        ownerGuilds = all.filter { $0.userRole == .owner }
+        let all     = (try? await guildsTask)  ?? []
+        botGuildIds = (try? await botIdsTask)  ?? []
+        // ボット導入済み + オーナーまたは管理者権限を持つサーバーのみ
+        ownerGuilds = all.filter {
+            botGuildIds.contains($0.id) && ($0.userRole == .owner || $0.userRole == .admin)
+        }
         isLoading   = false
     }
 

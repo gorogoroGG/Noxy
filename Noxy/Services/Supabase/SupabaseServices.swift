@@ -98,4 +98,9 @@ struct SupabaseGuildService: GuildServiceProtocol {
     func fetchChannels(guildId: String) async throws -> [Channel] {
         try await client.get("channels", query: ["guild_id": "eq.\(guildId)"], order: "name.asc")
     }
+
+    func fetchBotGuildIds() async throws -> Set<String> {
+        let guilds: [Guild] = try await fetchAll()
+        return Set(guilds.map(\.id))
+    }
 }

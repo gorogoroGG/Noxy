@@ -225,6 +225,8 @@ private struct SupabaseUserResponse: Decodable {
         let name: String?
         let preferredUsername: String?
         let avatarUrl: String?
+        let providerId: String?
+        let sub: String?
     }
     let userMetadata: UserMetadata?
 
@@ -251,14 +253,18 @@ private func fetchSupabaseUser(accessToken: String) async throws -> User {
                    ?? supaUser.email
                    ?? supaUser.id
     let avatarUrl = supaUser.userMetadata?.avatarUrl
-    UserDefaults.standard.set(supaUser.id, forKey: "discord_user_id")
-    UserDefaults.standard.set(username,     forKey: "discord_username")
+    // Discord の provider_id を discord_user_id として保存（一致確認用）
+    let discordId = supaUser.userMetadata?.providerId
+                    ?? supaUser.userMetadata?.sub
+                    ?? supaUser.id
+    KeychainHelper.save(discordId,  forKey: "discord_user_id")
+    KeychainHelper.save(username,   forKey: "discord_username")
     if let avatar = avatarUrl {
-        UserDefaults.standard.set(avatar, forKey: "discord_avatar")
+        KeychainHelper.save(avatar, forKey: "discord_avatar")
     }
     return User(
-        id: supaUser.id,
-        discordId: supaUser.id,
+        id: discordId,
+        discordId: discordId,
         username: username,
         displayName: username,
         avatarUrl: avatarUrl,
@@ -280,11 +286,11 @@ private func fetchDiscordUser(accessToken: String) async throws -> User {
 
     let discordUser = try JSONDecoder().decode(DiscordUserResponse.self, from: data)
 
-    // 永続化
-    UserDefaults.standard.set(discordUser.id, forKey: "discord_user_id")
-    UserDefaults.standard.set(discordUser.username, forKey: "discord_username")
+    // 永続化 (Keychain に統一)
+    KeychainHelper.save(discordUser.id,       forKey: "discord_user_id")
+    KeychainHelper.save(discordUser.username, forKey: "discord_username")
     if let avatar = discordUser.avatarUrl {
-        UserDefaults.standard.set(avatar, forKey: "discord_avatar")
+        KeychainHelper.save(avatar, forKey: "discord_avatar")
     }
 
     return User(

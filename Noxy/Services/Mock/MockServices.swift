@@ -4,14 +4,18 @@ enum ServiceError: LocalizedError {
     case networkError
     case notFound
     case unauthorized
+    case unauthorizedWithDetail(String)
     case invalidData
+    case workerError(status: Int, message: String)
 
     var errorDescription: String? {
         switch self {
         case .networkError:   "Network connection failed"
         case .notFound:       "Resource not found"
         case .unauthorized:   "Not authorized"
+        case .unauthorizedWithDetail(let detail):   "Not authorized: \(detail)"
         case .invalidData:    "Invalid data"
+        case .workerError(let status, let message):   "Worker error \(status): \(message)"
         }
     }
 }
@@ -99,6 +103,11 @@ actor MockGuildService: GuildServiceProtocol {
     func fetchChannels(guildId: String) async throws -> [Channel] {
         try await mockDelay()
         return channels.filter { $0.guildId == guildId }
+    }
+
+    func fetchBotGuildIds() async throws -> Set<String> {
+        try await mockDelay()
+        return Set(guilds.filter { $0.userRole == .owner }.map(\.id))
     }
 }
 

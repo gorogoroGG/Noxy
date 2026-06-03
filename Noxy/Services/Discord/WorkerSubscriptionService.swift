@@ -66,11 +66,29 @@ struct WorkerSubscriptionService: SubscriptionServiceProtocol {
         }
         let jwt     = KeychainHelper.load(forKey: "supabase_access_token") ?? ""
         let userId  = KeychainHelper.load(forKey: "discord_user_id") ?? ""
-        struct OkResponse: Decodable { let ok: Bool }
-        let _: OkResponse = try await client.post(
-            "/billing/activate",
-            body: Body(guildId: guildId, discordUserId: userId, supabaseJwt: jwt)
-        )
+
+        guard let url = URL(string: "\(DiscordConfig.workerURL)/billing/activate") else {
+            throw ServiceError.networkError
+        }
+        var req = URLRequest(url: url, timeoutInterval: 15)
+        req.httpMethod = "POST"
+        req.setValue("application/json", forHTTPHeaderField: "Content-Type")
+        req.setValue(DiscordConfig.workerAPISecret, forHTTPHeaderField: "X-Bot-Secret")
+        req.httpBody = try JSONEncoder().encode(Body(guildId: guildId, discordUserId: userId, supabaseJwt: jwt))
+
+        let (data, response) = try await URLSession.shared.data(for: req)
+        guard let http = response as? HTTPURLResponse else {
+            throw ServiceError.networkError
+        }
+        switch http.statusCode {
+        case 200..<300: return
+        case 401:
+            let msg = String(data: data, encoding: .utf8) ?? ""
+            throw ServiceError.unauthorizedWithDetail(msg)
+        default:
+            let msg = String(data: data, encoding: .utf8) ?? ""
+            throw ServiceError.workerError(status: http.statusCode, message: msg)
+        }
     }
 
     // MARK: - Server Deactivation
@@ -123,11 +141,30 @@ struct WorkerSubscriptionService: SubscriptionServiceProtocol {
             supabaseJwt:   supabaseJwt
         )
 
-        struct SyncResponse: Decodable { let ok: Bool; let purchasedSlots: Int }
-        let _: SyncResponse = try await client.post("/billing/entitlement", body: body)
+        guard let url = URL(string: "\(DiscordConfig.workerURL)/billing/entitlement") else {
+            throw ServiceError.networkError
+        }
+        var req = URLRequest(url: url, timeoutInterval: 15)
+        req.httpMethod = "POST"
+        req.setValue("application/json", forHTTPHeaderField: "Content-Type")
+        req.setValue(DiscordConfig.workerAPISecret, forHTTPHeaderField: "X-Bot-Secret")
+        req.httpBody = try JSONEncoder().encode(body)
 
-        // 最新のステータスを取得して返す
-        return try await fetchStatus(discordUserId: discordUserId)
+        let (data, response) = try await URLSession.shared.data(for: req)
+        guard let http = response as? HTTPURLResponse else {
+            throw ServiceError.networkError
+        }
+        switch http.statusCode {
+        case 200..<300:
+            // 最新のステータスを取得して返す
+            return try await fetchStatus(discordUserId: discordUserId)
+        case 401:
+            let msg = String(data: data, encoding: .utf8) ?? ""
+            throw ServiceError.unauthorizedWithDetail(msg)
+        default:
+            let msg = String(data: data, encoding: .utf8) ?? ""
+            throw ServiceError.workerError(status: http.statusCode, message: msg)
+        }
     }
 }
 

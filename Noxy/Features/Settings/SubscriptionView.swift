@@ -10,6 +10,7 @@ struct SubscriptionView: View {
     @State private var status: SubscriptionStatus = .inactive
     @State private var storeProducts: [StoreKit.Product] = []
     @State private var ownerGuilds: [Guild] = []
+    @State private var botGuildIds: Set<String> = []
     @State private var isLoading = true
     @State private var isPurchasing = false
     @State private var isActivating: String? = nil   // guildId
@@ -139,14 +140,32 @@ struct SubscriptionView: View {
 
     private var serverListSection: some View {
         VStack(alignment: .leading, spacing: .spacing12) {
-            SectionHeader(title: "サーバーを有効化")
-                .padding(.horizontal)
+            HStack {
+                SectionHeader(title: "サーバーを有効化")
+                Spacer()
+                NavigationLink(destination: ServerActivationView()) {
+                    HStack(spacing: .spacing4) {
+                        Text("すべて管理")
+                            .font(.captionRegular)
+                        Image(systemName: "chevron.right")
+                            .font(.captionRegular)
+                    }
+                    .foregroundStyle(Color.accentIndigo)
+                }
+            }
+            .padding(.horizontal)
 
             if ownerGuilds.isEmpty {
-                Text("オーナー権限を持つサーバーがありません")
-                    .font(.bodySmall)
-                    .foregroundStyle(Color.textSecondary)
-                    .padding(.horizontal)
+                VStack(spacing: .spacing6) {
+                    Text("条件に合うサーバーがありません")
+                        .font(.bodySmall)
+                        .foregroundStyle(Color.textSecondary)
+                    Text("ボットが導入されていて、あなたが管理者権限を持つサーバーが表示されます")
+                        .font(.captionSmall)
+                        .foregroundStyle(Color.textTertiary)
+                        .multilineTextAlignment(.center)
+                }
+                .padding(.horizontal)
             } else {
                 VStack(spacing: 0) {
                     ForEach(ownerGuilds) { guild in
@@ -232,11 +251,16 @@ struct SubscriptionView: View {
             // 並列取得
             async let statusTask  = services.subscription.fetchStatus(discordUserId: discordUserId)
             async let guildsTask  = services.guilds.fetchAll()
+            async let botIdsTask  = services.guilds.fetchBotGuildIds()
             async let productsTask = StoreKit.Product.products(for: SubscriptionProduct.catalog.map(\.id))
 
             status      = (try? await statusTask)  ?? .inactive
             let allGuilds = (try? await guildsTask)  ?? []
-            ownerGuilds = allGuilds.filter { $0.userRole == .owner }
+            botGuildIds = (try? await botIdsTask)    ?? []
+            // ボット導入済み + オーナーまたは管理者権限を持つサーバーのみ
+            ownerGuilds = allGuilds.filter {
+                botGuildIds.contains($0.id) && ($0.userRole == .owner || $0.userRole == .admin)
+            }
 
             let fetched: [StoreKit.Product] = (try? await productsTask) ?? []
             storeProducts = fetched.sorted { a, b in
