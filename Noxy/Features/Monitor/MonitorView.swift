@@ -2,8 +2,8 @@ import SwiftUI
 
 struct MonitorView: View {
     @State private var selectedFilter: FilterType = .all
-    @State private var isLive = true
-    @State private var pulse = false
+    @State private var activities: [BotActivityItem] = []
+    @State private var isLoading = true
 
     enum FilterType: String, CaseIterable {
         case all        = "すべて"
@@ -14,10 +14,10 @@ struct MonitorView: View {
 
     private var filtered: [BotActivityItem] {
         switch selectedFilter {
-        case .all:        return mockActivities
-        case .errors:     return mockActivities.filter { $0.isError }
-        case .commands:   return mockActivities.filter { $0.type == .command }
-        case .automation: return mockActivities.filter { $0.type == .automation }
+        case .all:        return activities
+        case .errors:     return activities.filter { $0.isError }
+        case .commands:   return activities.filter { $0.type == .command }
+        case .automation: return activities.filter { $0.type == .automation }
         }
     }
 
@@ -34,11 +34,17 @@ struct MonitorView: View {
                 .padding(.horizontal)
                 .padding(.vertical, .spacing8)
                 .background(Color.bgSurface)
+                .onChange(of: selectedFilter) { _, _ in
+                    Task { await loadActivities() }
+                }
 
                 Divider().background(Color.border)
 
                 // ── リスト / 空状態 ──
-                if filtered.isEmpty {
+                if isLoading {
+                    ProgressView()
+                        .frame(maxWidth: .infinity, maxHeight: .infinity)
+                } else if filtered.isEmpty {
                     emptyState
                 } else {
                     List {
@@ -46,7 +52,7 @@ struct MonitorView: View {
                             ActivityLogRow(item: item)
                                 .listRowBackground(
                                     item.isError
-                                        ? Color(uiColor: UIColor(hex: 0xEF4444)).opacity(0.06)
+                                        ? Color.accentRed.opacity(0.06)
                                         : Color.bgSurface
                                 )
                                 .listRowInsets(EdgeInsets(top: 0, leading: 16, bottom: 0, trailing: 16))
@@ -61,44 +67,32 @@ struct MonitorView: View {
             .navigationBarTitleDisplayMode(.large)
             .toolbar {
                 ToolbarItem(placement: .topBarTrailing) {
-                    liveToggle
+                    liveIndicator
                 }
             }
             .refreshable {
-                try? await Task.sleep(for: .milliseconds(600))
+                await loadActivities()
+            }
+            .task {
+                await loadActivities()
             }
         }
-        .onAppear { pulse = true }
     }
 
-    // MARK: Live toggle
+    // MARK: Live indicator
 
-    private var liveToggle: some View {
-        Button {
-            withAnimation { isLive.toggle() }
-        } label: {
-            HStack(spacing: .spacing4) {
-                Circle()
-                    .fill(isLive ? Color.accentGreen : Color.textTertiary)
-                    .frame(width: 7, height: 7)
-                    .scaleEffect(pulse && isLive ? 1.4 : 1.0)
-                    .animation(
-                        isLive
-                            ? .easeInOut(duration: 0.9).repeatForever(autoreverses: true)
-                            : .default,
-                        value: pulse
-                    )
-                Text(isLive ? "ライブ" : "停止中")
-                    .font(.captionRegular)
-                    .foregroundStyle(isLive ? Color.accentGreen : Color.textTertiary)
-            }
-            .padding(.horizontal, .spacing8)
-            .padding(.vertical, .spacing4)
-            .background(
-                Capsule().fill(isLive ? Color.accentGreen.opacity(0.15) : Color.bgElevated)
-            )
+    private var liveIndicator: some View {
+        HStack(spacing: .spacing4) {
+            Circle()
+                .fill(Color.accentGreen)
+                .frame(width: 7, height: 7)
+            Text("ライブ")
+                .font(.captionRegular)
+                .foregroundStyle(Color.accentGreen)
         }
-        .buttonStyle(.plain)
+        .padding(.horizontal, .spacing8)
+        .padding(.vertical, .spacing4)
+        .background(Capsule().fill(Color.accentGreen.opacity(0.15)))
     }
 
     // MARK: Empty state
@@ -117,6 +111,30 @@ struct MonitorView: View {
                 .foregroundStyle(Color.textSecondary)
             Spacer()
         }
+    }
+
+    // MARK: Load data
+
+    private func loadActivities() async {
+        isLoading = true
+        let guildId = UserDefaults.standard.string(forKey: "selected_guild_id") ?? ""
+        guard !guildId.isEmpty else {
+            activities = []
+            isLoading = false
+            return
+        }
+        let typeParam = selectedFilter == .all ? "all" : selectedFilter.rawValue
+        guard let url = URL(string: "\(DiscordConfig.workerURL)/bot/monitor-activity?guild_id=\(guildId)&type=\(typeParam)") else {
+            isLoading = false
+            return
+        }
+        if let (data, _) = try? await URLSession.shared.data(from: url),
+           let items = try? JSONDecoder().decode([BotActivityItem].self, from: data) {
+            activities = items
+        } else {
+            activities = []
+        }
+        isLoading = false
     }
 }
 
@@ -158,7 +176,7 @@ private struct ActivityLogRow: View {
                     .fontWeight(.medium)
                     .foregroundStyle(Color.textPrimary)
                     .lineLimit(1)
-                Text(item.detail + " · " + item.guildName)
+                Text(item.detail)
                     .font(.captionSmall)
                     .foregroundStyle(Color.textTertiary)
                     .lineLimit(1)
@@ -178,22 +196,22 @@ private struct ActivityLogRow: View {
         HStack(spacing: .spacing12) {
             Image(systemName: item.icon)
                 .font(.system(size: 14, weight: .semibold))
-                .foregroundStyle(Color(uiColor: UIColor(hex: 0xEF4444)))
+                .foregroundStyle(Color.accentRed)
                 .frame(width: 34, height: 34)
-                .background(Color(uiColor: UIColor(hex: 0xEF4444)).opacity(0.12))
+                .background(Color.accentRed.opacity(0.12))
                 .clipShape(RoundedRectangle(cornerRadius: .cornerRadiusSmall))
 
             VStack(alignment: .leading, spacing: 3) {
                 Text(item.title)
                     .font(.bodySmall)
                     .fontWeight(.semibold)
-                    .foregroundStyle(Color(uiColor: UIColor(hex: 0xEF4444)))
+                    .foregroundStyle(Color.accentRed)
                     .lineLimit(1)
                 Text(item.detail)
                     .font(.captionRegular)
                     .foregroundStyle(Color.textSecondary)
                     .lineLimit(1)
-                Text(item.guildName + " · " + item.timeAgo)
+                Text(item.timeAgo)
                     .font(.captionSmall)
                     .foregroundStyle(Color.textTertiary)
             }
@@ -206,80 +224,20 @@ private struct ActivityLogRow: View {
 
 // MARK: - Model
 
-enum BotActivityType { case command, automation, moderation, system }
+enum BotActivityType: String, Codable { case command, automation, moderation, system }
 
-struct BotActivityItem: Identifiable {
-    let id = UUID()
-    let type: BotActivityType
-    let icon: String
-    let title: String
-    let detail: String
-    let guildName: String
-    let timeAgo: String
+struct BotActivityItem: Identifiable, Codable {
+    var id = UUID()
+    var type: BotActivityType
+    var icon: String
+    var title: String
+    var detail: String
+    var guildName: String
+    var timeAgo: String
     var isError: Bool = false
-}
-
-// MARK: - Mock data
-
-extension MonitorView {
-    var mockActivities: [BotActivityItem] { [
-        BotActivityItem(type: .command,    icon: "terminal.fill",
-                        title: "/ticket create",
-                        detail: "@ShadowX がチケットを作成",
-                        guildName: "Valorant JP",  timeAgo: "たった今"),
-        BotActivityItem(type: .automation, icon: "bubble.left.fill",
-                        title: "自動返信トリガー",
-                        detail: "\"ルール\" → ルール一覧を送信",
-                        guildName: "Valorant JP",  timeAgo: "1分前"),
-        BotActivityItem(type: .moderation, icon: "shield.fill",
-                        title: "スパム検知 — メッセージ削除",
-                        detail: "@NoobPlayer — 5秒で6件のメッセージ",
-                        guildName: "Gaming Hub",   timeAgo: "3分前"),
-        BotActivityItem(type: .command,    icon: "terminal.fill",
-                        title: "/embed send",
-                        detail: "#announcements に送信完了",
-                        guildName: "Valorant JP",  timeAgo: "8分前"),
-        BotActivityItem(type: .system,     icon: "calendar.badge.clock",
-                        title: "予約送信 — 完了",
-                        detail: "週次アナウンスを #general に送信",
-                        guildName: "Gaming Hub",   timeAgo: "15分前"),
-        BotActivityItem(type: .automation, icon: "heart.fill",
-                        title: "リアクションロール付与",
-                        detail: "🎮 → @Gamer ロールを付与",
-                        guildName: "Valorant JP",  timeAgo: "18分前"),
-        BotActivityItem(type: .command,    icon: "terminal.fill",
-                        title: "/help",
-                        detail: "@NewMember が実行",
-                        guildName: "Esports Club", timeAgo: "22分前"),
-        BotActivityItem(type: .automation, icon: "hand.wave.fill",
-                        title: "ウェルカムメッセージ送信",
-                        detail: "@TaroYamada が Valorant JP に参加",
-                        guildName: "Valorant JP",  timeAgo: "45分前"),
-        BotActivityItem(type: .system,     icon: "exclamationmark.triangle.fill",
-                        title: "接続エラー",
-                        detail: "WebSocket が切断 — 自動再接続中",
-                        guildName: "システム",      timeAgo: "1時間前",  isError: true),
-        BotActivityItem(type: .command,    icon: "terminal.fill",
-                        title: "/stats",
-                        detail: "@GoroGoro が実行",
-                        guildName: "Esports Club", timeAgo: "1時間前"),
-        BotActivityItem(type: .system,     icon: "arrow.clockwise",
-                        title: "再接続完了",
-                        detail: "WebSocket 接続を復元",
-                        guildName: "システム",      timeAgo: "1時間前"),
-        BotActivityItem(type: .automation, icon: "calendar.badge.plus",
-                        title: "予約メッセージ登録",
-                        detail: "@GoroGoro が週次アナウンスを設定",
-                        guildName: "Gaming Hub",   timeAgo: "2時間前"),
-        BotActivityItem(type: .moderation, icon: "at",
-                        title: "メンションスパム検知",
-                        detail: "@SpamBot — 1メッセージで8件@メンション",
-                        guildName: "Esports Club", timeAgo: "3時間前",  isError: true),
-    ]}
 }
 
 #Preview {
     MonitorView()
         .environment(\.services, ServiceContainer.live())
-        .preferredColorScheme(.dark)
 }

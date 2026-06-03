@@ -1,166 +1,74 @@
 import Foundation
 
 // MARK: - WorkerTicketService
-// Cloudflare Worker 経由でチケット操作を行うサービス。
-// Worker が Supabase の読み書きと Discord API 操作を担う。
 
 struct WorkerTicketService: TicketServiceProtocol {
-    private let session: URLSession
-
-    init(session: URLSession = .shared) {
-        self.session = session
-    }
+    private let client = WorkerClient()
 
     // MARK: - Read
 
     func fetchAll(guildId: String) async throws -> [Ticket] {
-        try await get("/bot/tickets?guild_id=\(guildId)")
+        try await client.get("/bot/tickets?guild_id=\(guildId)")
     }
 
     func fetch(id: String) async throws -> Ticket {
-        try await get("/bot/tickets/\(id)")
+        try await client.get("/bot/tickets/\(id)")
     }
 
     func fetchMessages(ticketId: String) async throws -> [TicketMessage] {
-        try await get("/bot/tickets/\(ticketId)/messages")
+        try await client.get("/bot/tickets/\(ticketId)/messages")
     }
 
-    // MARK: - Write (Discord + Supabase)
+    // MARK: - Write
 
     func close(id: String) async throws {
-        try await post("/bot/tickets/\(id)/close")
+        try await client.post("/bot/tickets/\(id)/close")
     }
 
     func reopen(id: String) async throws {
-        try await post("/bot/tickets/\(id)/reopen")
+        try await client.post("/bot/tickets/\(id)/reopen")
     }
 
     func updatePriority(id: String, priority: TicketPriority) async throws {
         struct Body: Encodable { let priority: String }
-        try await postBody("/bot/tickets/\(id)/priority", body: Body(priority: priority.rawValue))
+        try await client.postVoid("/bot/tickets/\(id)/priority", body: Body(priority: priority.rawValue))
     }
 
     func reply(ticketId: String, message: String) async throws {
         struct Body: Encodable { let content: String }
-        try await postBody("/bot/tickets/\(ticketId)/reply", body: Body(content: message))
+        try await client.postVoid("/bot/tickets/\(ticketId)/reply", body: Body(content: message))
     }
 
     func assign(ticketId: String, userId: String) async throws {
         struct Body: Encodable { let userId: String }
-        try await postBody("/bot/tickets/\(ticketId)/assign", body: Body(userId: userId))
+        try await client.postVoid("/bot/tickets/\(ticketId)/assign", body: Body(userId: userId))
     }
 
     func create(guildId: String, subject: String) async throws -> Ticket {
         struct Body: Encodable { let guildId: String; let subject: String }
-        return try await postReturning("/bot/tickets/create", body: Body(guildId: guildId, subject: subject))
+        return try await client.post("/bot/tickets/create", body: Body(guildId: guildId, subject: subject))
     }
 
     // MARK: - Panels
 
     func fetchPanels(guildId: String) async throws -> [TicketPanel] {
-        try await get("/bot/ticket-panels?guild_id=\(guildId)")
+        try await client.get("/bot/ticket-panels?guild_id=\(guildId)")
     }
 
     func createPanel(_ panel: TicketPanel) async throws -> TicketPanel {
-        try await postReturning("/bot/ticket-panels", body: panel)
+        try await client.post("/bot/ticket-panels", body: panel)
     }
 
     func updatePanel(_ panel: TicketPanel) async throws -> TicketPanel {
-        try await patchReturning("/bot/ticket-panels/\(panel.id)", body: panel)
+        try await client.patch("/bot/ticket-panels/\(panel.id)", body: panel)
     }
 
     func deletePanel(id: String) async throws {
-        try await delete("/bot/ticket-panels/\(id)")
+        try await client.delete("/bot/ticket-panels/\(id)")
     }
 
     func deployPanel(id: String, channelId: String) async throws -> TicketPanel {
         struct Body: Encodable { let channelId: String }
-        return try await postReturning("/bot/ticket-panels/\(id)/deploy", body: Body(channelId: channelId))
-    }
-
-    private struct EmptyBody: Encodable {}
-
-    // MARK: - HTTP helpers
-
-    private static let decoder: JSONDecoder = {
-        let d = JSONDecoder()
-        d.dateDecodingStrategy = .custom { decoder in
-            let container = try decoder.singleValueContainer()
-            let str = try container.decode(String.self)
-            let fmt = ISO8601DateFormatter()
-            fmt.formatOptions = [.withInternetDateTime, .withFractionalSeconds]
-            if let date = fmt.date(from: str) { return date }
-            fmt.formatOptions = [.withInternetDateTime]
-            if let date = fmt.date(from: str) { return date }
-            return Date()
-        }
-        return d
-    }()
-
-    private func get<T: Decodable>(_ path: String) async throws -> T {
-        let url = URL(string: DiscordConfig.workerURL + path)!
-        let (data, resp) = try await session.data(from: url)
-        guard let http = resp as? HTTPURLResponse, (200..<300).contains(http.statusCode) else {
-            throw ServiceError.networkError
-        }
-        return try Self.decoder.decode(T.self, from: data)
-    }
-
-    private func post(_ path: String) async throws {
-        let url = URL(string: DiscordConfig.workerURL + path)!
-        var req = URLRequest(url: url, timeoutInterval: 15)
-        req.httpMethod = "POST"
-        let (_, resp) = try await session.data(for: req)
-        guard let http = resp as? HTTPURLResponse, (200..<300).contains(http.statusCode) else {
-            throw ServiceError.networkError
-        }
-    }
-
-    private func delete(_ path: String) async throws {
-        let url = URL(string: DiscordConfig.workerURL + path)!
-        var req = URLRequest(url: url, timeoutInterval: 15)
-        req.httpMethod = "DELETE"
-        let (_, resp) = try await session.data(for: req)
-        guard let http = resp as? HTTPURLResponse, (200..<300).contains(http.statusCode) else {
-            throw ServiceError.networkError
-        }
-    }
-
-    private func patchReturning<T: Decodable>(_ path: String, body: some Encodable) async throws -> T {
-        let url = URL(string: DiscordConfig.workerURL + path)!
-        var req = URLRequest(url: url, timeoutInterval: 15)
-        req.httpMethod = "PATCH"
-        req.setValue("application/json", forHTTPHeaderField: "Content-Type")
-        req.httpBody = try JSONEncoder().encode(body)
-        let (data, resp) = try await session.data(for: req)
-        guard let http = resp as? HTTPURLResponse, (200..<300).contains(http.statusCode) else {
-            throw ServiceError.networkError
-        }
-        return try Self.decoder.decode(T.self, from: data)
-    }
-
-    private func postReturning<T: Decodable>(_ path: String, body: some Encodable) async throws -> T {
-        let url = URL(string: DiscordConfig.workerURL + path)!
-        var req = URLRequest(url: url, timeoutInterval: 15)
-        req.httpMethod = "POST"
-        req.setValue("application/json", forHTTPHeaderField: "Content-Type")
-        req.httpBody = try JSONEncoder().encode(body)
-        let (data, resp) = try await session.data(for: req)
-        guard let http = resp as? HTTPURLResponse, (200..<300).contains(http.statusCode) else {
-            throw ServiceError.networkError
-        }
-        return try Self.decoder.decode(T.self, from: data)
-    }
-
-    private func postBody(_ path: String, body: some Encodable) async throws {
-        let url = URL(string: DiscordConfig.workerURL + path)!
-        var req = URLRequest(url: url, timeoutInterval: 15)
-        req.httpMethod = "POST"
-        req.setValue("application/json", forHTTPHeaderField: "Content-Type")
-        req.httpBody = try JSONEncoder().encode(body)
-        let (_, resp) = try await session.data(for: req)
-        guard let http = resp as? HTTPURLResponse, (200..<300).contains(http.statusCode) else {
-            throw ServiceError.networkError
-        }
+        return try await client.post("/bot/ticket-panels/\(id)/deploy", body: Body(channelId: channelId))
     }
 }

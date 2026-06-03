@@ -125,5 +125,4 @@ private struct FAQRow: View {
 
 #Preview {
     NavigationStack { HelpCenterView() }
-        .preferredColorScheme(.dark)
 }

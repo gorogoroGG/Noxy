@@ -1,6 +1,6 @@
 import Foundation
 
-struct TempChannelSettings: Identifiable, Codable {
+struct TempChannelSettings: Identifiable, Codable, Sendable {
     var id: String?
     var guildId: String
     var enabled: Bool
@@ -15,7 +15,7 @@ struct TempChannelSettings: Identifiable, Codable {
 
     var effectiveId: String { id ?? UUID().uuidString }
 
-    static func defaultSettings(guildId: String) -> TempChannelSettings {
+    nonisolated static func defaultSettings(guildId: String) -> TempChannelSettings {
         TempChannelSettings(
             id: nil,
             guildId: guildId,

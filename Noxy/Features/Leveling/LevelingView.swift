@@ -198,5 +198,4 @@ private struct LevelingSettingsView: View {
 
 #Preview {
     NavigationStack { LevelingView() }
-        .preferredColorScheme(.dark)
 }

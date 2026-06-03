@@ -785,5 +785,4 @@ private struct EmojiPickerView: View {
     }
     .environment(\.services, ServiceContainer.live())
     .environment(AppState())
-    .preferredColorScheme(.dark)
 }

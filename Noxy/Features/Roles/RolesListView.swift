@@ -161,9 +161,9 @@ struct RolesListView: View {
             Image(systemName: icon).font(.system(size: 9, weight: .semibold))
             Text(label).font(.system(size: 10, weight: .semibold))
         }
-        .foregroundStyle(Color(uiColor: UIColor(hex: 0xEF4444)))
+        .foregroundStyle(Color.accentRed)
         .padding(.horizontal, 7).padding(.vertical, 3)
-        .background(Color(uiColor: UIColor(hex: 0xEF4444)).opacity(0.1))
+        .background(Color.accentRed.opacity(0.1))
         .clipShape(Capsule())
     }
 
@@ -417,7 +417,7 @@ private struct RoleRow: View {
                 HStack(spacing: .spacing6) {
                     Text(role.name)
                         .font(.bodySmall).fontWeight(.semibold).foregroundStyle(Color.textPrimary)
-                    if role.has(.administrator) { badge("管理者", color: Color(uiColor: UIColor(hex: 0xEF4444))) }
+                    if role.has(.administrator) { badge("管理者", color: .accentRed) }
                     if role.managed            { badge("Bot",   color: .accentGreen) }
                 }
                 Text(permissionSummary)
@@ -503,7 +503,6 @@ private struct CreateRoleSheet: View {
             }
             .onAppear { focused = true }
         }
-        .preferredColorScheme(.dark)
     }
 
     private var colorGrid: some View {
@@ -534,5 +533,4 @@ private struct CreateRoleSheet: View {
 
 #Preview {
     NavigationStack { RolesListView() }
-        .preferredColorScheme(.dark)
 }

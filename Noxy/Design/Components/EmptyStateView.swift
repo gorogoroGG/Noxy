@@ -52,5 +52,4 @@ struct EmptyStateView: View {
         )
     }
     .background(Color.bgPrimary)
-    .preferredColorScheme(.dark)
 }

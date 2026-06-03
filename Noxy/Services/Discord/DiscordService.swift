@@ -6,8 +6,14 @@ struct DiscordConfig {
     static var workerURL: String {
         "https://noxy-scheduler.watch-yugo.workers.dev"
     }
+    /// Worker API 認証シークレット (#1)
+    /// wrangler secret put WORKER_API_SECRET で設定した値と一致させる
+    static let workerAPISecret: String = {
+        // Keychain に保存されていればそちらを優先
+        KeychainHelper.load(forKey: "worker_api_secret") ?? "change_me_before_deploy"
+    }()
     static var userAccessToken: String {
-        UserDefaults.standard.string(forKey: "discord_access_token") ?? ""
+        KeychainHelper.load(forKey: "discord_access_token") ?? ""
     }
 }
 
@@ -87,7 +93,7 @@ struct DiscordService: GuildServiceProtocol {
 
     func fetchChannels(guildId: String) async throws -> [Channel] {
         let url = URL(string: "\(DiscordConfig.workerURL)/bot/channels?guild_id=\(guildId)")!
-        let (data, _) = try await session.data(from: url)
+        let (data, _) = try await session.data(for: workerRequest(url: url))
         let channels: [DiscordChannel] = try JSONDecoder().decode([DiscordChannel].self, from: data)
         return channels.compactMap { ch in
             let kind: ChannelKind?
@@ -110,7 +116,7 @@ struct DiscordService: GuildServiceProtocol {
 
     func fetchBotGuilds() async throws -> [Guild] {
         let url = URL(string: "\(DiscordConfig.workerURL)/bot/guilds")!
-        let (data, _) = try await session.data(from: url)
+        let (data, _) = try await session.data(for: workerRequest(url: url))
         let dgs = try JSONDecoder().decode([DiscordGuild].self, from: data)
         return dgs.map { g in
             Guild(id: g.id, discordId: g.id, name: g.name,
@@ -126,7 +132,7 @@ struct DiscordService: GuildServiceProtocol {
 
     func inviteURL(guildId: String) async throws -> URL? {
         let url = URL(string: "\(DiscordConfig.workerURL)/bot/invite-url?guild_id=\(guildId)")!
-        let (data, _) = try await session.data(from: url)
+        let (data, _) = try await session.data(for: workerRequest(url: url))
         guard let inviteUrl = URL(string: String(data: data, encoding: .utf8) ?? "") else { return nil }
         return inviteUrl
     }
@@ -134,11 +140,18 @@ struct DiscordService: GuildServiceProtocol {
     /// サーバーロール一覧（Worker 経由）
     func fetchRoles(guildId: String) async throws -> [DiscordRole] {
         let url = URL(string: "\(DiscordConfig.workerURL)/bot/roles?guild_id=\(guildId)")!
-        let (data, _) = try await session.data(from: url)
+        let (data, _) = try await session.data(for: workerRequest(url: url))
         return try JSONDecoder().decode([DiscordRole].self, from: data)
     }
 
     // MARK: - 内部
+
+    /// Worker リクエストに認証ヘッダーを付与 (#1)
+    private func workerRequest(url: URL) -> URLRequest {
+        var req = URLRequest(url: url, timeoutInterval: 15)
+        req.setValue(DiscordConfig.workerAPISecret, forHTTPHeaderField: "X-Bot-Secret")
+        return req
+    }
 
     private func discordRequest<T: Decodable>(path: String, token: String) async throws -> T {
         let url = URL(string: "https://discord.com/api/v10\(path)")!

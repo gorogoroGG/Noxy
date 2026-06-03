@@ -1,6 +1,7 @@
 import CoreFoundation
 
 extension CGFloat {
+    static let spacing2:  CGFloat = 2
     static let spacing4:  CGFloat = 4
     static let spacing6:  CGFloat = 6
     static let spacing8:  CGFloat = 8

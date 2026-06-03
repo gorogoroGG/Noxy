@@ -65,6 +65,7 @@ struct APITicketService: TicketServiceProtocol {
 
 // ============================================================
 // MARK: - Member Service
+// NOTE: 本番では DiscordMemberService を使用（Worker API 実装済み）
 // ============================================================
 
 struct APIMemberService: MemberServiceProtocol {
@@ -74,22 +75,22 @@ struct APIMemberService: MemberServiceProtocol {
         try await client.get("/api/v1/members?guildId=\(guildId)")
     }
     func kick(memberId: String, guildId: String, reason: String?) async throws {
-        // TODO: 実装予定
+        throw ServiceError.networkError // Worker API は DiscordMemberService で実装済み
     }
     func ban(memberId: String, guildId: String, reason: String?) async throws {
-        // TODO: 実装予定
+        throw ServiceError.networkError
     }
     func timeout(memberId: String, guildId: String, until: Date) async throws {
-        // TODO: 実装予定
+        throw ServiceError.networkError
     }
     func sendDM(memberId: String, message: String) async throws {
-        // TODO: 実装予定
+        throw ServiceError.networkError
     }
     func addRole(memberId: String, guildId: String, roleId: String) async throws {
-        // TODO: 実装予定
+        throw ServiceError.networkError
     }
     func removeRole(memberId: String, guildId: String, roleId: String) async throws {
-        // TODO: 実装予定
+        throw ServiceError.networkError
     }
 }
 
@@ -255,31 +256,26 @@ struct APINotificationService: NotificationServiceProtocol {
 
 // ============================================================
 // MARK: - Analytics Service
+// NOTE: 本番では WorkerAnalyticsService を使用
 // ============================================================
 
 struct APIAnalyticsService: AnalyticsServiceProtocol {
-    private let client = APIClient()
-
     func fetchStats(guildId: String) async throws -> AnalyticsStats {
-        try await client.get("/api/v1/analytics?guildId=\(guildId)")
+        // 旧 REST API は削除済み。Worker 経由は WorkerAnalyticsService を使用。
+        throw ServiceError.networkError
     }
 }
 
 // ============================================================
 // MARK: - Bot Service
+// NOTE: 本番では MockBotService（実装対象外）
 // ============================================================
 
 struct APIBotService: BotServiceProtocol {
-    private let client = APIClient()
-
     func fetchStatus() async throws -> BotStatus {
-        try await client.get("/api/v1/bot/status")
+        throw ServiceError.networkError
     }
-    func restart() async throws {
-        // TODO: 実装予定
-    }
-    func fetchCommands() async throws -> [SlashCommand] {
-        return []
-    }
+    func restart() async throws { }
+    func fetchCommands() async throws -> [SlashCommand] { return [] }
     func toggleCommand(id: String, enabled: Bool) async throws { }
 }

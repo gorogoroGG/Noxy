@@ -1,6 +1,6 @@
 import Foundation
 
-struct GreetingSettings: Codable {
+struct GreetingSettings: Codable, Sendable {
     var guildId: String
 
     // ── 入室（Welcome） ──────────────────────────────────────

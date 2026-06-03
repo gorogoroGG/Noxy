@@ -12,7 +12,7 @@ struct BannedUser: Identifiable {
 
 // MARK: - TimedOutMember
 
-struct TimedOutMember: Identifiable {
+struct TimedOutMember: Identifiable, Decodable {
     let id: String
     let username: String
     let displayName: String
@@ -32,7 +32,7 @@ struct TimedOutMember: Identifiable {
     }
 
     var severityColor: Color {
-        if remaining > 86400 { return Color(uiColor: UIColor(hex: 0xEF4444)) }
+        if remaining > 86400 { return .accentRed }
         if remaining > 3600  { return .accentOrange }
         return .accentGreen
     }
@@ -65,7 +65,7 @@ struct EscalationRule: Identifiable {
             switch self { case .timeout: "timer"; case .ban: "hand.raised.slash.fill" }
         }
         var color: Color {
-            switch self { case .timeout: .accentOrange; case .ban: Color(uiColor: UIColor(hex: 0xEF4444)) }
+            switch self { case .timeout: .accentOrange; case .ban: .accentRed }
         }
     }
 
@@ -101,7 +101,7 @@ struct ModerationLogEntry: Identifiable {
         }
         var color: Color {
             switch self {
-            case .ban:       Color(uiColor: UIColor(hex: 0xEF4444))
+            case .ban:       .accentRed
             case .kick:      .accentOrange
             case .timeout:   .accentPurple
             case .unban:     .accentGreen

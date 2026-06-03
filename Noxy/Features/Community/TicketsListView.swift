@@ -119,7 +119,7 @@ private struct TicketPanelListView: View {
                 Text(toast)
                     .font(.captionRegular).fontWeight(.medium).foregroundStyle(.white)
                     .padding(.horizontal, .spacing16).padding(.vertical, .spacing10)
-                    .background(Color(.systemGray2)).clipShape(Capsule())
+                    .background(Color.gray.opacity(0.25)).clipShape(Capsule())
                     .padding(.bottom, 80)
                     .transition(.move(edge: .bottom).combined(with: .opacity))
             }
@@ -738,7 +738,7 @@ private struct CreateTicketSheet: View {
                         .foregroundStyle(.white)
                         .frame(maxWidth: .infinity).frame(height: 50)
                         .background(subject.trimmingCharacters(in: .whitespaces).isEmpty
-                                    ? Color(.systemGray4) : Color.accentIndigo)
+                                    ? Color.gray.opacity(0.45) : Color.accentIndigo)
                         .clipShape(RoundedRectangle(cornerRadius: 12))
                     }
                     .disabled(subject.trimmingCharacters(in: .whitespaces).isEmpty || isCreating)
@@ -1137,5 +1137,4 @@ extension TicketStatus {
     }
     .environment(\.services, ServiceContainer.mock())
     .environment(AppState())
-    .preferredColorScheme(.dark)
 }

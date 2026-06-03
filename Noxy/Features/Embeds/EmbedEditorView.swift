@@ -568,5 +568,4 @@ extension View {
 #Preview {
     EmbedEditorView(embed: nil) { _ in }
         .environment(\.services, ServiceContainer.live())
-        .preferredColorScheme(.dark)
 }

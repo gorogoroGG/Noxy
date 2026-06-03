@@ -61,5 +61,4 @@ struct StatCard: View {
     }
     .padding()
     .background(Color.bgPrimary)
-    .preferredColorScheme(.dark)
 }

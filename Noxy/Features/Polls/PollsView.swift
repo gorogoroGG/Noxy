@@ -226,5 +226,4 @@ struct PollOption: Identifiable {
 
 #Preview {
     NavigationStack { PollsView() }
-        .preferredColorScheme(.dark)
 }

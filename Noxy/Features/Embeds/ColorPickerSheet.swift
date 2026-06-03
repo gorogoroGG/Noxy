@@ -188,5 +188,4 @@ private extension Color {
 
 #Preview {
     ColorPickerSheet(selectedHex: .constant(0x5865F2))
-        .preferredColorScheme(.dark)
 }

@@ -8,7 +8,7 @@ struct EmbedFieldModel: Identifiable, Codable, Hashable {
     var inline: Bool
 }
 
-struct EmbedModel: Identifiable, Codable, Hashable {
+struct EmbedModel: Identifiable, Codable, Hashable, Sendable {
     var id: String
     var name: String
     var guildId: String?

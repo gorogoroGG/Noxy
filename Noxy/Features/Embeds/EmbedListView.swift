@@ -251,6 +251,5 @@ private struct EmbedCard: View {
     NavigationStack {
         EmbedListView()
             .environment(\.services, ServiceContainer.live())
-            .preferredColorScheme(.dark)
     }
 }

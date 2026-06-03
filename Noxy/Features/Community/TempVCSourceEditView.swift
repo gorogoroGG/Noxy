@@ -201,5 +201,4 @@ struct TempVCSourceEditView: View {
             categories: [("cat1", "カテゴリ1"), ("cat2", "カテゴリ2")]
         ) { _ in }
     }
-    .preferredColorScheme(.dark)
 }

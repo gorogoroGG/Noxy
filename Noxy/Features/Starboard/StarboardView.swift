@@ -125,5 +125,4 @@ struct StarredMessage: Identifiable {
 
 #Preview {
     NavigationStack { StarboardView() }
-        .preferredColorScheme(.dark)
 }

@@ -354,14 +354,14 @@ struct RoleDetailView: View {
                 }
                 .font(.bodySmall)
                 .fontWeight(.semibold)
-                .foregroundStyle(Color(uiColor: UIColor(hex: 0xEF4444)))
+                .foregroundStyle(Color.accentRed)
                 .frame(maxWidth: .infinity)
                 .frame(height: 44)
-                .background(Color(uiColor: UIColor(hex: 0xEF4444)).opacity(0.1))
+                .background(Color.accentRed.opacity(0.1))
                 .clipShape(RoundedRectangle(cornerRadius: .cornerRadiusMedium))
                 .overlay(
                     RoundedRectangle(cornerRadius: .cornerRadiusMedium)
-                        .stroke(Color(uiColor: UIColor(hex: 0xEF4444)).opacity(0.3), lineWidth: 1)
+                        .stroke(Color.accentRed.opacity(0.3), lineWidth: 1)
                 )
             }
             .buttonStyle(.plain)
@@ -488,32 +488,32 @@ private struct AdminPermissionRow: View {
                         .foregroundStyle(Color.textPrimary)
                     Image(systemName: "exclamationmark.triangle.fill")
                         .font(.captionSmall)
-                        .foregroundStyle(Color(uiColor: UIColor(hex: 0xEF4444)))
+                        .foregroundStyle(Color.accentRed)
                 }
                 Text("ONにするとすべての権限チェックが無効になります")
                     .font(.captionSmall)
-                    .foregroundStyle(Color(uiColor: UIColor(hex: 0xEF4444)).opacity(0.8))
+                    .foregroundStyle(Color.accentRed.opacity(0.8))
             }
             Spacer()
             Toggle("", isOn: Binding(
                 get: { isOn },
                 set: { if !isDisabled { onChange($0) } }
             ))
-            .tint(Color(uiColor: UIColor(hex: 0xEF4444)))
+            .tint(Color.accentRed)
             .labelsHidden()
             .disabled(isDisabled)
         }
         .padding(.spacing12)
         .background(
             isOn
-                ? Color(uiColor: UIColor(hex: 0xEF4444)).opacity(0.08)
+                ? Color.accentRed.opacity(0.08)
                 : Color.bgSurface
         )
         .clipShape(RoundedRectangle(cornerRadius: .cornerRadiusSmall))
         .overlay(
             RoundedRectangle(cornerRadius: .cornerRadiusSmall)
                 .stroke(
-                    isOn ? Color(uiColor: UIColor(hex: 0xEF4444)).opacity(0.3) : Color.clear,
+                    isOn ? Color.accentRed.opacity(0.3) : Color.clear,
                     lineWidth: 1
                 )
         )
@@ -586,7 +586,6 @@ struct RoleColorPickerView: View {
                 }
             }
         }
-        .preferredColorScheme(.dark)
         .presentationDetents([.medium])
     }
 }
@@ -599,5 +598,4 @@ struct RoleColorPickerView: View {
             onDeleted: {}
         )
     }
-    .preferredColorScheme(.dark)
 }

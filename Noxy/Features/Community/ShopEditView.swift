@@ -618,7 +618,7 @@ private struct ProductCard: View {
         VStack(spacing: 0) {
             HStack(spacing: .spacing12) {
                 ZStack {
-                    Circle().fill(product.enabled ? Color.accentPurple.opacity(0.15) : Color(.systemGray4))
+                    Circle().fill(product.enabled ? Color.accentPurple.opacity(0.15) : Color.gray.opacity(0.45))
                         .frame(width: 36, height: 36)
                     Text("\(index + 1)").font(.system(size: 14, weight: .bold))
                         .foregroundStyle(product.enabled ? Color.accentPurple : Color.textTertiary)

@@ -114,7 +114,6 @@ struct ComponentsCatalogView: View {
             .navigationBarTitleDisplayMode(.large)
         }
         .toast($toast)
-        .preferredColorScheme(.dark)
     }
 }
 

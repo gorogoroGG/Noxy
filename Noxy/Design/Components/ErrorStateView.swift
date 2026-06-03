@@ -34,5 +34,4 @@ struct ErrorStateView: View {
 #Preview {
     ErrorStateView(error: ServiceError.networkError) {}
         .background(Color.bgPrimary)
-        .preferredColorScheme(.dark)
 }

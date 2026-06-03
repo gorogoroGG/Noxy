@@ -566,3 +566,60 @@ actor MockShopService: ShopServiceProtocol {
     }
 }
 
+
+// MARK: - Subscription
+
+actor MockSubscriptionService: SubscriptionServiceProtocol {
+    private var status: SubscriptionStatus = .inactive
+
+    func fetchStatus(discordUserId: String) async throws -> SubscriptionStatus {
+        try await mockDelay()
+        return status
+    }
+
+    func purchase(productId: String) async throws -> SubscriptionStatus {
+        try await mockDelay()
+        let slots = ["jp.noxyapp.stat.1server": 1, "jp.noxyapp.stat.2server": 2,
+                     "jp.noxyapp.stat.3server": 3, "jp.noxyapp.stat.5server": 5][productId] ?? 1
+        status = SubscriptionStatus(
+            purchasedSlots: slots, usedSlots: status.usedSlots,
+            productId: productId,
+            expiresAt: Calendar.current.date(byAdding: .month, value: 1, to: Date()),
+            activatedGuildIds: status.activatedGuildIds
+        )
+        return status
+    }
+
+    func restore() async throws -> SubscriptionStatus {
+        try await mockDelay()
+        return status
+    }
+
+    func activateServer(guildId: String) async throws {
+        try await mockDelay()
+        // availableSlots を直接計算（@MainActor の computed property を避ける）
+        let available = max(0, status.purchasedSlots - status.usedSlots)
+        guard available > 0 else { throw ServiceError.networkError }
+        var ids = status.activatedGuildIds
+        if !ids.contains(guildId) { ids.append(guildId) }
+        status = SubscriptionStatus(
+            purchasedSlots: status.purchasedSlots,
+            usedSlots: ids.count,
+            productId: status.productId,
+            expiresAt: status.expiresAt,
+            activatedGuildIds: ids
+        )
+    }
+
+    func deactivateServer(guildId: String) async throws {
+        try await mockDelay()
+        let ids = status.activatedGuildIds.filter { $0 != guildId }
+        status = SubscriptionStatus(
+            purchasedSlots: status.purchasedSlots,
+            usedSlots: ids.count,
+            productId: status.productId,
+            expiresAt: status.expiresAt,
+            activatedGuildIds: ids
+        )
+    }
+}

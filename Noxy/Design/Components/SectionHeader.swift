@@ -32,5 +32,4 @@ struct SectionHeader: View {
         SectionHeader(title: "Members", actionTitle: "See All") {}
     }
     .background(Color.bgPrimary)
-    .preferredColorScheme(.dark)
 }

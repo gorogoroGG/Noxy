@@ -1,7 +1,7 @@
 import Foundation
 
 enum MockData {
-    static let currentUser = User(
+    nonisolated static let currentUser = User(
         id: "u001",
         discordId: "123456789012345678",
         username: "gorogoroGG",
@@ -10,7 +10,7 @@ enum MockData {
         createdAt: Date(timeIntervalSince1970: 1_600_000_000)
     )
 
-    static let guilds: [Guild] = [
+    nonisolated static let guilds: [Guild] = [
         Guild(id: "g001", discordId: "111111111111111111", name: "Valorant JP",
               iconUrl: nil, memberCount: 1234, userRole: .admin, category: .gaming),
         Guild(id: "g002", discordId: "222222222222222222", name: "星宮ルナFanclub",
@@ -25,7 +25,7 @@ enum MockData {
               iconUrl: nil, memberCount: 42, userRole: .owner, category: .community),
     ]
 
-    static let channels: [Channel] = [
+    nonisolated static let channels: [Channel] = [
         Channel(id: "c001", guildId: "g001", name: "general",       type: .text,         categoryName: "General",    botCanSend: true),
         Channel(id: "c002", guildId: "g001", name: "announcements", type: .announcement, categoryName: "General",    botCanSend: true),
         Channel(id: "c003", guildId: "g001", name: "valorant-tips", type: .text,         categoryName: "Gaming",     botCanSend: true),
@@ -40,7 +40,7 @@ enum MockData {
         Calendar.current.date(byAdding: .minute, value: -(daysAgo * 1440 + hoursAgo * 60 + minutesAgo), to: .now)!
     }
 
-    static let embeds: [EmbedModel] = [
+    nonisolated static let embeds: [EmbedModel] = [
         EmbedModel(id: "e001", name: "Welcome Message",
                    title: "Welcome to Valorant JP! 🎮", embedUrl: nil,
                    description: "Read the rules, have fun, and GG!", colorHex: 0x7C3AED,
@@ -97,7 +97,7 @@ enum MockData {
                    createdAt: date(daysAgo: 30), updatedAt: date(daysAgo: 7)),
     ]
 
-    static let members: [Member] = [
+    nonisolated static let members: [Member] = [
         Member(id: "m001", guildId: "g001", username: "luna_chan", displayName: "Luna 🌙",
                avatarUrl: nil, roles: ["Admin", "Booster"], joinedAt: date(daysAgo: 300), isBoosting: true, status: .online),
         Member(id: "m002", guildId: "g001", username: "valorant_pro99", displayName: "ProPlayer99",
@@ -120,7 +120,7 @@ enum MockData {
                avatarUrl: nil, roles: ["Member"], joinedAt: date(daysAgo: 7), isBoosting: false, status: .online),
     ]
 
-    static let tickets: [Ticket] = [
+    nonisolated static let tickets: [Ticket] = [
         Ticket(id: "t001", guildId: "g003", channelId: "c001", openedBy: "m002",
                subject: "Bot not responding to /help command", status: .open,
                priority: .high, openedAt: date(hoursAgo: 2), lastMessageAt: date(hoursAgo: 1), messageCount: 3),
@@ -141,7 +141,7 @@ enum MockData {
                priority: .low, openedAt: date(daysAgo: 7), lastMessageAt: date(daysAgo: 6), messageCount: 4),
     ]
 
-    static let ticketMessages: [TicketMessage] = [
+    nonisolated static let ticketMessages: [TicketMessage] = [
         // t001 のメッセージ
         TicketMessage(id: "tm001", ticketId: "t001", userId: "m002", username: "ShadowFox",
                       content: "/helpコマンドを打っても反応がありません。他のコマンドは動いています。", isStaff: false,
@@ -164,7 +164,7 @@ enum MockData {
                       createdAt: date(hoursAgo: 18)),
     ]
 
-    static let autoResponses: [AutoResponse] = [
+    nonisolated static let autoResponses: [AutoResponse] = [
         AutoResponse(id: "ar001", guildId: "g001", trigger: "!gg", response: "GG! Great game everyone! 🎮",
                      matchType: .exact, enabled: true, cooldownSeconds: 30, channelIds: []),
         AutoResponse(id: "ar002", guildId: "g001", trigger: "discord invite", response: "No invite links please! Check #rules.",
@@ -177,7 +177,7 @@ enum MockData {
                      matchType: .regex, enabled: true, cooldownSeconds: 0, channelIds: []),
     ]
 
-    static let scheduledMessages: [ScheduledMessage] = [
+    nonisolated static let scheduledMessages: [ScheduledMessage] = [
         ScheduledMessage(id: "sm001", guildId: "g001", channelId: "c002", embedId: "e003",
                          title: "", scheduledFor: Calendar.current.date(byAdding: .day, value: 5, to: .now)!,
                          repeatRule: .none, status: .pending),
@@ -191,7 +191,7 @@ enum MockData {
                          repeatRule: .none, status: .cancelled),
     ]
 
-    static let auditLogs: [AuditLog] = [
+    nonisolated static let auditLogs: [AuditLog] = [
         AuditLog(id: "al001", guildId: "g001", userId: "m001", action: "member_ban",
                  target: "spammer_user", timestamp: date(hoursAgo: 1), details: "Reason: Spam"),
         AuditLog(id: "al002", guildId: "g001", userId: "u001", action: "embed_sent",
@@ -206,7 +206,7 @@ enum MockData {
                  target: "/ban", timestamp: date(daysAgo: 2), details: "Enabled: true"),
     ]
 
-    static let notifications: [AppNotification] = [
+    nonisolated static let notifications: [AppNotification] = [
         AppNotification(id: "n001", type: .ticket, title: "New Ticket", body: "ShadowX opened a ticket: \"Cannot add bot\"",
                         guildId: "g003", read: false, timestamp: date(hoursAgo: 1)),
         AppNotification(id: "n002", type: .mention, title: "You were mentioned", body: "@GoroGoro check this out in #general",
@@ -221,9 +221,9 @@ enum MockData {
                         guildId: nil, read: true, timestamp: date(daysAgo: 2)),
     ]
 
-    static let botStatus = BotStatus(isOnline: true, latency: 42, uptime: 99.9, activeGuilds: 6, totalCommands: 892)
+    nonisolated static let botStatus = BotStatus(isOnline: true, latency: 42, uptime: 99.9, activeGuilds: 6, totalCommands: 892)
 
-    static let slashCommands: [SlashCommand] = [
+    nonisolated static let slashCommands: [SlashCommand] = [
         SlashCommand(id: "sc001", name: "help", description: "Show available commands", options: [], enabled: true, usageCount: 312),
         SlashCommand(id: "sc002", name: "ticket", description: "Open a support ticket", options: ["subject", "priority"], enabled: true, usageCount: 87),
         SlashCommand(id: "sc003", name: "rank", description: "Show your server rank", options: ["user"], enabled: true, usageCount: 245),

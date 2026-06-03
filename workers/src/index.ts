@@ -261,6 +261,77 @@ function mapPanel(p: TicketPanelRow) {
   };
 }
 
+// ── 自動応答型定義 ─────────────────────────────────────────────
+
+interface AutoResponseRow {
+  id: string;
+  guild_id: string;
+  trigger_type: string;
+  trigger: string;
+  response: string;
+  is_enabled: boolean;
+  cooldown_sec: number;
+  channel_ids: string[];
+  created_at: string;
+}
+
+const triggerTypeToDB: Record<string, string> = {
+  contains:   'contains',
+  exact:      'exact',
+  regex:      'regex',
+  startsWith: 'starts_with',
+  endsWith:   'ends_with',
+};
+const triggerTypeToiOS: Record<string, string> = {
+  contains:   'contains',
+  exact:      'exact',
+  regex:      'regex',
+  starts_with: 'startsWith',
+  ends_with:  'contains',
+};
+
+function mapAutoResponse(r: AutoResponseRow) {
+  return {
+    id:              r.id,
+    guildId:         r.guild_id,
+    trigger:         r.trigger,
+    response:        r.response,
+    matchType:       triggerTypeToiOS[r.trigger_type] ?? 'contains',
+    enabled:         r.is_enabled,
+    cooldownSeconds: r.cooldown_sec,
+    channelIds:      r.channel_ids ?? [],
+  };
+}
+
+// ── 予約メッセージ型定義 ────────────────────────────────────────
+
+interface ScheduledMessageRow {
+  id: string;
+  guild_id: string;
+  channel_id: string;
+  embed_id: string;
+  title: string;
+  scheduled_for: string;
+  repeat_rule: string;
+  status: string;
+  end_date: string | null;
+  created_at: string;
+}
+
+function mapScheduledMessage(s: ScheduledMessageRow) {
+  return {
+    id:           s.id,
+    guildId:      s.guild_id,
+    channelId:    s.channel_id,
+    embedId:      s.embed_id,
+    title:        s.title,
+    scheduledFor: s.scheduled_for,
+    repeatRule:   s.repeat_rule,
+    status:       s.status,
+    endDate:      s.end_date ?? null,
+  };
+}
+
 // ── 埋め込み型定義 ───────────────────────────────────────────
 
 interface Embed {
@@ -278,7 +349,195 @@ interface Embed {
   show_timestamp: boolean;
 }
 
+// ── ステータスチャンネル型定義 ──────────────────────────────────
+
+type StatType = 'members' | 'online' | 'boosts' | 'vc_users';
+
+interface StatChannelRow {
+  id: string;
+  guild_id: string;
+  channel_id: string;
+  stat_type: StatType;
+  is_enabled: boolean;
+  last_value: number;
+  last_updated_at: string | null;
+  created_at: string;
+}
+
+function mapStatChannel(r: StatChannelRow) {
+  return {
+    id:            r.id,
+    guildId:       r.guild_id,
+    channelId:     r.channel_id,
+    statType:      r.stat_type,
+    isEnabled:     r.is_enabled,
+    lastValue:     r.last_value,
+    lastUpdatedAt: r.last_updated_at ?? null,
+  };
+}
+
+// stat_type ごとのラベル生成（Discord チャンネル名は32文字以内）
+function statChannelLabel(type: StatType, value: number): string {
+  switch (type) {
+    case 'members':  return `👥 メンバー: ${value.toLocaleString('ja-JP')}`;
+    case 'online':   return `🟢 オンライン: ${value.toLocaleString('ja-JP')}`;
+    case 'boosts':   return `🚀 Boost: ${value}`;
+    case 'vc_users': return `🎙️ VC中: ${value}人`;
+  }
+}
+
+// 1チャンネルの値を取得
+async function fetchStatValue(type: StatType, guildId: string, token: string, sbFetch: typeof supabaseFetch): Promise<number> {
+  switch (type) {
+    case 'members': {
+      const r = await fetch(`https://discord.com/api/v10/guilds/${guildId}?with_counts=true`, {
+        headers: { Authorization: `Bot ${token}` },
+      });
+      if (!r.ok) return -1;
+      const g = await r.json() as any;
+      return g.approximate_member_count ?? g.member_count ?? -1;
+    }
+    case 'online': {
+      const r = await fetch(`https://discord.com/api/v10/guilds/${guildId}?with_counts=true`, {
+        headers: { Authorization: `Bot ${token}` },
+      });
+      if (!r.ok) return -1;
+      const g = await r.json() as any;
+      return g.approximate_presence_count ?? -1;
+    }
+    case 'boosts': {
+      const r = await fetch(`https://discord.com/api/v10/guilds/${guildId}`, {
+        headers: { Authorization: `Bot ${token}` },
+      });
+      if (!r.ok) return -1;
+      const g = await r.json() as any;
+      return g.premium_subscription_count ?? 0;
+    }
+    case 'vc_users': {
+      // Bot がイベントで更新する guild_stats テーブルから取得 (#2: /voice-states は存在しないため)
+      const r = await sbFetch(`/guild_stats?guild_id=eq.${guildId}&select=vc_user_count`);
+      if (!r.ok) return 0;
+      const rows = await r.json() as any[];
+      return rows[0]?.vc_user_count ?? 0;
+    }
+  }
+}
+
+async function updateSingleStatChannel(row: StatChannelRow, env: Env): Promise<void> {
+  const sbLocal = makeSupabaseFetch(env);
+  const newValue = await fetchStatValue(row.stat_type, row.guild_id, env.DISCORD_BOT_TOKEN, supabaseFetch);
+  if (newValue === -1) return; // 取得失敗
+  if (newValue === row.last_value) return; // 変化なし → API コール不要
+
+  const newName = statChannelLabel(row.stat_type, newValue);
+
+  const patchResp = await fetch(`https://discord.com/api/v10/channels/${row.channel_id}`, {
+    method: 'PATCH',
+    headers: { Authorization: `Bot ${env.DISCORD_BOT_TOKEN}`, 'Content-Type': 'application/json' },
+    body: JSON.stringify({ name: newName }),
+  });
+
+  if (patchResp.ok) {
+    await sbLocal(`/stat_channels?id=eq.${row.id}`, {
+      method: 'PATCH',
+      body: JSON.stringify({ last_value: newValue, last_updated_at: new Date().toISOString() }),
+    });
+    console.log(`[StatChannel] ${row.stat_type} → ${newValue} (ch: ${row.channel_id})`);
+  } else {
+    const errText = await patchResp.text();
+    console.error(`[StatChannel] チャンネル更新失敗 (${row.channel_id}): ${patchResp.status} ${errText}`);
+  }
+}
+
+async function processStatChannels(env: Env): Promise<void> {
+  const sbLocal = makeSupabaseFetch(env);
+  const BATCH_LIMIT   = 24;
+  const RATE_LIMIT_MS = 9 * 60 * 1000;
+  const now           = Date.now();
+  const cutoffISO     = new Date(now - RATE_LIMIT_MS).toISOString();
+
+  // Step 1: 課金済みサーバーを取得（0件なら即終了 → Discord API コール 0回）
+  const activatedResp = await sbLocal('/activated_servers?select=guild_id');
+  if (!activatedResp.ok) { console.error('[StatChannel] activated_servers取得失敗'); return; }
+  const activatedRows: { guild_id: string }[] = await activatedResp.json();
+  if (activatedRows.length === 0) {
+    console.log('[StatChannel] 課金サーバーなし、スキップ');
+    return;
+  }
+
+  const guildIdList = activatedRows.map(r => r.guild_id).join(',');
+
+  // Step 2: 課金済みサーバーの stat_channels のみ取得（最大24件）
+  const resp = await sbLocal(
+    `/stat_channels?is_enabled=eq.true&guild_id=in.(${guildIdList})` +
+    `&or=(last_updated_at.is.null,last_updated_at.lte.${cutoffISO})` +
+    `&order=last_updated_at.asc.nullsfirst&limit=${BATCH_LIMIT}`
+  );
+  if (!resp.ok) { console.error('[StatChannel] Supabase取得失敗'); return; }
+  const rows: StatChannelRow[] = await resp.json();
+  if (rows.length === 0) { console.log('[StatChannel] 更新対象なし'); return; }
+
+  console.log(`[StatChannel] ${rows.length}件を更新（課金サーバー: ${activatedRows.length}件）`);
+
+  for (const row of rows) {
+    if (row.last_updated_at) {
+      const elapsed = now - new Date(row.last_updated_at).getTime();
+      if (elapsed < RATE_LIMIT_MS) continue;
+    }
+    await updateSingleStatChannel(row, env);
+    await new Promise(r => setTimeout(r, 500));
+  }
+}
+
+// ── 課金: スロットマップ ──────────────────────────────────────
+
+const SLOT_MAP: Record<string, number> = {
+  'jp.noxyapp.stat.1server': 1,
+  'jp.noxyapp.stat.2server': 2,
+  'jp.noxyapp.stat.3server': 3,
+  'jp.noxyapp.stat.5server': 5,
+};
+
+// ── 課金: Supabase JWT 検証ヘルパー ──────────────────────────
+
+async function verifySupabaseJwt(
+  jwt: string,
+  expectedDiscordUserId: string,
+  env: Env
+): Promise<{ ok: true; supabaseUserId: string } | { ok: false; error: string }> {
+  if (!jwt) return { ok: false, error: 'Missing JWT' };
+
+  const userResp = await fetch(`${env.SUPABASE_URL}/auth/v1/user`, {
+    headers: {
+      Authorization: `Bearer ${jwt}`,
+      apikey: env.SUPABASE_ANON_KEY,
+    },
+  });
+  if (!userResp.ok) return { ok: false, error: 'Invalid or expired JWT' };
+
+  const userJson = await userResp.json() as any;
+  const supabaseUserId: string = userJson.id ?? '';
+
+  // JWT に含まれる Discord ID を取得して照合
+  const jwtDiscordId: string =
+    userJson.user_metadata?.provider_id ??
+    userJson.user_metadata?.sub ??
+    userJson.identities?.[0]?.identity_data?.sub ??
+    '';
+
+  if (!jwtDiscordId || jwtDiscordId !== expectedDiscordUserId) {
+    return { ok: false, error: 'Discord user ID mismatch' };
+  }
+
+  return { ok: true, supabaseUserId };
+}
+
 // ── Supabase クライアント ─────────────────────────────────────
+
+// グローバル変数（scheduled ハンドラの scheduled() で set される）
+declare let SUPABASE_URL: string;
+declare let SUPABASE_SERVICE_KEY: string;
+declare let DISCORD_BOT_TOKEN: string;
 
 // グローバル変数版（scheduled ハンドラ用）
 function supabaseFetch(path: string, options?: RequestInit): Promise<Response> {
@@ -396,15 +655,17 @@ async function processScheduledMessages(): Promise<{
   let errors = 0;
 
   // (1) 送信時刻を過ぎた pending メッセージを取得
+  // 1実行あたり最大15件に制限: 1 + (15 × 3) = 46 fetch() ≤ 50サブリクエスト制限
+  const BATCH_LIMIT = 15;
   const resp = await supabaseFetch(
-    `/scheduled_messages?status=eq.pending&scheduled_for=lte.${now}&order=scheduled_for.asc`
+    `/scheduled_messages?status=eq.pending&scheduled_for=lte.${now}&order=scheduled_for.asc&limit=${BATCH_LIMIT}`
   );
   if (!resp.ok) {
     console.error(`Supabase fetch error: ${resp.status} ${await resp.text()}`);
     return { sent, rescheduled, errors };
   }
   const messages: ScheduledMessage[] = await resp.json();
-  console.log(`Found ${messages.length} pending message(s)`);
+  console.log(`Found ${messages.length} pending message(s) (batch limit: ${BATCH_LIMIT})`);
 
   for (const msg of messages) {
     try {
@@ -475,8 +736,9 @@ async function processScheduledMessages(): Promise<{
 // ── 注文タイムアウト処理 ──────────────────────────────────────
 
 async function processOrderTimeouts(env: Env): Promise<void> {
-  // open 状態の注文をすべて取得
-  const resp = await supabaseFetch('/orders?status=eq.open&order=created_at.asc');
+  // open 状態の注文を取得（1実行あたり最大10件: 1 + (10 × 4) = 41 fetch() ≤ 50制限）
+  const BATCH_LIMIT = 10;
+  const resp = await supabaseFetch(`/orders?status=eq.open&order=created_at.asc&limit=${BATCH_LIMIT}`);
   if (!resp.ok) return;
   const orders: OrderRow[] = await resp.json();
 
@@ -513,6 +775,32 @@ export default {
   // HTTP API エンドポイント
   async fetch(request: Request, env: Env): Promise<Response> {
     const url = new URL(request.url);
+
+    // ── CORS プリフライト (#10) ──────────────────────────────
+    if (request.method === 'OPTIONS') {
+      return new Response(null, {
+        status: 204,
+        headers: {
+          'Access-Control-Allow-Origin':  '*',
+          'Access-Control-Allow-Methods': 'GET, POST, PUT, PATCH, DELETE, OPTIONS',
+          'Access-Control-Allow-Headers': 'Content-Type, X-Bot-Secret, Authorization',
+          'Access-Control-Max-Age':       '86400',
+        },
+      });
+    }
+
+    // ── API 認証 (#1) ─────────────────────────────────────────
+    if (env.WORKER_API_SECRET) {
+      const secret = request.headers.get('X-Bot-Secret');
+      if (secret !== env.WORKER_API_SECRET) {
+        return new Response(JSON.stringify({ error: 'Unauthorized' }), {
+          status: 401,
+          headers: { 'Content-Type': 'application/json', 'Access-Control-Allow-Origin': '*' },
+        });
+      }
+    }
+
+    const sb = makeSupabaseFetch(env);
 
     // Botが参加しているサーバー一覧
     if (url.pathname === "/bot/guilds") {
@@ -729,8 +1017,6 @@ export default {
           guildId: string;
         };
 
-        const sb = makeSupabaseFetch(env);
-
         // 1. Supabase からリアクションロール設定を取得
         const rrResp = await sb(`/reaction_roles?id=eq.${body.reactionRoleId}`);
         if (!rrResp.ok) {
@@ -847,8 +1133,6 @@ export default {
     }
 
     // ── チケット管理 ────────────────────────────────────────────
-
-    const sb = makeSupabaseFetch(env);
 
     // チケット作成 POST /bot/tickets/create
     if (url.pathname === '/bot/tickets/create' && request.method === 'POST') {
@@ -1871,6 +2155,31 @@ export default {
 
     // ── モデレーション ────────────────────────────────────────────
 
+    // GET /bot/timeouts?guild_id=  タイムアウト中のメンバー一覧
+    if (url.pathname === '/bot/timeouts' && request.method === 'GET') {
+      const guildId = url.searchParams.get('guild_id');
+      if (!guildId) return new Response('Missing guild_id', { status: 400 });
+      const resp = await fetch(`https://discord.com/api/v10/guilds/${guildId}/members?limit=1000`, {
+        headers: { Authorization: `Bot ${env.DISCORD_BOT_TOKEN}` },
+      });
+      if (!resp.ok) return new Response(await resp.text(), { status: resp.status });
+      const members = await resp.json() as any[];
+      const now = new Date().toISOString();
+      const timedOut = members
+        .filter((m: any) => m.communication_disabled_until && m.communication_disabled_until > now)
+        .map((m: any) => ({
+          id:           m.user.id,
+          username:     m.user.username,
+          displayName:  m.nick ?? m.user.global_name ?? m.user.username,
+          avatarUrl:    m.user.avatar
+            ? `https://cdn.discordapp.com/avatars/${m.user.id}/${m.user.avatar}.png`
+            : null,
+          timeoutUntil: m.communication_disabled_until,
+          mutedByName:  "モデレーター",
+        }));
+      return new Response(JSON.stringify(timedOut), { headers: { 'Content-Type': 'application/json' } });
+    }
+
     // GET /bot/bans?guild_id=  BAN一覧
     if (url.pathname === '/bot/bans' && request.method === 'GET') {
       const guildId = url.searchParams.get('guild_id');
@@ -1959,6 +2268,30 @@ export default {
           });
         }
 
+        // DM通知
+        try {
+          const dmCh = await fetch('https://discord.com/api/v10/users/@me/channels', {
+            method: 'POST',
+            headers: { Authorization: `Bot ${env.DISCORD_BOT_TOKEN}`, 'Content-Type': 'application/json' },
+            body: JSON.stringify({ recipient_id: body.userId }),
+          });
+          if (dmCh.ok) {
+            const { id: dmId } = await dmCh.json() as { id: string };
+            await fetch(`https://discord.com/api/v10/channels/${dmId}/messages`, {
+              method: 'POST',
+              headers: { Authorization: `Bot ${env.DISCORD_BOT_TOKEN}`, 'Content-Type': 'application/json' },
+              body: JSON.stringify({
+                embeds: [{
+                  title: '⚠️ 警告を受け取りました',
+                  description: `**理由:** ${body.reason}\n**スタッフ:** ${body.staffName}\n\n警告が蓄積されると、タイムアウト・キック・BANなどの自動アクションが実行される場合があります。`,
+                  color: 0xF59E0B,
+                  timestamp: new Date().toISOString(),
+                }],
+              }),
+            });
+          }
+        } catch { /* DM送信失敗は無視 */ }
+
         const rows = await insertResp.json() as Record<string, unknown>[];
         return new Response(JSON.stringify(rows[0]), { headers: { 'Content-Type': 'application/json' } });
       } catch (e) { return new Response(JSON.stringify({ error: String(e) }), { status: 500 }); }
@@ -2042,24 +2375,805 @@ export default {
       } catch (e) { return new Response(JSON.stringify({ error: String(e) }), { status: 500 }); }
     }
 
-    return new Response("Not Found", { status: 404 });
+    // ── AutoMod設定 ────────────────────────────────────────────────
+
+    // GET /bot/automod-settings?guild_id=xxx
+    if (url.pathname === '/bot/automod-settings' && request.method === 'GET') {
+      const guildId = url.searchParams.get('guild_id');
+      if (!guildId) return new Response('Missing guild_id', { status: 400 });
+      const resp = await sb(`/automod_settings?guild_id=eq.${guildId}`);
+      if (!resp.ok) return new Response(await resp.text(), { status: resp.status });
+      const rows = await resp.json() as Record<string, unknown>[];
+      if (!rows.length) {
+        return new Response(JSON.stringify({
+          guildId,
+          msgSpamEnabled: true, msgSpamCount: 5, msgSpamSeconds: 5,
+          dupMsgEnabled: false, dupMsgCount: 3,
+          mentionEnabled: true, mentionLimit: 5,
+          massMentionEnabled: true, massMentionLimit: 3,
+          emojiEnabled: false, emojiLimit: 10,
+          capsEnabled: true, capsPercent: 70,
+          keywordEnabled: true, blockedKeywords: [],
+          regexEnabled: false, blockedRegex: [],
+          inviteLinkEnabled: true, phishingEnabled: true,
+          linkFilterEnabled: false, linkMode: 'allowAll', allowedLinks: [],
+          nsfwEnabled: false,
+          minAgeEnabled: false, minAgeDays: 7,
+          newMemberEnabled: false, newMemberMins: 10,
+          raidEnabled: false, raidJoins: 10, raidSeconds: 30,
+          antiNukeEnabled: false,
+          channelDeleteLimit: 3, channelDeleteSeconds: 10,
+          roleDeleteLimit: 3, roleDeleteSeconds: 10,
+          massBanLimit: 5, massBanSeconds: 30,
+          defaultAction: 'deleteAndWarn', timeoutMinutes: 60,
+          escalationEnabled: true, escalationSteps: [
+            { violations: 3, action: { type: 'timeout', minutes: 10 } },
+            { violations: 5, action: { type: 'timeout', minutes: 60 } },
+            { violations: 10, action: { type: 'kick' } },
+            { violations: 15, action: { type: 'ban' } },
+          ],
+          logEnabled: true, logChannelId: '',
+          exemptRoles: ['管理者', 'モデレーター'], exemptChannels: [],
+        }), { headers: { 'Content-Type': 'application/json' } });
+      }
+      const r = rows[0];
+      return new Response(JSON.stringify({
+        id: r['id'], guildId: r['guild_id'],
+        msgSpamEnabled: r['msg_spam_enabled'], msgSpamCount: r['msg_spam_count'], msgSpamSeconds: r['msg_spam_seconds'],
+        dupMsgEnabled: r['dup_msg_enabled'], dupMsgCount: r['dup_msg_count'],
+        mentionEnabled: r['mention_enabled'], mentionLimit: r['mention_limit'],
+        massMentionEnabled: r['mass_mention_enabled'], massMentionLimit: r['mass_mention_limit'],
+        emojiEnabled: r['emoji_enabled'], emojiLimit: r['emoji_limit'],
+        capsEnabled: r['caps_enabled'], capsPercent: r['caps_percent'],
+        keywordEnabled: r['keyword_enabled'], blockedKeywords: r['blocked_keywords'] ?? [],
+        regexEnabled: r['regex_enabled'], blockedRegex: r['blocked_regex'] ?? [],
+        inviteLinkEnabled: r['invite_link_enabled'], phishingEnabled: r['phishing_enabled'],
+        linkFilterEnabled: r['link_filter_enabled'], linkMode: r['link_mode'], allowedLinks: r['allowed_links'] ?? [],
+        nsfwEnabled: r['nsfw_enabled'],
+        minAgeEnabled: r['min_age_enabled'], minAgeDays: r['min_age_days'],
+        newMemberEnabled: r['new_member_enabled'], newMemberMins: r['new_member_mins'],
+        raidEnabled: r['raid_enabled'], raidJoins: r['raid_joins'], raidSeconds: r['raid_seconds'],
+        antiNukeEnabled: r['anti_nuke_enabled'],
+        channelDeleteLimit: r['channel_delete_limit'], channelDeleteSeconds: r['channel_delete_seconds'],
+        roleDeleteLimit: r['role_delete_limit'], roleDeleteSeconds: r['role_delete_seconds'],
+        massBanLimit: r['mass_ban_limit'], massBanSeconds: r['mass_ban_seconds'],
+        defaultAction: r['default_action'], timeoutMinutes: r['timeout_minutes'],
+        escalationEnabled: r['escalation_enabled'], escalationSteps: r['escalation_steps'] ?? [],
+        logEnabled: r['log_enabled'], logChannelId: r['log_channel_id'],
+        exemptRoles: r['exempt_roles'] ?? [], exemptChannels: r['exempt_channels'] ?? [],
+        createdAt: r['created_at'], updatedAt: r['updated_at'],
+      }), { headers: { 'Content-Type': 'application/json' } });
+    }
+
+    // POST /bot/automod-settings (upsert)
+    if (url.pathname === '/bot/automod-settings' && request.method === 'POST') {
+      try {
+        const body = await request.json() as Record<string, unknown>;
+        const checkResp = await sb(`/automod_settings?guild_id=eq.${body['guildId']}`);
+        const checkRows = await checkResp.json() as Record<string, unknown>[];
+
+        const camelToSnake: Record<string, string> = {
+          guildId: 'guild_id', msgSpamEnabled: 'msg_spam_enabled', msgSpamCount: 'msg_spam_count',
+          msgSpamSeconds: 'msg_spam_seconds', dupMsgEnabled: 'dup_msg_enabled', dupMsgCount: 'dup_msg_count',
+          mentionEnabled: 'mention_enabled', mentionLimit: 'mention_limit',
+          massMentionEnabled: 'mass_mention_enabled', massMentionLimit: 'mass_mention_limit',
+          emojiEnabled: 'emoji_enabled', emojiLimit: 'emoji_limit',
+          capsEnabled: 'caps_enabled', capsPercent: 'caps_percent',
+          keywordEnabled: 'keyword_enabled', blockedKeywords: 'blocked_keywords',
+          regexEnabled: 'regex_enabled', blockedRegex: 'blocked_regex',
+          inviteLinkEnabled: 'invite_link_enabled', phishingEnabled: 'phishing_enabled',
+          linkFilterEnabled: 'link_filter_enabled', linkMode: 'link_mode', allowedLinks: 'allowed_links',
+          nsfwEnabled: 'nsfw_enabled',
+          minAgeEnabled: 'min_age_enabled', minAgeDays: 'min_age_days',
+          newMemberEnabled: 'new_member_enabled', newMemberMins: 'new_member_mins',
+          raidEnabled: 'raid_enabled', raidJoins: 'raid_joins', raidSeconds: 'raid_seconds',
+          antiNukeEnabled: 'anti_nuke_enabled',
+          channelDeleteLimit: 'channel_delete_limit', channelDeleteSeconds: 'channel_delete_seconds',
+          roleDeleteLimit: 'role_delete_limit', roleDeleteSeconds: 'role_delete_seconds',
+          massBanLimit: 'mass_ban_limit', massBanSeconds: 'mass_ban_seconds',
+          defaultAction: 'default_action', timeoutMinutes: 'timeout_minutes',
+          escalationEnabled: 'escalation_enabled', escalationSteps: 'escalation_steps',
+          logEnabled: 'log_enabled', logChannelId: 'log_channel_id',
+          exemptRoles: 'exempt_roles', exemptChannels: 'exempt_channels',
+        };
+
+        const upsertData: Record<string, unknown> = { updated_at: new Date().toISOString() };
+        for (const [k, v] of Object.entries(body)) {
+          const snakeKey = camelToSnake[k] ?? k;
+          upsertData[snakeKey] = v;
+        }
+
+        let resp: Response;
+        if (checkRows.length > 0) {
+          resp = await sb(`/automod_settings?id=eq.${checkRows[0]['id']}`, {
+            method: 'PATCH', body: JSON.stringify(upsertData), headers: { Prefer: 'return=representation' },
+          });
+        } else {
+          resp = await sb('/automod_settings', {
+            method: 'POST', body: JSON.stringify(upsertData), headers: { Prefer: 'return=representation' },
+          });
+        }
+
+        if (!resp.ok) return new Response(await resp.text(), { status: resp.status });
+        const rows = await resp.json() as Record<string, unknown>[];
+        const r = rows[0];
+        return new Response(JSON.stringify({ id: r['id'], guildId: r['guild_id'], updatedAt: r['updated_at'] }), {
+          headers: { 'Content-Type': 'application/json' },
+        });
+      } catch (e) { return new Response(JSON.stringify({ error: String(e) }), { status: 500 }); }
+    }
+
+    // ── 最近のアクティビティ ────────────────────────────────────────
+
+    // GET /bot/recent-activity?guild_id=xxx
+    if (url.pathname === '/bot/recent-activity' && request.method === 'GET') {
+      const guildId = url.searchParams.get('guild_id');
+      if (!guildId) return new Response('Missing guild_id', { status: 400 });
+
+      const [ticketsResp, scheduledResp, ordersResp] = await Promise.all([
+        sb(`/tickets?guild_id=eq.${guildId}&order=opened_at.desc&limit=5`),
+        sb(`/scheduled_messages?guild_id=eq.${guildId}&order=scheduled_for.desc&limit=5`),
+        sb(`/orders?guild_id=eq.${guildId}&order=created_at.desc&limit=5`),
+      ]);
+
+      const activities: Array<{type: string; icon: string; text: string; timeAgo: string}> = [];
+
+      if (ticketsResp.ok) {
+        const tickets = await ticketsResp.json() as any[];
+        for (const t of tickets) {
+          const mins = Math.floor((Date.now() - new Date(t.opened_at).getTime()) / 60000);
+          const timeStr = mins < 60 ? `${mins}分前` : mins < 1440 ? `${Math.floor(mins/60)}時間前` : `${Math.floor(mins/1440)}日前`;
+          activities.push({ type: 'ticket', icon: '🎫', text: `チケット「${t.subject}」が作成されました`, timeAgo: timeStr });
+        }
+      }
+
+      if (scheduledResp.ok) {
+        const scheduled = await scheduledResp.json() as any[];
+        for (const s of scheduled) {
+          const mins = Math.floor((Date.now() - new Date(s.scheduled_for).getTime()) / 60000);
+          const timeStr = mins < 60 ? `${mins}分前` : mins < 1440 ? `${Math.floor(mins/60)}時間前` : `${Math.floor(mins/1440)}日前`;
+          const statusLabel = s.status === 'sent' ? '送信完了' : s.status === 'pending' ? '予約済み' : s.status;
+          activities.push({ type: 'scheduled', icon: '📅', text: `${s.title || '予約メッセージ'} — ${statusLabel}`, timeAgo: timeStr });
+        }
+      }
+
+      if (ordersResp.ok) {
+        const orders = await ordersResp.json() as any[];
+        for (const o of orders) {
+          const mins = Math.floor((Date.now() - new Date(o.created_at).getTime()) / 60000);
+          const timeStr = mins < 60 ? `${mins}分前` : mins < 1440 ? `${Math.floor(mins/60)}時間前` : `${Math.floor(mins/1440)}日前`;
+          activities.push({ type: 'order', icon: '🛒', text: `注文: ${o.product_name} (${o.status})`, timeAgo: timeStr });
+        }
+      }
+
+      activities.sort((a, b) => {
+        const parseTime = (s: string) => {
+          const num = parseInt(s);
+          if (s.includes('分')) return num;
+          if (s.includes('時間')) return num * 60;
+          if (s.includes('日')) return num * 1440;
+          return 999999;
+        };
+        return parseTime(a.timeAgo) - parseTime(b.timeAgo);
+      });
+
+      return new Response(JSON.stringify(activities.slice(0, 10)), { headers: { 'Content-Type': 'application/json' } });
+    }
+
+    // ── モニターアクティビティログ ──────────────────────────────────
+
+    // GET /bot/monitor-activity?guild_id=xxx&type=all|errors|commands|automation
+    if (url.pathname === '/bot/monitor-activity' && request.method === 'GET') {
+      const guildId = url.searchParams.get('guild_id');
+      if (!guildId) return new Response('Missing guild_id', { status: 400 });
+      const typeFilter = url.searchParams.get('type') ?? 'all';
+
+      const activities: Array<{type: string; icon: string; title: string; detail: string; guildName: string; timeAgo: string; isError: boolean}> = [];
+
+      // チケット作成
+      const ticketsResp = await sb(`/tickets?guild_id=eq.${guildId}&order=opened_at.desc&limit=20`);
+      if (ticketsResp.ok) {
+        const tickets = await ticketsResp.json() as any[];
+        for (const t of tickets) {
+          const mins = Math.floor((Date.now() - new Date(t.opened_at).getTime()) / 60000);
+          const timeStr = mins < 1 ? 'たった今' : mins < 60 ? `${mins}分前` : mins < 1440 ? `${Math.floor(mins/60)}時間前` : `${Math.floor(mins/1440)}日前`;
+          activities.push({ type: 'command', icon: 'terminal.fill', title: '/ticket create', detail: `チケット「${t.subject}」`, guildName: '', timeAgo: timeStr, isError: false });
+        }
+      }
+
+      // 予約メッセージ
+      const scheduledResp = await sb(`/scheduled_messages?guild_id=eq.${guildId}&order=scheduled_for.desc&limit=20`);
+      if (scheduledResp.ok) {
+        const scheduled = await scheduledResp.json() as any[];
+        for (const s of scheduled) {
+          const mins = Math.floor((Date.now() - new Date(s.scheduled_for).getTime()) / 60000);
+          const timeStr = mins < 1 ? 'たった今' : mins < 60 ? `${mins}分前` : mins < 1440 ? `${Math.floor(mins/60)}時間前` : `${Math.floor(mins/1440)}日前`;
+          const isSent = s.status === 'sent';
+          activities.push({ type: 'automation', icon: isSent ? 'checkmark.circle.fill' : 'calendar.badge.clock', title: isSent ? '予約送信 — 完了' : '予約メッセージ', detail: s.title || 'タイトルなし', guildName: '', timeAgo: timeStr, isError: false });
+        }
+      }
+
+      // 注文
+      const ordersResp = await sb(`/orders?guild_id=eq.${guildId}&order=created_at.desc&limit=20`);
+      if (ordersResp.ok) {
+        const orders = await ordersResp.json() as any[];
+        for (const o of orders) {
+          const mins = Math.floor((Date.now() - new Date(o.created_at).getTime()) / 60000);
+          const timeStr = mins < 1 ? 'たった今' : mins < 60 ? `${mins}分前` : mins < 1440 ? `${Math.floor(mins/60)}時間前` : `${Math.floor(mins/1440)}日前`;
+          activities.push({ type: 'automation', icon: 'cart.fill', title: '新規注文', detail: `${o.product_name} — ${o.status}`, guildName: '', timeAgo: timeStr, isError: o.status === 'cancelled' });
+        }
+      }
+
+      // 警告
+      const warningsResp = await sb(`/mod_warnings?guild_id=eq.${guildId}&order=created_at.desc&limit=20`);
+      if (warningsResp.ok) {
+        const warnings = await warningsResp.json() as any[];
+        for (const w of warnings) {
+          const mins = Math.floor((Date.now() - new Date(w.created_at).getTime()) / 60000);
+          const timeStr = mins < 1 ? 'たった今' : mins < 60 ? `${mins}分前` : mins < 1440 ? `${Math.floor(mins/60)}時間前` : `${Math.floor(mins/1440)}日前`;
+          activities.push({ type: 'moderation', icon: w.is_revoked ? 'checkmark.circle' : 'exclamationmark.triangle.fill', title: w.is_revoked ? '警告取り消し' : '警告追加', detail: `${w.display_name} — ${w.reason}`, guildName: '', timeAgo: timeStr, isError: false });
+        }
+      }
+
+      activities.sort((a, b) => {
+        const parseTime = (s: string) => {
+          if (s === 'たった今') return 0;
+          const num = parseInt(s);
+          if (s.includes('分')) return num;
+          if (s.includes('時間')) return num * 60;
+          if (s.includes('日')) return num * 1440;
+          return 999999;
+        };
+        return parseTime(a.timeAgo) - parseTime(b.timeAgo);
+      });
+
+      let filtered = activities;
+      if (typeFilter === 'errors') filtered = activities.filter(a => a.isError);
+      else if (typeFilter === 'commands') filtered = activities.filter(a => a.type === 'command');
+      else if (typeFilter === 'automation') filtered = activities.filter(a => a.type === 'automation');
+
+      return new Response(JSON.stringify(filtered.slice(0, 30)), { headers: { 'Content-Type': 'application/json' } });
+    }
+
+    // ── アナリティクス (#7) GET /bot/analytics?guild_id=xxx ─────────────
+    if (url.pathname === '/bot/analytics' && request.method === 'GET') {
+      const guildId = url.searchParams.get('guild_id');
+      if (!guildId) return new Response('Missing guild_id', { status: 400 });
+
+      // Discord からギルド情報を取得（メンバー数）
+      const guildResp = await fetch(`https://discord.com/api/v10/guilds/${guildId}?with_counts=true`, {
+        headers: { Authorization: `Bot ${env.DISCORD_BOT_TOKEN}` },
+      });
+      const guildData = guildResp.ok ? await guildResp.json() as any : null;
+      const totalMembers: number = guildData?.approximate_member_count ?? 0;
+
+      // アクティブチケット数
+      const ticketsResp = await sb(`/tickets?guild_id=eq.${guildId}&status=eq.open`);
+      const tickets: any[] = ticketsResp.ok ? await ticketsResp.json() : [];
+      const activeTickets = tickets.length;
+
+      // 今日の注文数
+      const todayStr = new Date().toISOString().split('T')[0];
+      const ordersResp = await sb(`/orders?guild_id=eq.${guildId}&created_at=gte.${todayStr}T00:00:00Z`);
+      const todayOrders: any[] = ordersResp.ok ? await ordersResp.json() : [];
+
+      // 過去7日間の日別チケット数（メッセージ履歴の代替）
+      const messageHistory: number[] = [];
+      const memberHistory: number[] = Array(7).fill(totalMembers);
+      for (let d = 6; d >= 0; d--) {
+        const dayStart = new Date(Date.now() - d * 86400000);
+        const dayEnd   = new Date(Date.now() - (d - 1) * 86400000);
+        const r = await sb(`/tickets?guild_id=eq.${guildId}&opened_at=gte.${dayStart.toISOString()}&opened_at=lt.${dayEnd.toISOString()}`);
+        const dayTickets: any[] = r.ok ? await r.json() : [];
+        messageHistory.push(dayTickets.length);
+      }
+
+      return new Response(JSON.stringify({
+        guildId,
+        totalMembers,
+        memberGrowthPercent:  0,
+        messagesToday:        todayOrders.length,
+        messageGrowthPercent: 0,
+        commandsUsed:         0,
+        commandGrowthPercent: 0,
+        activeTickets,
+        voiceMinutes:         0,
+        memberHistory,
+        messageHistory,
+      }), { headers: { 'Content-Type': 'application/json' } });
+    }
+
+    // ── 自動応答 CRUD (#8) ──────────────────────────────────────────
+
+    // GET /bot/auto-responses?guild_id=xxx
+    if (url.pathname === '/bot/auto-responses' && request.method === 'GET') {
+      const guildId = url.searchParams.get('guild_id');
+      if (!guildId) return new Response('Missing guild_id', { status: 400 });
+      const resp = await sb(`/auto_responses?guild_id=eq.${guildId}&order=created_at.asc`);
+      if (!resp.ok) return new Response('Supabase error', { status: 500 });
+      const rows: any[] = await resp.json();
+      return new Response(JSON.stringify(rows.map(mapAutoResponse)), { headers: { 'Content-Type': 'application/json' } });
+    }
+
+    // POST /bot/auto-responses
+    if (url.pathname === '/bot/auto-responses' && request.method === 'POST') {
+      const body = await request.json() as any;
+      const data = {
+        guild_id:     body.guildId,
+        trigger_type: triggerTypeToDB[body.matchType] ?? 'contains',
+        trigger:      body.trigger,
+        response:     body.response,
+        is_enabled:   body.enabled ?? true,
+        cooldown_sec: body.cooldownSeconds ?? 0,
+        channel_ids:  body.channelIds ?? [],
+      };
+      const resp = await sb('/auto_responses', {
+        method: 'POST',
+        headers: { Prefer: 'return=representation' },
+        body: JSON.stringify(data),
+      });
+      if (!resp.ok) return new Response(await resp.text(), { status: resp.status });
+      const rows: any[] = await resp.json();
+      return new Response(JSON.stringify(mapAutoResponse(rows[0])), { status: 201, headers: { 'Content-Type': 'application/json' } });
+    }
+
+    // PATCH /bot/auto-responses/:id
+    const arPatchMatch = url.pathname.match(/^\/bot\/auto-responses\/([^/]+)$/);
+    if (arPatchMatch && request.method === 'PATCH') {
+      const id = arPatchMatch[1];
+      const body = await request.json() as any;
+      const patch: Record<string, any> = {};
+      if (body.trigger      !== undefined) patch.trigger      = body.trigger;
+      if (body.response     !== undefined) patch.response     = body.response;
+      if (body.matchType    !== undefined) patch.trigger_type = triggerTypeToDB[body.matchType] ?? 'contains';
+      if (body.enabled      !== undefined) patch.is_enabled   = body.enabled;
+      if (body.cooldownSeconds !== undefined) patch.cooldown_sec = body.cooldownSeconds;
+      if (body.channelIds   !== undefined) patch.channel_ids  = body.channelIds;
+      const resp = await sb(`/auto_responses?id=eq.${id}`, {
+        method: 'PATCH',
+        headers: { Prefer: 'return=representation' },
+        body: JSON.stringify(patch),
+      });
+      if (!resp.ok) return new Response(await resp.text(), { status: resp.status });
+      const rows: any[] = await resp.json();
+      return new Response(JSON.stringify(mapAutoResponse(rows[0])), { headers: { 'Content-Type': 'application/json' } });
+    }
+
+    // DELETE /bot/auto-responses/:id
+    const arDeleteMatch = url.pathname.match(/^\/bot\/auto-responses\/([^/]+)$/);
+    if (arDeleteMatch && request.method === 'DELETE') {
+      const id = arDeleteMatch[1];
+      const resp = await sb(`/auto_responses?id=eq.${id}`, { method: 'DELETE' });
+      return new Response(JSON.stringify({ ok: resp.ok }), { headers: { 'Content-Type': 'application/json' } });
+    }
+
+    // POST /bot/auto-responses/:id/toggle
+    const arToggleMatch = url.pathname.match(/^\/bot\/auto-responses\/([^/]+)\/toggle$/);
+    if (arToggleMatch && request.method === 'POST') {
+      const id = arToggleMatch[1];
+      const body = await request.json() as any;
+      const resp = await sb(`/auto_responses?id=eq.${id}`, {
+        method: 'PATCH',
+        headers: { Prefer: 'return=representation' },
+        body: JSON.stringify({ is_enabled: body.enabled ?? true }),
+      });
+      if (!resp.ok) return new Response(await resp.text(), { status: resp.status });
+      const rows: any[] = await resp.json();
+      return new Response(JSON.stringify(mapAutoResponse(rows[0])), { headers: { 'Content-Type': 'application/json' } });
+    }
+
+    // ── 予約メッセージ CRUD (#9) ────────────────────────────────────
+
+    // GET /bot/scheduled-messages?guild_id=xxx
+    if (url.pathname === '/bot/scheduled-messages' && request.method === 'GET') {
+      const guildId = url.searchParams.get('guild_id');
+      if (!guildId) return new Response('Missing guild_id', { status: 400 });
+      const resp = await sb(`/scheduled_messages?guild_id=eq.${guildId}&order=scheduled_for.asc`);
+      if (!resp.ok) return new Response('Supabase error', { status: 500 });
+      const rows: any[] = await resp.json();
+      return new Response(JSON.stringify(rows.map(mapScheduledMessage)), { headers: { 'Content-Type': 'application/json' } });
+    }
+
+    // POST /bot/scheduled-messages
+    if (url.pathname === '/bot/scheduled-messages' && request.method === 'POST') {
+      const body = await request.json() as any;
+      const data = {
+        guild_id:      body.guildId,
+        channel_id:    body.channelId,
+        embed_id:      body.embedId,
+        title:         body.title ?? '',
+        scheduled_for: body.scheduledFor,
+        repeat_rule:   body.repeatRule ?? 'none',
+        status:        'pending',
+        end_date:      body.endDate ?? null,
+      };
+      const resp = await sb('/scheduled_messages', {
+        method: 'POST',
+        headers: { Prefer: 'return=representation' },
+        body: JSON.stringify(data),
+      });
+      if (!resp.ok) return new Response(await resp.text(), { status: resp.status });
+      const rows: any[] = await resp.json();
+      return new Response(JSON.stringify(mapScheduledMessage(rows[0])), { status: 201, headers: { 'Content-Type': 'application/json' } });
+    }
+
+    // PATCH /bot/scheduled-messages/:id
+    const smPatchMatch = url.pathname.match(/^\/bot\/scheduled-messages\/([^/]+)$/);
+    if (smPatchMatch && request.method === 'PATCH') {
+      const id = smPatchMatch[1];
+      const body = await request.json() as any;
+      const patch: Record<string, any> = {};
+      if (body.channelId    !== undefined) patch.channel_id    = body.channelId;
+      if (body.embedId      !== undefined) patch.embed_id      = body.embedId;
+      if (body.title        !== undefined) patch.title         = body.title;
+      if (body.scheduledFor !== undefined) patch.scheduled_for = body.scheduledFor;
+      if (body.repeatRule   !== undefined) patch.repeat_rule   = body.repeatRule;
+      if (body.endDate      !== undefined) patch.end_date      = body.endDate;
+      const resp = await sb(`/scheduled_messages?id=eq.${id}`, {
+        method: 'PATCH',
+        headers: { Prefer: 'return=representation' },
+        body: JSON.stringify(patch),
+      });
+      if (!resp.ok) return new Response(await resp.text(), { status: resp.status });
+      const rows: any[] = await resp.json();
+      return new Response(JSON.stringify(mapScheduledMessage(rows[0])), { headers: { 'Content-Type': 'application/json' } });
+    }
+
+    // DELETE /bot/scheduled-messages/:id  (キャンセル)
+    const smDeleteMatch = url.pathname.match(/^\/bot\/scheduled-messages\/([^/]+)$/);
+    if (smDeleteMatch && request.method === 'DELETE') {
+      const id = smDeleteMatch[1];
+      const resp = await sb(`/scheduled_messages?id=eq.${id}`, {
+        method: 'PATCH',
+        headers: { Prefer: 'return=representation' },
+        body: JSON.stringify({ status: 'cancelled' }),
+      });
+      return new Response(JSON.stringify({ ok: resp.ok }), { headers: { 'Content-Type': 'application/json' } });
+    }
+
+    // ── ステータスチャンネル CRUD ────────────────────────────────
+
+    // GET /bot/stat-channels?guild_id=xxx
+    if (url.pathname === '/bot/stat-channels' && request.method === 'GET') {
+      const guildId = url.searchParams.get('guild_id');
+      if (!guildId) return new Response('Missing guild_id', { status: 400 });
+      const resp = await sb(`/stat_channels?guild_id=eq.${guildId}&order=created_at.asc`);
+      if (!resp.ok) return new Response('Supabase error', { status: 500 });
+      const rows: StatChannelRow[] = await resp.json();
+      return new Response(JSON.stringify(rows.map(mapStatChannel)), { headers: { 'Content-Type': 'application/json' } });
+    }
+
+    // POST /bot/stat-channels  → Discord VCチャンネル作成 + DB登録
+    if (url.pathname === '/bot/stat-channels' && request.method === 'POST') {
+      const body = await request.json() as { guildId: string; statType: StatType; categoryId?: string };
+      const { guildId, statType, categoryId } = body;
+
+      // 課金済みサーバーのみ作成を許可
+      const activatedCheckResp = await sb(`/activated_servers?guild_id=eq.${guildId}&select=id`);
+      const activatedCheck: any[] = activatedCheckResp.ok ? await activatedCheckResp.json() : [];
+      if (activatedCheck.length === 0) {
+        return new Response(JSON.stringify({ error: 'Server not activated. Please subscribe first.' }), {
+          status: 402, headers: { 'Content-Type': 'application/json' },
+        });
+      }
+
+      // チャンネル名の初期値を生成
+      const initialName = statChannelLabel(statType, 0);
+
+      // Discord にボイスチャンネルを作成
+      const createBody: Record<string, any> = {
+        name:  initialName,
+        type:  2, // GUILD_VOICE
+        permission_overwrites: [
+          // @everyone: 見える・入れない
+          { id: guildId, type: 0, allow: '1024', deny: '1048576' },
+        ],
+      };
+      if (categoryId) createBody.parent_id = categoryId;
+
+      const chResp = await fetch(`https://discord.com/api/v10/guilds/${guildId}/channels`, {
+        method: 'POST',
+        headers: { Authorization: `Bot ${env.DISCORD_BOT_TOKEN}`, 'Content-Type': 'application/json' },
+        body: JSON.stringify(createBody),
+      });
+      if (!chResp.ok) {
+        const err = await chResp.text();
+        return new Response(JSON.stringify({ error: `Discord API: ${err}` }), { status: chResp.status });
+      }
+      const channel = await chResp.json() as { id: string };
+
+      // Supabase に登録
+      const insertResp = await sb('/stat_channels', {
+        method: 'POST',
+        headers: { Prefer: 'return=representation' },
+        body: JSON.stringify({ guild_id: guildId, channel_id: channel.id, stat_type: statType, is_enabled: true, last_value: -1 }),
+      });
+      if (!insertResp.ok) return new Response(await insertResp.text(), { status: insertResp.status });
+      const rows: StatChannelRow[] = await insertResp.json();
+      return new Response(JSON.stringify(mapStatChannel(rows[0])), { status: 201, headers: { 'Content-Type': 'application/json' } });
+    }
+
+    // PATCH /bot/stat-channels/:id/toggle
+    const scToggleMatch = url.pathname.match(/^\/bot\/stat-channels\/([^/]+)\/toggle$/);
+    if (scToggleMatch && request.method === 'PATCH') {
+      const id = scToggleMatch[1];
+      const body = await request.json() as { enabled: boolean };
+      const resp = await sb(`/stat_channels?id=eq.${id}`, {
+        method: 'PATCH',
+        headers: { Prefer: 'return=representation' },
+        body: JSON.stringify({ is_enabled: body.enabled }),
+      });
+      if (!resp.ok) return new Response(await resp.text(), { status: resp.status });
+      const rows: StatChannelRow[] = await resp.json();
+      return new Response(JSON.stringify(mapStatChannel(rows[0])), { headers: { 'Content-Type': 'application/json' } });
+    }
+
+    // DELETE /bot/stat-channels/:id  → Discord チャンネル削除 + DB削除
+    const scDeleteMatch = url.pathname.match(/^\/bot\/stat-channels\/([^/]+)$/);
+    if (scDeleteMatch && request.method === 'DELETE') {
+      const id = scDeleteMatch[1];
+      // DBからチャンネルIDを取得
+      const getResp = await sb(`/stat_channels?id=eq.${id}`);
+      const rows: StatChannelRow[] = getResp.ok ? await getResp.json() : [];
+      if (rows.length > 0) {
+        // Discord チャンネルを削除
+        await fetch(`https://discord.com/api/v10/channels/${rows[0].channel_id}`, {
+          method: 'DELETE',
+          headers: { Authorization: `Bot ${env.DISCORD_BOT_TOKEN}` },
+        }).catch(() => {});
+      }
+      await sb(`/stat_channels?id=eq.${id}`, { method: 'DELETE' });
+      return new Response(JSON.stringify({ ok: true }), { headers: { 'Content-Type': 'application/json' } });
+    }
+
+    // POST /bot/stat-channels/:id/refresh  → 即時更新
+    const scRefreshMatch = url.pathname.match(/^\/bot\/stat-channels\/([^/]+)\/refresh$/);
+    if (scRefreshMatch && request.method === 'POST') {
+      const id = scRefreshMatch[1];
+      const getResp = await sb(`/stat_channels?id=eq.${id}`);
+      const rows: StatChannelRow[] = getResp.ok ? await getResp.json() : [];
+      if (rows.length === 0) return new Response('Not found', { status: 404 });
+      await updateSingleStatChannel(rows[0], env);
+      return new Response(JSON.stringify({ ok: true }), { headers: { 'Content-Type': 'application/json' } });
+    }
+
+    // ── 課金: エンタイトルメント同期 POST /billing/entitlement ─────────
+    // iOS が StoreKit 2 で購入成功後に呼ぶ。user_profiles を UPSERT。
+    if (url.pathname === '/billing/entitlement' && request.method === 'POST') {
+      const body = await request.json() as {
+        discordUserId: string;
+        productId: string;
+        expiresAt: string | null;
+        jwsToken: string;    // transaction.jsonRepresentation
+        supabaseJwt: string;
+      };
+
+      // JWT 検証
+      const authResult = await verifySupabaseJwt(body.supabaseJwt, body.discordUserId, env);
+      if (!authResult.ok) {
+        return new Response(JSON.stringify({ error: authResult.error }), { status: 401, headers: { 'Content-Type': 'application/json' } });
+      }
+
+      // JWS payload をデコードして productId と expiresAt を取得（署名は iOS 側検証済み）
+      const slots = SLOT_MAP[body.productId] ?? 0;
+      if (slots === 0) {
+        return new Response(JSON.stringify({ error: 'Unknown product' }), { status: 400, headers: { 'Content-Type': 'application/json' } });
+      }
+
+      // user_profiles を UPSERT（supabase auth.users.id は Supabase JWT から取得）
+      const upsertResp = await sb('/user_profiles', {
+        method: 'POST',
+        headers: { Prefer: 'return=representation,resolution=merge-duplicates' },
+        body: JSON.stringify({
+          id:                       authResult.supabaseUserId,
+          discord_user_id:          body.discordUserId,
+          purchased_slots:          slots,
+          subscription_product_id:  body.productId,
+          subscription_expires_at:  body.expiresAt ?? null,
+          updated_at:               new Date().toISOString(),
+        }),
+      });
+      if (!upsertResp.ok) {
+        return new Response(await upsertResp.text(), { status: upsertResp.status });
+      }
+
+      return new Response(JSON.stringify({ ok: true, purchasedSlots: slots }), {
+        status: 200, headers: { 'Content-Type': 'application/json' },
+      });
+    }
+
+    // ── 課金: サーバー有効化 POST /billing/activate ───────────────────
+    if (url.pathname === '/billing/activate' && request.method === 'POST') {
+      const body = await request.json() as {
+        guildId: string;
+        discordUserId: string;
+        supabaseJwt: string;
+      };
+
+      // L1+L2: JWT 検証 + discordUserId 照合
+      const authResult = await verifySupabaseJwt(body.supabaseJwt, body.discordUserId, env);
+      if (!authResult.ok) {
+        return new Response(JSON.stringify({ error: authResult.error }), { status: 401, headers: { 'Content-Type': 'application/json' } });
+      }
+
+      // L3: Discord API でオーナー確認
+      const guildResp = await fetch(`https://discord.com/api/v10/guilds/${body.guildId}`, {
+        headers: { Authorization: `Bot ${env.DISCORD_BOT_TOKEN}` },
+      });
+      if (!guildResp.ok) {
+        return new Response(JSON.stringify({ error: 'Guild not found' }), { status: 404, headers: { 'Content-Type': 'application/json' } });
+      }
+      const guild = await guildResp.json() as { owner_id: string };
+      if (guild.owner_id !== body.discordUserId) {
+        return new Response(JSON.stringify({ error: 'Not the owner of this server' }), { status: 403, headers: { 'Content-Type': 'application/json' } });
+      }
+
+      // L4: スロット上限チェック
+      const profileResp = await sb(`/user_profiles?discord_user_id=eq.${body.discordUserId}&select=purchased_slots,subscription_expires_at`);
+      const profiles: any[] = profileResp.ok ? await profileResp.json() : [];
+      const profile = profiles[0];
+      if (!profile || profile.purchased_slots === 0) {
+        return new Response(JSON.stringify({ error: 'No active subscription' }), { status: 402, headers: { 'Content-Type': 'application/json' } });
+      }
+      if (profile.subscription_expires_at && new Date(profile.subscription_expires_at) < new Date()) {
+        return new Response(JSON.stringify({ error: 'Subscription expired' }), { status: 402, headers: { 'Content-Type': 'application/json' } });
+      }
+
+      const countResp = await sb(`/activated_servers?discord_user_id=eq.${body.discordUserId}&select=count`);
+      const countJson: any[] = countResp.ok ? await countResp.json() : [];
+      const usedSlots = Number(countJson[0]?.count ?? 0);
+      if (usedSlots >= profile.purchased_slots) {
+        return new Response(JSON.stringify({ error: 'Slot limit reached', limit: profile.purchased_slots, used: usedSlots }), {
+          status: 402, headers: { 'Content-Type': 'application/json' },
+        });
+      }
+
+      // L5: INSERT（UNIQUE 制約で二重登録防止）
+      const insertResp = await sb('/activated_servers', {
+        method: 'POST',
+        headers: { Prefer: 'return=representation' },
+        body: JSON.stringify({ discord_user_id: body.discordUserId, guild_id: body.guildId }),
+      });
+      if (!insertResp.ok) {
+        const errText = await insertResp.text();
+        if (errText.includes('unique') || errText.includes('duplicate') || errText.includes('23505')) {
+          return new Response(JSON.stringify({ ok: true, alreadyActivated: true }), { status: 200, headers: { 'Content-Type': 'application/json' } });
+        }
+        return new Response(errText, { status: insertResp.status });
+      }
+      return new Response(JSON.stringify({ ok: true }), { status: 201, headers: { 'Content-Type': 'application/json' } });
+    }
+
+    // ── 課金: サーバー有効化解除 DELETE /billing/activate/:guildId ───
+    const billingDeactivateMatch = url.pathname.match(/^\/billing\/activate\/([^/]+)$/);
+    if (billingDeactivateMatch && request.method === 'DELETE') {
+      const guildId = billingDeactivateMatch[1];
+      const discordUserId = url.searchParams.get('discord_user_id') ?? '';
+      if (!discordUserId) return new Response(JSON.stringify({ error: 'discord_user_id required' }), { status: 400, headers: { 'Content-Type': 'application/json' } });
+
+      // JWT 検証
+      const jwt = request.headers.get('X-Supabase-Jwt') ?? '';
+      const authResult = await verifySupabaseJwt(jwt, discordUserId, env);
+      if (!authResult.ok) {
+        return new Response(JSON.stringify({ error: authResult.error }), { status: 401, headers: { 'Content-Type': 'application/json' } });
+      }
+
+      await sb(`/activated_servers?guild_id=eq.${guildId}&discord_user_id=eq.${discordUserId}`, { method: 'DELETE' });
+      return new Response(JSON.stringify({ ok: true }), { headers: { 'Content-Type': 'application/json' } });
+    }
+
+    // ── 課金: ステータス取得 GET /billing/status?discord_user_id=xxx ──
+    if (url.pathname === '/billing/status' && request.method === 'GET') {
+      const discordUserId = url.searchParams.get('discord_user_id') ?? '';
+      if (!discordUserId) return new Response(JSON.stringify({ error: 'discord_user_id required' }), { status: 400, headers: { 'Content-Type': 'application/json' } });
+
+      const [profileResp, activatedResp] = await Promise.all([
+        sb(`/user_profiles?discord_user_id=eq.${discordUserId}&select=purchased_slots,subscription_product_id,subscription_expires_at`),
+        sb(`/activated_servers?discord_user_id=eq.${discordUserId}&select=guild_id,activated_at`),
+      ]);
+
+      const profiles: any[] = profileResp.ok ? await profileResp.json() : [];
+      const activated: any[] = activatedResp.ok ? await activatedResp.json() : [];
+      const profile = profiles[0];
+
+      return new Response(JSON.stringify({
+        purchasedSlots:        profile?.purchased_slots ?? 0,
+        usedSlots:             activated.length,
+        productId:             profile?.subscription_product_id ?? null,
+        expiresAt:             profile?.subscription_expires_at ?? null,
+        activatedGuildIds:     activated.map((r: any) => r.guild_id),
+      }), { headers: { 'Content-Type': 'application/json' } });
+    }
+
+    // ── デバッグ専用: プロ状態をDBに設定 POST /billing/debug-setup ──
+    // X-Debug: 1 ヘッダーが必要。本番アプリは絶対に送らない。
+    if (url.pathname === '/billing/debug-setup' && request.method === 'POST') {
+      if (request.headers.get('X-Debug') !== '1') {
+        return new Response(JSON.stringify({ error: 'Not Found' }), { status: 404, headers: { 'Content-Type': 'application/json' } });
+      }
+      const body = await request.json() as {
+        discordUserId: string;
+        supabaseUserId: string;
+        purchasedSlots: number;   // 0 = リセット
+        productId: string | null;
+      };
+      const { discordUserId, supabaseUserId, purchasedSlots, productId } = body;
+
+      if (purchasedSlots === 0) {
+        // リセット: user_profiles を 0 スロットに / activated_servers を全削除
+        await Promise.all([
+          sb(`/user_profiles?id=eq.${supabaseUserId}`, {
+            method: 'PATCH',
+            body: JSON.stringify({ purchased_slots: 0, subscription_product_id: null, subscription_expires_at: null }),
+          }),
+          sb(`/activated_servers?discord_user_id=eq.${discordUserId}`, { method: 'DELETE' }),
+        ]);
+      } else {
+        // セットアップ: 指定スロット数で user_profiles を UPSERT
+        const expiresAt = new Date(Date.now() + 30 * 24 * 60 * 60 * 1000).toISOString();
+        await sb('/user_profiles', {
+          method: 'POST',
+          headers: { Prefer: 'return=representation,resolution=merge-duplicates' },
+          body: JSON.stringify({
+            id: supabaseUserId,
+            discord_user_id: discordUserId,
+            purchased_slots: purchasedSlots,
+            subscription_product_id: productId ?? `jp.noxyapp.stat.${purchasedSlots}server`,
+            subscription_expires_at: expiresAt,
+            updated_at: new Date().toISOString(),
+          }),
+        });
+      }
+      return new Response(JSON.stringify({ ok: true, purchasedSlots }), { headers: { 'Content-Type': 'application/json' } });
+    }
+
+    return new Response(JSON.stringify({ error: 'Not Found' }), {
+      status: 404,
+      headers: { 'Content-Type': 'application/json', 'Access-Control-Allow-Origin': '*' },
+    });
   },
 
   async scheduled(
-    _event: ScheduledEvent,
+    event: ScheduledEvent,
     env: Env,
     _ctx: ExecutionContext
   ): Promise<void> {
-    (globalThis as any).SUPABASE_URL = env.SUPABASE_URL;
+    // グローバル変数を設定（supabaseFetch / sendToDiscord が参照）
+    (globalThis as any).SUPABASE_URL        = env.SUPABASE_URL;
     (globalThis as any).SUPABASE_SERVICE_KEY = env.SUPABASE_SERVICE_KEY;
-    (globalThis as any).DISCORD_BOT_TOKEN = env.DISCORD_BOT_TOKEN;
+    (globalThis as any).DISCORD_BOT_TOKEN   = env.DISCORD_BOT_TOKEN;
 
-    console.log("Noxy Scheduler: checking pending messages...");
-    const result = await processScheduledMessages();
-    console.log(`Done: sent=${result.sent} rescheduled=${result.rescheduled} errors=${result.errors}`);
+    // event.cron でどのトリガーが発火したか判別して処理を振り分ける
+    // 50サブリクエスト/実行の制限を超えないよう、処理を分散させる
+    switch (event.cron) {
 
-    // 注文タイムアウトチェック
-    await processOrderTimeouts(env);
+      // ── 毎分: 予約メッセージ送信（時間厳守） ──────────────────
+      case "* * * * *": {
+        console.log("[Cron] 予約メッセージ処理開始");
+        const result = await processScheduledMessages();
+        console.log(`[Cron] 予約メッセージ: sent=${result.sent} rescheduled=${result.rescheduled} errors=${result.errors}`);
+        break;
+      }
+
+      // ── 5分毎: 注文タイムアウト ──────────────────────────────
+      case "*/5 * * * *": {
+        console.log("[Cron] 注文タイムアウト処理開始");
+        await processOrderTimeouts(env);
+        console.log("[Cron] 注文タイムアウト処理完了");
+        break;
+      }
+
+      // ── 10分毎: ステータスチャンネル更新 ────────────────────
+      case "*/10 * * * *": {
+        console.log("[Cron] ステータスチャンネル更新開始");
+        await processStatChannels(env);
+        console.log("[Cron] ステータスチャンネル更新完了");
+        break;
+      }
+
+      default:
+        console.warn(`[Cron] 未知のトリガー: ${event.cron}`);
+    }
   },
 };
 
@@ -2070,4 +3184,6 @@ interface Env {
   SUPABASE_SERVICE_KEY: string;
   DISCORD_BOT_TOKEN: string;
   DISCORD_CLIENT_ID: string;
+  WORKER_API_SECRET: string;  // wrangler secret put WORKER_API_SECRET
+  SUPABASE_ANON_KEY: string;  // wrangler secret put SUPABASE_ANON_KEY（課金JWT検証用）
 }

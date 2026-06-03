@@ -187,5 +187,4 @@ struct SocialFeed: Identifiable {
 
 #Preview {
     NavigationStack { SocialFeedsView() }
-        .preferredColorScheme(.dark)
 }

@@ -1,175 +1,312 @@
 import SwiftUI
 
-// ウェブのサイドバーと同じ順番・名称でフラットに並べる
-
 struct FeaturesTabView: View {
     @Environment(AppState.self) private var appState
 
     var body: some View {
         NavigationStack {
             List {
-                ForEach(FeatureItem.all) { item in
-                    if let dest = item.destination(appState.selectedGuildId) {
-                        NavigationLink(destination: dest) {
-                            FeatureRow(item: item)
-                        }
-                    } else {
-                        FeatureRow(item: item)
-                            .overlay(alignment: .trailing) {
-                                Text("準備中")
-                                    .font(.captionSmall)
-                                    .foregroundStyle(Color.textTertiary)
-                                    .padding(.trailing, .spacing4)
-                            }
-                    }
-                }
-                .listRowBackground(Color.bgSurface)
-                .listRowInsets(EdgeInsets(top: 2, leading: 16, bottom: 2, trailing: 16))
+                contentSection
+                communitySection
+                automationSection
+                moderationSection
+                toolsSection
             }
-            .listStyle(.plain)
-            .listRowSpacing(.spacing4)
-            .background(Color.bgPrimary)
-            .scrollContentBackground(.hidden)
+            .listStyle(.insetGrouped)
             .navigationTitle("機能")
             .navigationBarTitleDisplayMode(.large)
         }
     }
-}
 
-// MARK: - Feature Items
+    // MARK: - Sections
 
-struct FeatureItem: Identifiable {
-    let id: String
-    let icon: String
-    let color: Color
-    let title: String
-    let subtitle: String
-    let destination: (String) -> AnyView?
+    private var contentSection: some View {
+        Section("コンテンツ") {
+            NavigationLink {
+                EmbedListView()
+            } label: {
+                FeatureRow(
+                    icon: "rectangle.stack.fill",
+                    title: "埋め込みメッセージ",
+                    subtitle: "Embedテンプレートの作成・送信"
+                )
+            }
 
-    static let all: [FeatureItem] = [
-        FeatureItem(
-            id: "embeds",
-            icon: "rectangle.stack.fill",
-            color: .accentIndigo,
-            title: "埋め込みメッセージ",
-            subtitle: "Embedテンプレートの作成・送信"
-        ) { _ in AnyView(EmbedListView()) },
+            NavigationLink {
+                ScheduledMessagesListView()
+            } label: {
+                FeatureRow(
+                    icon: "clock.fill",
+                    title: "予約投稿",
+                    subtitle: "指定時刻にメッセージを送信"
+                )
+            }
 
-        FeatureItem(
-            id: "scheduled",
-            icon: "clock.fill",
-            color: .accentPurple,
-            title: "予約投稿",
-            subtitle: "指定時刻にメッセージを送信"
-        ) { _ in AnyView(ScheduledMessagesListView()) },
+            NavigationLink {
+                RecurringPostsListView()
+            } label: {
+                FeatureRow(
+                    icon: "repeat.circle.fill",
+                    title: "定期投稿",
+                    subtitle: "日次・週次・月次の自動投稿"
+                )
+            }
+        }
+    }
 
-        FeatureItem(
-            id: "recurring",
-            icon: "repeat.circle.fill",
-            color: .accentIndigo,
-            title: "定期投稿",
-            subtitle: "日次・週次・月次の自動投稿"
-        ) { _ in AnyView(RecurringPostsListView()) },
+    private var communitySection: some View {
+        Section("コミュニティ") {
+            NavigationLink {
+                MembersListView(guildId: appState.selectedGuildId)
+            } label: {
+                FeatureRow(
+                    icon: "person.3.fill",
+                    title: "メンバー",
+                    subtitle: "メンバー一覧と管理"
+                )
+            }
 
-        FeatureItem(
-            id: "reaction-roles",
-            icon: "heart.fill",
-            color: .accentPink,
-            title: "リアクションロール",
-            subtitle: "リアクションでロールを自動付与"
-        ) { _ in AnyView(ReactionRolesView()) },
+            NavigationLink {
+                TicketsListView(guildId: appState.selectedGuildId)
+            } label: {
+                FeatureRow(
+                    icon: "ticket.fill",
+                    title: "チケット",
+                    subtitle: "サポートチケットの管理"
+                )
+            }
 
-        FeatureItem(
-            id: "greetings",
-            icon: "hand.wave.fill",
-            color: .accentGreen,
-            title: "入退室メッセージ",
-            subtitle: "入室・退室時の自動メッセージ"
-        ) { _ in AnyView(WelcomeMessageView()) },
+            NavigationLink {
+                TempVCListView(guildId: appState.selectedGuildId)
+            } label: {
+                FeatureRow(
+                    icon: "waveform.and.mic",
+                    title: "一時チャンネル",
+                    subtitle: "参加すると自動でVCを作成"
+                )
+            }
 
-        FeatureItem(
-            id: "members",
-            icon: "person.3.fill",
-            color: .accentIndigo,
-            title: "メンバー",
-            subtitle: "メンバー一覧と管理"
-        ) { id in AnyView(MembersListView(guildId: id)) },
+            FeatureRow(
+                icon: "chart.bar.fill",
+                title: "レベリング",
+                subtitle: "XP・リーダーボード・ロール報酬",
+                isComingSoon: true
+            )
+            .disabled(true)
 
-        FeatureItem(
-            id: "tickets",
-            icon: "ticket.fill",
-            color: .accentOrange,
-            title: "チケット",
-            subtitle: "サポートチケットの管理"
-        ) { id in AnyView(TicketsListView(guildId: id)) },
+            FeatureRow(
+                icon: "checkmark.circle.fill",
+                title: "投票",
+                subtitle: "アンケートと投票",
+                isComingSoon: true
+            )
+            .disabled(true)
 
-        FeatureItem(
-            id: "shops",
-            icon: "cart.fill",
-            color: .accentPurple,
-            title: "ショップ",
-            subtitle: "商品販売・注文管理"
-        ) { id in AnyView(ShopsListView(guildId: id)) },
+            FeatureRow(
+                icon: "gift.fill",
+                title: "ギブアウェイ",
+                subtitle: "景品プレゼント抽選",
+                isComingSoon: true
+            )
+            .disabled(true)
 
-        FeatureItem(
-            id: "roles",
-            icon: "shield.fill",
-            color: .accentPurple,
-            title: "ロール",
-            subtitle: "権限の確認・編集・ロールの作成"
-        ) { _ in AnyView(RolesListView()) },
+            FeatureRow(
+                icon: "star.fill",
+                title: "スターボード",
+                subtitle: "殿堂入りメッセージ",
+                isComingSoon: true
+            )
+            .disabled(true)
+        }
+    }
 
-        FeatureItem(
-            id: "moderation",
-            icon: "shield.lefthalf.filled",
-            color: Color(uiColor: UIColor(hex: 0xEF4444)),
-            title: "モデレーション",
-            subtitle: "BAN・タイムアウト・警告・AutoMod を一括管理"
-        ) { _ in AnyView(ModerationCenterView()) },
+    private var automationSection: some View {
+        Section("自動化・通知") {
+            NavigationLink {
+                ReactionRolesView()
+            } label: {
+                FeatureRow(
+                    icon: "heart.fill",
+                    title: "リアクションロール",
+                    subtitle: "リアクションでロールを自動付与"
+                )
+            }
 
-        FeatureItem(
-            id: "notifications",
-            icon: "bell.fill",
-            color: .accentOrange,
-            title: "通知設定",
-            subtitle: "通知チャンネルの設定"
-        ) { _ in AnyView(NotificationSettingsView()) },
-    ]
+            NavigationLink {
+                WelcomeMessageView()
+            } label: {
+                FeatureRow(
+                    icon: "hand.wave.fill",
+                    title: "入退室メッセージ",
+                    subtitle: "入室・退室時の自動メッセージ"
+                )
+            }
+
+            FeatureRow(
+                icon: "bubble.left.and.text.bubble.right.fill",
+                title: "自動応答",
+                subtitle: "キーワード → 返信の自動化",
+                isComingSoon: true
+            )
+            .disabled(true)
+
+            FeatureRow(
+                icon: "person.badge.plus.fill",
+                title: "自動ロール",
+                subtitle: "入室時にロールを自動付与",
+                isComingSoon: true
+            )
+            .disabled(true)
+
+            FeatureRow(
+                icon: "star.fill",
+                title: "ブースト通知",
+                subtitle: "サーバーブーストをお祝い",
+                isComingSoon: true
+            )
+            .disabled(true)
+
+            FeatureRow(
+                icon: "antenna.radiowaves.left.and.right",
+                title: "SNS通知",
+                subtitle: "YouTube・Twitch・Xの新着通知",
+                isComingSoon: true
+            )
+            .disabled(true)
+        }
+    }
+
+    private var moderationSection: some View {
+        Section("モデレーション") {
+            NavigationLink {
+                ModerationCenterView()
+            } label: {
+                FeatureRow(
+                    icon: "shield.lefthalf.filled",
+                    title: "モデレーション",
+                    subtitle: "BAN・タイムアウト・警告・AutoMod を一括管理",
+                    accentColor: .accentRed
+                )
+            }
+
+            FeatureRow(
+                icon: "shield.fill",
+                title: "自動モデレーション",
+                subtitle: "スパム・大文字・メンション制限",
+                accentColor: .accentRed,
+                isComingSoon: true
+            )
+            .disabled(true)
+
+            FeatureRow(
+                icon: "xmark.seal.fill",
+                title: "スパムフィルター",
+                subtitle: "メッセージレート制限",
+                isComingSoon: true
+            )
+            .disabled(true)
+
+            FeatureRow(
+                icon: "nosign",
+                title: "ワードフィルター",
+                subtitle: "特定ワードをブロック",
+                accentColor: .accentRed,
+                isComingSoon: true
+            )
+            .disabled(true)
+        }
+    }
+
+    private var toolsSection: some View {
+        Section("ツール") {
+            NavigationLink {
+                ShopsListView(guildId: appState.selectedGuildId)
+            } label: {
+                FeatureRow(
+                    icon: "cart.fill",
+                    title: "ショップ",
+                    subtitle: "商品販売・注文管理"
+                )
+            }
+
+            NavigationLink {
+                StatChannelsView(guildId: appState.selectedGuildId)
+            } label: {
+                FeatureRow(
+                    icon: "chart.bar.xaxis",
+                    title: "ステータスチャンネル",
+                    subtitle: "メンバー数・Boost数などをVC名に表示",
+                    accentColor: .accentPurple,
+                    badge: "Pro"
+                )
+            }
+        }
+    }
 }
 
 // MARK: - FeatureRow
 
 private struct FeatureRow: View {
-    let item: FeatureItem
+    let icon: String
+    let title: String
+    let subtitle: String
+    var accentColor: Color = .accentIndigo
+    var isComingSoon: Bool = false
+    var badge: String?     = nil  // "Pro" などのバッジテキスト
 
     var body: some View {
-        HStack(spacing: .spacing16) {
-            Image(systemName: item.icon)
-                .font(.system(size: 18, weight: .medium))
-                .foregroundStyle(item.color)
-                .frame(width: 38, height: 38)
-                .background(item.color.opacity(0.12))
-                .clipShape(RoundedRectangle(cornerRadius: 10))
+        HStack(spacing: .spacing12) {
+            // Icon
+            Image(systemName: icon)
+                .font(.subheadline)
+                .foregroundStyle(accentColor)
+                .frame(width: 32, height: 32)
+                .background(accentColor.opacity(0.12))
+                .clipShape(RoundedRectangle(cornerRadius: .cornerRadiusSmall))
 
-            VStack(alignment: .leading, spacing: 3) {
-                Text(item.title)
-                    .font(.bodyRegular)
-                    .fontWeight(.medium)
-                    .foregroundStyle(Color.textPrimary)
-                Text(item.subtitle)
-                    .font(.captionRegular)
+            // Text
+            VStack(alignment: .leading, spacing: .spacing2) {
+                HStack(spacing: .spacing6) {
+                    Text(title)
+                        .font(.body)
+                        .foregroundStyle(Color.textPrimary)
+
+                    if let badge {
+                        Text(badge)
+                            .font(.system(size: 10, weight: .bold))
+                            .foregroundStyle(.white)
+                            .padding(.horizontal, 5)
+                            .padding(.vertical, 2)
+                            .background(
+                                LinearGradient(colors: [Color.accentOrange, Color.accentPink],
+                                               startPoint: .leading, endPoint: .trailing))
+                            .clipShape(Capsule())
+                    }
+                }
+
+                Text(subtitle)
+                    .font(.subheadline)
                     .foregroundStyle(Color.textSecondary)
+                    .lineLimit(1)
             }
 
             Spacer()
+
+            // Coming Soon indicator
+            if isComingSoon {
+                Image(systemName: "lock.fill")
+                    .font(.caption)
+                    .foregroundStyle(Color.textTertiary)
+            }
         }
-        .padding(.vertical, .spacing6)
+        .opacity(isComingSoon ? 0.5 : 1.0)
     }
 }
+
+// MARK: - Preview
 
 #Preview {
     FeaturesTabView()
         .environment(AppState())
         .environment(\.services, ServiceContainer.live())
-        .preferredColorScheme(.dark)
 }

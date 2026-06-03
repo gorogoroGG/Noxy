@@ -4,7 +4,7 @@ enum NotificationType: String, Codable {
     case mention, ticket, system, memberJoin, botStatus, scheduledSend
 }
 
-struct AppNotification: Identifiable, Codable, Hashable {
+struct AppNotification: Identifiable, Codable, Hashable, Sendable {
     let id: String
     let type: NotificationType
     let title: String

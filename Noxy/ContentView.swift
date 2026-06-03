@@ -35,10 +35,8 @@ struct ContentView: View {
 
 #Preview("Dark") {
     ContentView()
-        .preferredColorScheme(.dark)
 }
 
 #Preview("Light") {
     ContentView()
-        .preferredColorScheme(.light)
 }

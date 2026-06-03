@@ -117,7 +117,7 @@ private struct ShopPanelListView: View {
                 Text(toast)
                     .font(.captionRegular).fontWeight(.medium).foregroundStyle(.white)
                     .padding(.horizontal, .spacing16).padding(.vertical, .spacing10)
-                    .background(Color(.systemGray2)).clipShape(Capsule())
+                    .background(Color.gray.opacity(0.25)).clipShape(Capsule())
                     .padding(.bottom, 80)
                     .transition(.move(edge: .bottom).combined(with: .opacity))
             }
@@ -278,7 +278,7 @@ private struct ShopCard: View {
             HStack(spacing: .spacing12) {
                 ZStack {
                     RoundedRectangle(cornerRadius: 10)
-                        .fill(shop.enabled ? Color(uiColor: UIColor(hex: UInt32(shop.color))) : Color(.systemGray4))
+                        .fill(shop.enabled ? Color(uiColor: UIColor(hex: UInt32(shop.color))) : Color.gray.opacity(0.45))
                         .frame(width: 42, height: 42)
                     Image(systemName: shop.enabled ? "cart.fill" : "cart.badge.xmark")
                         .font(.system(size: 18)).foregroundStyle(.white)

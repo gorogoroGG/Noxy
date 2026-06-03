@@ -3,14 +3,23 @@ name = "noxy-scheduler"
 main = "src/index.ts"
 compatibility_date = "2025-05-30"
 
-# 1分ごとに実行（Cron Trigger）
+# Cron Trigger（処理ごとに分割して50サブリクエスト制限を回避）
 [triggers]
-crons = ["* * * * *"]
+crons = [
+  "* * * * *",    # 毎分   → 予約メッセージ送信（時間厳守のため毎分）
+  "*/5 * * * *",  # 5分毎  → 注文タイムアウトチェック
+  "*/10 * * * *"  # 10分毎 → ステータスチャンネル更新（Discord の10分制限と合致）
+]
 
 # 環境変数（deploy 時に wrangler secret put で設定する）
-# DISCORD_BOT_TOKEN  – Discord Bot のトークン
-# SUPABASE_URL       – Supabase プロジェクトの URL
+# DISCORD_BOT_TOKEN    – Discord Bot のトークン
+# SUPABASE_URL         – Supabase プロジェクトの URL
 # SUPABASE_SERVICE_KEY – Supabase の service_role key（管理用）
+# WORKER_API_SECRET    – API 認証シークレット（iOS アプリ側の DiscordConfig.workerAPISecret と一致させる）
+#   設定方法: wrangler secret put WORKER_API_SECRET
+#   未設定の場合はローカル開発用として認証スキップ
+# SUPABASE_ANON_KEY    – Supabase の anon/public key（課金 JWT 検証に必要）
+#   設定方法: wrangler secret put SUPABASE_ANON_KEY
 [vars]
 # ここには機密以外の設定だけ書く（空でもOK）
 

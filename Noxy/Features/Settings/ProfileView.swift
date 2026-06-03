@@ -83,5 +83,4 @@ struct ProfileView: View {
 #Preview {
     NavigationStack { ProfileView() }
         .environment(AuthManager(services: ServiceContainer.live()))
-        .preferredColorScheme(.dark)
 }

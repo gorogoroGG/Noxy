@@ -213,5 +213,4 @@ struct GoodbyeMessageView: View {
     NavigationStack { GoodbyeMessageView() }
         .environment(\.services, ServiceContainer.live())
         .environment(AppState())
-        .preferredColorScheme(.dark)
 }

@@ -67,7 +67,7 @@ private struct AuditLogRow: View {
 
     private var iconColor: Color {
         switch log.action {
-        case "member_ban", "member_kick": Color(uiColor: UIColor(hex: 0xEF4444))
+        case "member_ban", "member_kick": .accentRed
         case "embed_sent":  .accentGreen
         case "role_added":  .accentIndigo
         case "bot_restart": .accentOrange
@@ -117,5 +117,4 @@ private struct AuditLogRow: View {
 #Preview {
     AuditLogView(guildId: "g001")
         .environment(\.services, ServiceContainer.live())
-        .preferredColorScheme(.dark)
 }

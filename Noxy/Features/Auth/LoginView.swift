@@ -125,7 +125,7 @@ struct LoginView: View {
                         }
                         .frame(maxWidth: .infinity)
                         .frame(height: 56)
-                        .background(Color(uiColor: UIColor(hex: 0x5865F2)))
+                        .background(Color.accentIndigo)
                         .clipShape(RoundedRectangle(cornerRadius: .cornerRadiusMedium))
                     }
                     .disabled(isLoggingIn)
@@ -166,5 +166,4 @@ struct LoginView: View {
 #Preview {
     LoginView()
         .environment(AuthManager(services: ServiceContainer.live()))
-        .preferredColorScheme(.dark)
 }

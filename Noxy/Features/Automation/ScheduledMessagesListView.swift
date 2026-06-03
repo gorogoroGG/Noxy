@@ -1008,5 +1008,4 @@ extension ScheduledMessagesListView {
     ScheduledMessagesListView()
         .environment(\.services, ServiceContainer.live())
         .environment(AppState())
-        .preferredColorScheme(.dark)
 }

@@ -21,6 +21,8 @@ final class ServiceContainer {
     let tempChannel:        any TempChannelServiceProtocol
     let tempVCSource:       any TempVCSourceServiceProtocol
     let shops:              any ShopServiceProtocol
+    let statChannels:       any StatChannelServiceProtocol
+    let subscription:       any SubscriptionServiceProtocol
 
     private init(
         embeds:            any EmbedServiceProtocol,
@@ -38,7 +40,9 @@ final class ServiceContainer {
         greeting:          any GreetingServiceProtocol,
         tempChannel:       any TempChannelServiceProtocol,
         tempVCSource:      any TempVCSourceServiceProtocol,
-        shops:             any ShopServiceProtocol
+        shops:             any ShopServiceProtocol,
+        statChannels:      any StatChannelServiceProtocol,
+        subscription:      any SubscriptionServiceProtocol
     ) {
         self.embeds = embeds
         self.guilds = guilds
@@ -56,6 +60,8 @@ final class ServiceContainer {
         self.tempChannel = tempChannel
         self.tempVCSource = tempVCSource
         self.shops = shops
+        self.statChannels = statChannels
+        self.subscription = subscription
     }
 
     /// モック用（プレビュー・テスト）
@@ -76,29 +82,33 @@ final class ServiceContainer {
             greeting:          MockGreetingService(),
             tempChannel:       MockTempChannelService(),
             tempVCSource:      MockTempVCSourceService(),
-            shops:             MockShopService()
+            shops:             MockShopService(),
+            statChannels:      WorkerStatChannelService(),
+            subscription:      MockSubscriptionService()
         )
     }
 
-    /// 本番用（Supabase）
+    /// 本番用（Worker + Supabase）
     static func live() -> ServiceContainer {
         ServiceContainer(
             embeds:            SupabaseEmbedService(),
             guilds:            DiscordService(),
             members:           DiscordMemberService(),
             tickets:           WorkerTicketService(),
-            autoResponses:     MockAutoResponseService(),
+            autoResponses:     WorkerAutoResponseService(),
             scheduledMessages: SupabaseScheduledMessageService(),
             auditLogs:         MockAuditLogService(),
             notifications:     MockNotificationService(),
-            analytics:         MockAnalyticsService(),
+            analytics:         WorkerAnalyticsService(),
             bot:               MockBotService(),
             auth:              SupabaseAuthService(),
             reactionRoles:     SupabaseReactionRoleService(),
             greeting:          SupabaseGreetingService(),
             tempChannel:       WorkerTempChannelService(),
             tempVCSource:      WorkerTempVCSourceService(),
-            shops:             WorkerShopService()
+            shops:             WorkerShopService(),
+            statChannels:      WorkerStatChannelService(),
+            subscription:      WorkerSubscriptionService()
         )
     }
 }

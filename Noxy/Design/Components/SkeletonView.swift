@@ -92,5 +92,4 @@ extension CGFloat {
     }
     .padding(.vertical)
     .background(Color.bgPrimary)
-    .preferredColorScheme(.dark)
 }

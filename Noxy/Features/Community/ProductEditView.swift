@@ -63,7 +63,7 @@ struct ProductManagementView: View {
                     Text(toast)
                         .font(.captionRegular).fontWeight(.medium).foregroundStyle(.white)
                         .padding(.horizontal, .spacing16).padding(.vertical, .spacing10)
-                        .background(Color(.systemGray2)).clipShape(Capsule())
+                        .background(Color.gray.opacity(0.25)).clipShape(Capsule())
                         .padding(.bottom, 80)
                         .transition(.move(edge: .bottom).combined(with: .opacity))
                 }
@@ -143,7 +143,7 @@ private struct ProductCard: View {
         VStack(spacing: 0) {
             HStack(spacing: .spacing12) {
                 ZStack {
-                    Circle().fill(product.enabled ? Color.accentPurple.opacity(0.15) : Color(.systemGray4))
+                    Circle().fill(product.enabled ? Color.accentPurple.opacity(0.15) : Color.gray.opacity(0.45))
                         .frame(width: 36, height: 36)
                     Text("\(index + 1)").font(.system(size: 14, weight: .bold))
                         .foregroundStyle(product.enabled ? Color.accentPurple : Color.textTertiary)

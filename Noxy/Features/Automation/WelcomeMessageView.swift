@@ -491,5 +491,4 @@ private struct GreetingRow<Content: View>: View {
     NavigationStack { WelcomeMessageView() }
         .environment(\.services, ServiceContainer.live())
         .environment(AppState())
-        .preferredColorScheme(.dark)
 }

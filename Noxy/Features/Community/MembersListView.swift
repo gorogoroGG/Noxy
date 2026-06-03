@@ -596,7 +596,7 @@ private struct SendDMSheet: View {
                         Label(isSending ? "送信中..." : "DMを送信", systemImage: "paperplane.fill")
                             .font(.bodySmall).fontWeight(.semibold).foregroundStyle(.white)
                             .frame(maxWidth: .infinity).frame(height: 50)
-                            .background(message.isEmpty ? Color(.systemGray4) : Color.accentIndigo)
+                            .background(message.isEmpty ? Color.gray.opacity(0.45) : Color.accentIndigo)
                             .clipShape(RoundedRectangle(cornerRadius: 12))
                     }
                     .disabled(message.isEmpty || isSending)
@@ -678,7 +678,7 @@ private struct RoleManagerSheet: View {
                         } label: {
                             HStack(spacing: .spacing12) {
                                 Circle()
-                                    .fill(role.color == 0 ? Color(.systemGray3) : Color(uiColor: UIColor(hex: UInt32(bitPattern: Int32(role.color)))))
+                                    .fill(role.color == 0 ? Color.gray.opacity(0.35) : Color(uiColor: UIColor(hex: UInt32(bitPattern: Int32(role.color)))))
                                     .frame(width: 12, height: 12)
                                 Text("@\(role.name)").font(.bodySmall).foregroundStyle(Color.textPrimary)
                                 Spacer()
@@ -999,7 +999,7 @@ private struct FlowLayout: Layout {
 // MARK: - MemberStatus 拡張
 
 extension MemberStatus {
-    var color: Color { switch self { case .online: .accentGreen; case .idle: .accentOrange; case .dnd: .red; case .offline: Color(.systemGray3) } }
+    var color: Color { switch self { case .online: .accentGreen; case .idle: .accentOrange; case .dnd: .red; case .offline: Color.gray.opacity(0.35) } }
     var label: String { switch self { case .online: "オンライン"; case .idle: "退席中"; case .dnd: "取込中"; case .offline: "オフライン" } }
 }
 
@@ -1009,5 +1009,4 @@ extension MemberStatus {
     }
     .environment(\.services, ServiceContainer.live())
     .environment(AppState())
-    .preferredColorScheme(.dark)
 }

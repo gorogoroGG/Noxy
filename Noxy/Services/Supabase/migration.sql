@@ -256,6 +256,65 @@ CREATE TABLE IF NOT EXISTS temp_vc_sources (
 -- temp_channelsにtemp_vc_source_id追加（一時VC用）
 ALTER TABLE temp_channels ADD COLUMN IF NOT EXISTS temp_vc_source_id TEXT;
 
+-- 15. automod_settings（AutoMod設定）
+CREATE TABLE IF NOT EXISTS automod_settings (
+    id                      TEXT PRIMARY KEY DEFAULT gen_random_uuid()::text,
+    guild_id                TEXT NOT NULL UNIQUE,
+    -- スパム対策
+    msg_spam_enabled        BOOLEAN NOT NULL DEFAULT TRUE,
+    msg_spam_count          INTEGER NOT NULL DEFAULT 5,
+    msg_spam_seconds        INTEGER NOT NULL DEFAULT 5,
+    dup_msg_enabled         BOOLEAN NOT NULL DEFAULT FALSE,
+    dup_msg_count           INTEGER NOT NULL DEFAULT 3,
+    mention_enabled         BOOLEAN NOT NULL DEFAULT TRUE,
+    mention_limit           INTEGER NOT NULL DEFAULT 5,
+    mass_mention_enabled    BOOLEAN NOT NULL DEFAULT TRUE,
+    mass_mention_limit      INTEGER NOT NULL DEFAULT 3,
+    emoji_enabled           BOOLEAN NOT NULL DEFAULT FALSE,
+    emoji_limit             INTEGER NOT NULL DEFAULT 10,
+    caps_enabled            BOOLEAN NOT NULL DEFAULT TRUE,
+    caps_percent            INTEGER NOT NULL DEFAULT 70,
+    -- コンテンツフィルター
+    keyword_enabled         BOOLEAN NOT NULL DEFAULT TRUE,
+    blocked_keywords        JSONB NOT NULL DEFAULT '[]',
+    regex_enabled           BOOLEAN NOT NULL DEFAULT FALSE,
+    blocked_regex           JSONB NOT NULL DEFAULT '[]',
+    invite_link_enabled     BOOLEAN NOT NULL DEFAULT TRUE,
+    phishing_enabled        BOOLEAN NOT NULL DEFAULT TRUE,
+    link_filter_enabled     BOOLEAN NOT NULL DEFAULT FALSE,
+    link_mode               TEXT NOT NULL DEFAULT 'allowAll',
+    allowed_links           JSONB NOT NULL DEFAULT '[]',
+    nsfw_enabled            BOOLEAN NOT NULL DEFAULT FALSE,
+    -- アカウント保護
+    min_age_enabled         BOOLEAN NOT NULL DEFAULT FALSE,
+    min_age_days            INTEGER NOT NULL DEFAULT 7,
+    new_member_enabled      BOOLEAN NOT NULL DEFAULT FALSE,
+    new_member_mins         INTEGER NOT NULL DEFAULT 10,
+    raid_enabled            BOOLEAN NOT NULL DEFAULT FALSE,
+    raid_joins              INTEGER NOT NULL DEFAULT 10,
+    raid_seconds            INTEGER NOT NULL DEFAULT 30,
+    -- アンチヌーク
+    anti_nuke_enabled       BOOLEAN NOT NULL DEFAULT FALSE,
+    channel_delete_limit    INTEGER NOT NULL DEFAULT 3,
+    channel_delete_seconds  INTEGER NOT NULL DEFAULT 10,
+    role_delete_limit       INTEGER NOT NULL DEFAULT 3,
+    role_delete_seconds     INTEGER NOT NULL DEFAULT 10,
+    mass_ban_limit          INTEGER NOT NULL DEFAULT 5,
+    mass_ban_seconds        INTEGER NOT NULL DEFAULT 30,
+    -- アクション
+    default_action          TEXT NOT NULL DEFAULT 'deleteAndWarn',
+    timeout_minutes         INTEGER NOT NULL DEFAULT 60,
+    escalation_enabled      BOOLEAN NOT NULL DEFAULT TRUE,
+    escalation_steps        JSONB NOT NULL DEFAULT '[{"violations":3,"action":{"type":"timeout","minutes":10}},{"violations":5,"action":{"type":"timeout","minutes":60}},{"violations":10,"action":{"type":"kick"}},{"violations":15,"action":{"type":"ban"}}]',
+    log_enabled             BOOLEAN NOT NULL DEFAULT TRUE,
+    log_channel_id          TEXT NOT NULL DEFAULT '',
+    -- 除外
+    exempt_roles            JSONB NOT NULL DEFAULT '[]',
+    exempt_channels         JSONB NOT NULL DEFAULT '[]',
+    created_at              TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    updated_at              TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
+
 -- ============================================================
 -- インデックス
 -- ============================================================
@@ -306,9 +365,11 @@ CREATE POLICY "Allow all for authenticated users" ON orders   FOR ALL USING (aut
 ALTER TABLE temp_channel_settings ENABLE ROW LEVEL SECURITY;
 ALTER TABLE temp_channels         ENABLE ROW LEVEL SECURITY;
 ALTER TABLE temp_vc_sources       ENABLE ROW LEVEL SECURITY;
+ALTER TABLE automod_settings      ENABLE ROW LEVEL SECURITY;
 CREATE POLICY "Allow all for authenticated users" ON temp_channel_settings   FOR ALL USING (auth.role() = 'authenticated');
 CREATE POLICY "Allow all for authenticated users" ON temp_channels            FOR ALL USING (auth.role() = 'authenticated');
 CREATE POLICY "Allow all for authenticated users" ON temp_vc_sources          FOR ALL USING (auth.role() = 'authenticated');
+CREATE POLICY "Allow all for authenticated users" ON automod_settings         FOR ALL USING (auth.role() = 'authenticated');
 
 -- ============================================================
 -- サンプルデータ（初回のみ）
@@ -337,3 +398,66 @@ INSERT INTO channels (id, guild_id, name, type, category_name, bot_can_send) VAL
 ('c007', 'g002', 'luna-fan-art',   'text',         'Fan Content', TRUE),
 ('c008', 'g002', 'stream-notify',  'announcement', 'General',     TRUE)
 ON CONFLICT (id) DO NOTHING;
+
+-- ── ステータスチャンネル ─────────────────────────────────────────
+-- stat_type: members | online | boosts | vc_users
+CREATE TABLE IF NOT EXISTS stat_channels (
+  id               uuid DEFAULT gen_random_uuid() PRIMARY KEY,
+  guild_id         text        NOT NULL,
+  channel_id       text        NOT NULL UNIQUE,
+  stat_type        text        NOT NULL CHECK (stat_type IN ('members','online','boosts','vc_users')),
+  is_enabled       boolean     NOT NULL DEFAULT true,
+  last_value       integer     NOT NULL DEFAULT -1,
+  last_updated_at  timestamptz,
+  created_at       timestamptz NOT NULL DEFAULT now()
+);
+
+CREATE INDEX IF NOT EXISTS stat_channels_guild_idx ON stat_channels (guild_id);
+CREATE INDEX IF NOT EXISTS stat_channels_enabled_idx ON stat_channels (is_enabled) WHERE is_enabled = true;
+
+-- ── message_count アトミックインクリメント (#4) ─────────────────
+CREATE OR REPLACE FUNCTION increment_ticket_message_count(p_ticket_id uuid)
+RETURNS void LANGUAGE sql AS $$
+  UPDATE tickets SET message_count = message_count + 1 WHERE id = p_ticket_id;
+$$;
+
+-- ── ギルド統計（VC接続人数など）(#2: vc_users 用) ────────────────
+CREATE TABLE IF NOT EXISTS guild_stats (
+  guild_id      text        PRIMARY KEY,
+  vc_user_count integer     NOT NULL DEFAULT 0,
+  updated_at    timestamptz NOT NULL DEFAULT now()
+);
+
+-- ── 課金機能 ──────────────────────────────────────────────────
+
+-- ユーザープロフィール（Supabase auth.users に紐付く）
+CREATE TABLE IF NOT EXISTS user_profiles (
+  id                        uuid    PRIMARY KEY REFERENCES auth.users(id) ON DELETE CASCADE,
+  discord_user_id           text    NOT NULL UNIQUE,
+  purchased_slots           integer NOT NULL DEFAULT 0,
+  subscription_product_id   text,
+  subscription_expires_at   timestamptz,
+  created_at                timestamptz NOT NULL DEFAULT now(),
+  updated_at                timestamptz NOT NULL DEFAULT now()
+);
+CREATE INDEX IF NOT EXISTS idx_user_profiles_discord ON user_profiles(discord_user_id);
+
+-- 有効化済みサーバー（1サーバー = 1スロット消費）
+CREATE TABLE IF NOT EXISTS activated_servers (
+  id               uuid    PRIMARY KEY DEFAULT gen_random_uuid(),
+  discord_user_id  text    NOT NULL,
+  guild_id         text    NOT NULL,
+  activated_at     timestamptz NOT NULL DEFAULT now(),
+  CONSTRAINT activated_servers_guild_unique UNIQUE (guild_id),
+  CONSTRAINT activated_servers_user_guild   UNIQUE (discord_user_id, guild_id)
+);
+CREATE INDEX IF NOT EXISTS idx_activated_servers_user  ON activated_servers(discord_user_id);
+CREATE INDEX IF NOT EXISTS idx_activated_servers_guild ON activated_servers(guild_id);
+
+-- RLS: Worker (service_role) のみ書き込み可
+ALTER TABLE activated_servers ENABLE ROW LEVEL SECURITY;
+ALTER TABLE user_profiles     ENABLE ROW LEVEL SECURITY;
+CREATE POLICY "service_role_full_activated" ON activated_servers
+  USING (auth.role() = 'service_role');
+CREATE POLICY "service_role_full_profiles" ON user_profiles
+  USING (auth.role() = 'service_role');

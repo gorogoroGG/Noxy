@@ -13,12 +13,6 @@ struct MainTabView: View {
                 FeaturesTabView()
                     .tabItem { Label("機能", systemImage: "square.grid.2x2.fill") }
 
-                MonitorView()
-                    .tabItem { Label("モニター", systemImage: "waveform") }
-
-                CommunityTabView()
-                    .tabItem { Label("サーバー", systemImage: "server.rack") }
-
                 MoreTabView()
                     .tabItem { Label("設定", systemImage: "gearshape.fill") }
             }
@@ -99,5 +93,4 @@ private struct ServerSwitchingOverlay: View {
     MainTabView()
         .environment(AuthManager(services: ServiceContainer.live()))
         .environment(\.services, ServiceContainer.live())
-        .preferredColorScheme(.dark)
 }

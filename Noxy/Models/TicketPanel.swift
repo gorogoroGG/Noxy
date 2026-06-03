@@ -1,6 +1,6 @@
 import Foundation
 
-struct TicketPanel: Identifiable, Codable, Hashable {
+struct TicketPanel: Identifiable, Codable, Hashable, Sendable {
     let id: String
     var guildId: String
     var channelId: String
@@ -22,7 +22,7 @@ struct TicketPanel: Identifiable, Codable, Hashable {
     /// Discord にデプロイ済みかどうか
     var isDeployed: Bool { messageId != nil && !(messageId!.isEmpty) }
 
-    static func blank(guildId: String) -> TicketPanel {
+    nonisolated static func blank(guildId: String) -> TicketPanel {
         TicketPanel(
             id: UUID().uuidString,
             guildId: guildId,

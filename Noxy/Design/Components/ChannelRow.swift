@@ -61,5 +61,4 @@ struct ChannelRow: View {
     }
     .padding()
     .background(Color.bgSurface)
-    .preferredColorScheme(.dark)
 }

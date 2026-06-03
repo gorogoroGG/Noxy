@@ -1,180 +1,174 @@
 import SwiftUI
 
 struct ModTimeoutView: View {
-    @State private var members: [TimedOutMember] = TimedOutMember.mock
-    @State private var untimeoutTarget: TimedOutMember? = nil
-    @State private var showSuccess: String? = nil
+    let guildId: String
 
-    // 残り時間を更新するタイマー
+    @State private var loadState: LoadState<[TimedOutMember]> = .loading
+    @State private var untimeoutTarget: TimedOutMember? = nil
+    @State private var toast: String? = nil
     @State private var tick = false
 
+    private let service = ModerationService()
+
     var body: some View {
-        ZStack {
+        ZStack(alignment: .bottom) {
             Color.bgPrimary.ignoresSafeArea()
-
-            if members.isEmpty {
-                emptyState
-            } else {
-                ScrollView {
-                    LazyVStack(spacing: .spacing8) {
-                        countHeader
-                        ForEach(members) { member in
-                            TimeoutRow(member: member, tick: tick) {
-                                untimeoutTarget = member
-                            }
-                        }
-                        Spacer(minLength: 32)
-                    }
-                    .padding(.horizontal, .spacing16)
-                    .padding(.top, .spacing12)
-                }
-            }
-
-            if let msg = showSuccess {
-                successToast(msg)
+            mainContent
+            if let msg = toast {
+                ModSuccessToast(message: msg)
+                    .padding(.bottom, .spacing32)
                     .transition(.move(edge: .bottom).combined(with: .opacity))
             }
+        }
+        .animation(.spring(duration: 0.3), value: toast != nil)
+        .task { await load() }
+        .refreshable { await load() }
+        .onAppear {
+            Timer.scheduledTimer(withTimeInterval: 1, repeats: true) { _ in tick.toggle() }
         }
         .alert("タイムアウトを解除しますか？", isPresented: Binding(
             get: { untimeoutTarget != nil },
             set: { if !$0 { untimeoutTarget = nil } }
         )) {
-            Button("解除", role: .destructive) {
-                if let t = untimeoutTarget { removeTimeout(t) }
+            Button("即時解除", role: .destructive) {
+                if let t = untimeoutTarget { Task { await performRemove(t) } }
             }
             Button("キャンセル", role: .cancel) { untimeoutTarget = nil }
         } message: {
-            Text("「\(untimeoutTarget?.displayName ?? "")」のタイムアウトを即時解除します。")
-        }
-        // 毎秒残り時間を更新
-        .onAppear {
-            Timer.scheduledTimer(withTimeInterval: 1, repeats: true) { _ in
-                tick.toggle()
-                // 期限切れを除去
-                withAnimation { members.removeAll { $0.isExpired } }
+            if let t = untimeoutTarget {
+                Text("「\(t.displayName)」のタイムアウトを即時解除します。")
             }
         }
     }
 
-    // MARK: - Sub Views
-
-    private var countHeader: some View {
-        HStack {
-            Text("\(members.count)人がタイムアウト中")
-                .font(.captionSmall).foregroundStyle(Color.textTertiary)
-            Spacer()
+    @ViewBuilder
+    private var mainContent: some View {
+        switch loadState {
+        case .loading:
+            loadingView("タイムアウト中のメンバーを取得中...")
+        case .error(let msg):
+            ModErrorView(message: msg) { Task { await load() } }
+        case .loaded(let members):
+            if members.isEmpty {
+                ModEmptyView(icon: "timer",
+                             title: "タイムアウト中のメンバーはいません")
+            } else {
+                timeoutList(members)
+            }
         }
     }
 
-    private var emptyState: some View {
-        VStack(spacing: .spacing16) {
-            Image(systemName: "timer")
-                .font(.system(size: 48)).foregroundStyle(Color.accentGreen.opacity(0.6))
-            Text("タイムアウト中のメンバーはいません")
-                .font(.titleMedium).foregroundStyle(Color.textPrimary)
-        }
-    }
-
-    private func successToast(_ msg: String) -> some View {
-        VStack {
-            Spacer()
-            HStack(spacing: .spacing8) {
-                Image(systemName: "checkmark.circle.fill").foregroundStyle(.white)
-                Text(msg).font(.bodySmall).fontWeight(.semibold).foregroundStyle(.white)
+    private func timeoutList(_ members: [TimedOutMember]) -> some View {
+        ScrollView {
+            LazyVStack(spacing: .spacing8) {
+                sectionHeader(
+                    icon: "timer",
+                    color: .accentPurple,
+                    title: "\(members.count)人がタイムアウト中",
+                    note: "タップして即時解除"
+                )
+                ForEach(members) { member in
+                    TimeoutCard(member: member, tick: tick) {
+                        untimeoutTarget = member
+                    }
+                }
+                bottomPad
             }
             .padding(.horizontal, .spacing16)
-            .frame(height: 48)
-            .background(Color.accentGreen)
-            .clipShape(Capsule())
-            .shadow(radius: 8)
-            .padding(.bottom, .spacing32)
+            .padding(.top, .spacing12)
         }
     }
 
-    // MARK: - Action
+    private func performRemove(_ member: TimedOutMember) async {
+        untimeoutTarget = nil
+        do {
+            try await service.removeTimeout(userId: member.id, guildId: guildId)
+            if case .loaded(var list) = loadState {
+                list.removeAll { $0.id == member.id }
+                loadState = .loaded(list)
+            }
+            UINotificationFeedbackGenerator().notificationOccurred(.success)
+            showToast("\(member.displayName) のタイムアウトを解除しました")
+        } catch {
+            showToast("タイムアウト解除に失敗しました")
+        }
+    }
 
-    private func removeTimeout(_ member: TimedOutMember) {
-        // 実際のAPI: PATCH /bot/members/{userId}/untimeout
-        withAnimation { members.removeAll { $0.id == member.id } }
-        let msg = "\(member.displayName) のタイムアウトを解除しました"
-        withAnimation(.spring()) { showSuccess = msg }
-        UINotificationFeedbackGenerator().notificationOccurred(.success)
+    private func load() async {
+        loadState = .loading
+        do {
+            loadState = .loaded(try await service.fetchTimeouts(guildId: guildId))
+        } catch {
+            loadState = .error("タイムアウト一覧の取得に失敗しました。\nBotのSERVER MEMBERS INTENTが有効か確認してください。")
+        }
+    }
+
+    private func showToast(_ msg: String) {
+        withAnimation { toast = msg }
         Task {
             try? await Task.sleep(for: .seconds(2.5))
-            await MainActor.run { withAnimation { showSuccess = nil } }
+            await MainActor.run { withAnimation { toast = nil } }
         }
-        untimeoutTarget = nil
     }
 }
 
-// MARK: - TimeoutRow
+// MARK: - TimeoutCard
 
-private struct TimeoutRow: View {
+private struct TimeoutCard: View {
     let member: TimedOutMember
-    let tick: Bool  // triggers re-render every second
-    let onUntimeout: () -> Void
+    let tick: Bool
+    let onRemove: () -> Void
 
     var body: some View {
         HStack(spacing: .spacing12) {
-            // Severity ring avatar
+            // 残り時間リング
             ZStack {
+                Circle().stroke(member.severityColor.opacity(0.15), lineWidth: 3)
                 Circle()
-                    .stroke(member.severityColor.opacity(0.3), lineWidth: 3)
-                    .frame(width: 50, height: 50)
-                Circle()
-                    .trim(from: 0, to: progress)
+                    .trim(from: 0, to: ringProgress)
                     .stroke(member.severityColor, style: StrokeStyle(lineWidth: 3, lineCap: .round))
                     .rotationEffect(.degrees(-90))
-                    .frame(width: 50, height: 50)
                     .animation(.linear(duration: 1), value: tick)
-                Text(member.displayName.prefix(1).uppercased())
-                    .font(.titleMedium).foregroundStyle(Color.textPrimary)
+                Text(String(member.displayName.prefix(1)).uppercased())
+                    .font(.bodySmall).fontWeight(.bold).foregroundStyle(Color.textPrimary)
             }
-            .frame(width: 50, height: 50)
+            .frame(width: 46, height: 46)
 
             VStack(alignment: .leading, spacing: 3) {
                 Text(member.displayName)
                     .font(.bodySmall).fontWeight(.semibold).foregroundStyle(Color.textPrimary)
                 Text("@\(member.username)")
                     .font(.captionSmall).foregroundStyle(Color.textTertiary)
-                if let reason = member.reason {
-                    Text("理由: \(reason)")
-                        .font(.captionSmall).foregroundStyle(Color.textSecondary)
-                }
                 HStack(spacing: 4) {
-                    Text("実行者: \(member.mutedByName)")
-                    Text("·")
-                    // 残り時間（毎秒更新）
-                    Text("残り \(member.remainingLabel)")
-                        .foregroundStyle(member.severityColor)
-                        .fontWeight(.semibold)
-                        .id(tick) // force re-render
+                    Image(systemName: "clock").font(.system(size: 10))
+                    Text("残り \(member.remainingLabel)").fontWeight(.semibold)
                 }
-                .font(.captionSmall).foregroundStyle(Color.textTertiary)
+                .font(.captionSmall)
+                .foregroundStyle(member.severityColor)
+                .id(tick)
             }
 
             Spacer()
 
-            Button("解除", action: onUntimeout)
+            Button("解除", action: onRemove)
                 .font(.captionRegular).fontWeight(.semibold)
                 .foregroundStyle(Color.accentGreen)
-                .padding(.horizontal, .spacing10).padding(.vertical, 5)
-                .background(Color.accentGreen.opacity(0.12))
+                .padding(.horizontal, 10).padding(.vertical, 5)
+                .background(Color.accentGreen.opacity(0.1))
                 .clipShape(Capsule())
+                .overlay(Capsule().stroke(Color.accentGreen.opacity(0.3), lineWidth: 1))
         }
         .padding(.spacing12)
         .background(Color.bgSurface)
         .clipShape(RoundedRectangle(cornerRadius: .cornerRadiusMedium))
         .overlay(
             RoundedRectangle(cornerRadius: .cornerRadiusMedium)
-                .stroke(member.severityColor.opacity(0.3), lineWidth: 1)
+                .stroke(member.severityColor.opacity(0.25), lineWidth: 1)
         )
     }
 
-    // 最大タイムアウトを7日として進捗を計算
-    private var progress: CGFloat {
-        let maxDuration: TimeInterval = 7 * 86_400
-        let elapsed = maxDuration - member.remaining
-        return CGFloat(max(0, min(1, elapsed / maxDuration)))
+    private var ringProgress: CGFloat {
+        let maxSec: TimeInterval = 7 * 86_400
+        return CGFloat(max(0, min(1, (maxSec - member.remaining) / maxSec)))
     }
 }

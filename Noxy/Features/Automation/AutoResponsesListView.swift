@@ -22,7 +22,7 @@ struct AutoResponsesListView: View {
                 list
             }
         }
-        .background(Color(uiColor: .systemGroupedBackground))
+        .background(Color.bgPrimary)
         .navigationTitle("自動返信")
         .toolbar {
             ToolbarItem(placement: .topBarTrailing) {
@@ -375,5 +375,4 @@ struct AutoResponseEditorView: View {
         AutoResponsesListView(guildId: "g001")
     }
     .environment(\.services, ServiceContainer.live())
-    .preferredColorScheme(.dark)
 }

@@ -315,6 +315,28 @@ async function handleVoiceLeave(state: VoiceState): Promise<void> {
   }
 }
 
+// ── VC接続人数をSupabaseに記録 (#2: vc_users ステータスチャンネル用) ──────
+async function updateGuildVcStats(guildId: string): Promise<void> {
+  // Bot のメモリキャッシュから全VCの接続人数を集計
+  const guild = client.guilds.cache.get(guildId);
+  if (!guild) return;
+
+  const vcUserCount = guild.channels.cache
+    .filter(ch => ch.type === ChannelType.GuildVoice)
+    .reduce((sum, ch) => {
+      if (ch.type === ChannelType.GuildVoice) return sum + ch.members.size;
+      return sum;
+    }, 0);
+
+  const { error } = await supabase
+    .from('guild_stats')
+    .upsert(
+      { guild_id: guildId, vc_user_count: vcUserCount, updated_at: new Date().toISOString() },
+      { onConflict: 'guild_id' }
+    );
+  if (error) console.error('[VcStats] 更新失敗:', error.message);
+}
+
 client.on(Events.VoiceStateUpdate, async (oldState: VoiceState, newState: VoiceState) => {
   const guild = newState.guild;
 
@@ -336,6 +358,9 @@ client.on(Events.VoiceStateUpdate, async (oldState: VoiceState, newState: VoiceS
       console.error('[TempVC] VoiceStateUpdate error (leave):', e);
     }
   }
+
+  // VC接続人数をDBに記録（統計チャンネル用）
+  await updateGuildVcStats(guild.id).catch(() => {});
 });
 
 client.once(Events.ClientReady, async () => {

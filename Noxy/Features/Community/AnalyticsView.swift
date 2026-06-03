@@ -148,5 +148,4 @@ struct AnalyticsView: View {
 #Preview {
     AnalyticsView(guildId: "g001")
         .environment(\.services, ServiceContainer.live())
-        .preferredColorScheme(.dark)
 }

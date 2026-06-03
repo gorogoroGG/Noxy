@@ -161,5 +161,4 @@ private struct NotificationRow: View {
 #Preview {
     NotificationCenterView()
         .environment(\.services, ServiceContainer.live())
-        .preferredColorScheme(.dark)
 }

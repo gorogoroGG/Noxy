@@ -934,6 +934,5 @@ private struct RecurringPostEditSheet: View {
         RecurringPostsListView()
             .environment(\.services, ServiceContainer.live())
             .environment(AppState())
-            .preferredColorScheme(.dark)
     }
 }

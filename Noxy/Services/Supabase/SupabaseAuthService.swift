@@ -11,33 +11,89 @@ struct SupabaseAuthService: AuthServiceProtocol {
         let callbackURL = try await authenticateWithDiscord(url: oauthURL)
         let session = try await exchangeCodeForSession(callbackURL: callbackURL)
         saveSession(session)
-        return try await fetchDiscordUser(accessToken: session.discordAccessToken)
+        // Discord トークンがある場合はユーザー情報をフェッチ
+        if !session.discordAccessToken.isEmpty {
+            if let user = try? await fetchDiscordUser(accessToken: session.discordAccessToken) {
+                return user
+            }
+        }
+        // フォールバック: Supabase のトークンからユーザー情報を取得
+        return try await fetchSupabaseUser(accessToken: session.accessToken)
     }
 
     func logout() async throws {
-        // 保存したセッションを削除
-        UserDefaults.standard.removeObject(forKey: "supabase_access_token")
-        UserDefaults.standard.removeObject(forKey: "supabase_refresh_token")
-        UserDefaults.standard.removeObject(forKey: "discord_access_token")
-        UserDefaults.standard.removeObject(forKey: "discord_user_id")
-        UserDefaults.standard.removeObject(forKey: "discord_username")
-        UserDefaults.standard.removeObject(forKey: "discord_avatar")
+        // Supabase セッション失効（可能な場合）
+        if let token = UserDefaults.standard.string(forKey: "supabase_access_token") {
+            var req = URLRequest(url: URL(string: "\(SupabaseConfig.baseURL)/auth/v1/logout")!)
+            req.httpMethod = "POST"
+            req.setValue("Bearer \(token)", forHTTPHeaderField: "Authorization")
+            req.setValue(SupabaseConfig.anonKey, forHTTPHeaderField: "apikey")
+            _ = try? await URLSession.shared.data(for: req)
+        }
+        clearSession()
     }
 
     func currentUser() async throws -> User? {
-        guard let userId = UserDefaults.standard.string(forKey: "discord_user_id"),
-              let username = UserDefaults.standard.string(forKey: "discord_username") else {
-            return nil
+        // 保存済みユーザー情報があれば即返却 (#3: Keychain から読み取り)
+        if let userId   = KeychainHelper.load(forKey: "discord_user_id"),
+           let username = KeychainHelper.load(forKey: "discord_username") {
+            if let accessToken = KeychainHelper.load(forKey: "supabase_access_token") {
+                let isValid = await isTokenValid(accessToken: accessToken)
+                if !isValid {
+                    if let refreshed = try? await refreshSession() { return refreshed }
+                    clearSession()
+                    return nil
+                }
+            }
+            return User(
+                id: userId,
+                discordId: userId,
+                username: username,
+                displayName: username,
+                avatarUrl: KeychainHelper.load(forKey: "discord_avatar"),
+                createdAt: Date()
+            )
         }
-        return User(
-            id: userId,
-            discordId: userId,
-            username: username,
-            displayName: username,
-            avatarUrl: UserDefaults.standard.string(forKey: "discord_avatar"),
-            createdAt: Date()
-        )
+        return nil
     }
+}
+
+// MARK: - Token Management
+
+private func isTokenValid(accessToken: String) async -> Bool {
+    var req = URLRequest(url: URL(string: "\(SupabaseConfig.baseURL)/auth/v1/user")!)
+    req.setValue("Bearer \(accessToken)", forHTTPHeaderField: "Authorization")
+    req.setValue(SupabaseConfig.anonKey, forHTTPHeaderField: "apikey")
+    guard let (_, resp) = try? await URLSession.shared.data(for: req),
+          let http = resp as? HTTPURLResponse else { return false }
+    return http.statusCode == 200
+}
+
+private func refreshSession() async throws -> User? {
+    guard let refreshToken = KeychainHelper.load(forKey: "supabase_refresh_token") else {
+        return nil
+    }
+    struct RefreshBody: Encodable { let refresh_token: String }
+    var req = URLRequest(url: URL(string: "\(SupabaseConfig.baseURL)/auth/v1/token?grant_type=refresh_token")!)
+    req.httpMethod = "POST"
+    req.setValue("application/json", forHTTPHeaderField: "Content-Type")
+    req.setValue(SupabaseConfig.anonKey, forHTTPHeaderField: "apikey")
+    req.httpBody = try JSONEncoder().encode(RefreshBody(refresh_token: refreshToken))
+    let (data, response) = try await URLSession.shared.data(for: req)
+    guard let http = response as? HTTPURLResponse, http.statusCode == 200 else { return nil }
+    let session = try JSONDecoder().decode(AuthSession.self, from: data)
+    saveSession(session)
+    if !session.discordAccessToken.isEmpty {
+        return try? await fetchDiscordUser(accessToken: session.discordAccessToken)
+    }
+    return try? await fetchSupabaseUser(accessToken: session.accessToken)
+}
+
+private func clearSession() {
+    let keys = ["supabase_access_token", "supabase_refresh_token",
+                "discord_access_token", "discord_user_id",
+                "discord_username", "discord_avatar"]
+    keys.forEach { KeychainHelper.delete(forKey: $0) }
 }
 
 // MARK: - Internal
@@ -81,7 +137,10 @@ private struct DiscordUserResponse: Decodable {
 // MARK: - OAuth Flow
 
 private func getOAuthURL() -> URL {
-    let urlString = "\(SupabaseConfig.baseURL)/auth/v1/authorize?provider=discord&scopes=guilds"
+    // identify スコープ: Discord ユーザー情報取得に必須
+    // guilds スコープ: サーバー一覧取得に必須
+    let scopes = "identify%20guilds"
+    let urlString = "\(SupabaseConfig.baseURL)/auth/v1/authorize?provider=discord&scopes=\(scopes)"
     return URL(string: urlString)!
 }
 
@@ -146,14 +205,65 @@ private func parseFragment(_ fragment: String) -> [String: String] {
     return result
 }
 
-// MARK: - Session Persistence
+// MARK: - Session Persistence (#3: Keychain に保存)
 
 private func saveSession(_ session: AuthSession) {
-    UserDefaults.standard.set(session.accessToken, forKey: "supabase_access_token")
-    UserDefaults.standard.set(session.refreshToken, forKey: "supabase_refresh_token")
+    KeychainHelper.save(session.accessToken,  forKey: "supabase_access_token")
+    KeychainHelper.save(session.refreshToken, forKey: "supabase_refresh_token")
     if !session.discordAccessToken.isEmpty {
-        UserDefaults.standard.set(session.discordAccessToken, forKey: "discord_access_token")
+        KeychainHelper.save(session.discordAccessToken, forKey: "discord_access_token")
     }
+}
+
+// MARK: - Supabase User Info (フォールバック)
+
+private struct SupabaseUserResponse: Decodable {
+    let id: String
+    let email: String?
+    struct UserMetadata: Decodable {
+        let fullName: String?
+        let name: String?
+        let preferredUsername: String?
+        let avatarUrl: String?
+    }
+    let userMetadata: UserMetadata?
+
+    enum CodingKeys: String, CodingKey {
+        case id, email
+        case userMetadata = "user_metadata"
+    }
+}
+
+private func fetchSupabaseUser(accessToken: String) async throws -> User {
+    let url = URL(string: "\(SupabaseConfig.baseURL)/auth/v1/user")!
+    var req = URLRequest(url: url)
+    req.setValue("Bearer \(accessToken)", forHTTPHeaderField: "Authorization")
+    req.setValue(SupabaseConfig.anonKey, forHTTPHeaderField: "apikey")
+    let (data, resp) = try await URLSession.shared.data(for: req)
+    guard let http = resp as? HTTPURLResponse, http.statusCode == 200 else {
+        throw SupabaseError.notConfigured
+    }
+    let decoder = JSONDecoder()
+    decoder.keyDecodingStrategy = .convertFromSnakeCase
+    let supaUser = try decoder.decode(SupabaseUserResponse.self, from: data)
+    let username = supaUser.userMetadata?.preferredUsername
+                   ?? supaUser.userMetadata?.name
+                   ?? supaUser.email
+                   ?? supaUser.id
+    let avatarUrl = supaUser.userMetadata?.avatarUrl
+    UserDefaults.standard.set(supaUser.id, forKey: "discord_user_id")
+    UserDefaults.standard.set(username,     forKey: "discord_username")
+    if let avatar = avatarUrl {
+        UserDefaults.standard.set(avatar, forKey: "discord_avatar")
+    }
+    return User(
+        id: supaUser.id,
+        discordId: supaUser.id,
+        username: username,
+        displayName: username,
+        avatarUrl: avatarUrl,
+        createdAt: Date()
+    )
 }
 
 // MARK: - Discord User Info

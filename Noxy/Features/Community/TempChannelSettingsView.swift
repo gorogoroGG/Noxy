@@ -165,7 +165,7 @@ struct TempChannelSettingsView: View {
                     Text(toast.message)
                         .font(.captionRegular).fontWeight(.medium).foregroundStyle(.white)
                         .padding(.horizontal, .spacing16).padding(.vertical, .spacing10)
-                        .background(Color(.systemGray2)).clipShape(Capsule())
+                        .background(Color.gray.opacity(0.25)).clipShape(Capsule())
                         .padding(.bottom, 24)
                         .transition(.move(edge: .bottom).combined(with: .opacity))
                 }
@@ -262,5 +262,4 @@ struct TempChannelSettingsView: View {
     }
     .environment(\.services, ServiceContainer.mock())
     .environment(AppState())
-    .preferredColorScheme(.dark)
 }

@@ -3,13 +3,13 @@ import Foundation
 // MARK: - Supabase 設定
 
 struct SupabaseConfig {
-    // 開発用: 直接値を埋め込み
-    static let baseURL: String = {
+    // #6: static var にすることで設定画面からの変更をリアルタイムに反映
+    static var baseURL: String {
         UserDefaults.standard.string(forKey: "supabase_url") ?? "https://byvwidopvpedslzwuksq.supabase.co"
-    }()
-    static let anonKey: String = {
+    }
+    static var anonKey: String {
         UserDefaults.standard.string(forKey: "supabase_anon_key") ?? "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImJ5dndpZG9wdnBlZHNsend1a3NxIiwicm9sZSI6ImFub24iLCJpYXQiOjE3ODAxMTcyMzgsImV4cCI6MjA5NTY5MzIzOH0.pkJ_Roy8Ol7rTNS0Ud1ZkF7vX-ifgSXGA_SBqadDCxo"
-    }()
+    }
 
     static var isConfigured: Bool { !baseURL.isEmpty && !anonKey.isEmpty }
 }
@@ -197,7 +197,7 @@ struct SupabaseClient: Sendable {
         req.httpMethod = method
         req.setValue(SupabaseConfig.anonKey, forHTTPHeaderField: "apikey")
 
-        let authToken = UserDefaults.standard.string(forKey: "supabase_access_token") ?? SupabaseConfig.anonKey
+        let authToken = KeychainHelper.load(forKey: "supabase_access_token") ?? SupabaseConfig.anonKey
         req.setValue("Bearer \(authToken)", forHTTPHeaderField: "Authorization")
 
         req.setValue("application/json", forHTTPHeaderField: "Accept")
@@ -219,7 +219,7 @@ struct SupabaseClient: Sendable {
     // MARK: - Token Refresh
 
     private func refreshToken() async throws -> Bool {
-        guard let refreshToken = UserDefaults.standard.string(forKey: "supabase_refresh_token"),
+        guard let refreshToken = KeychainHelper.load(forKey: "supabase_refresh_token"),
               !refreshToken.isEmpty else {
             print("[Supabase] no refresh token available")
             return false
@@ -252,8 +252,8 @@ struct SupabaseClient: Sendable {
             return false
         }
 
-        UserDefaults.standard.set(resp.accessToken, forKey: "supabase_access_token")
-        UserDefaults.standard.set(resp.refreshToken, forKey: "supabase_refresh_token")
+        KeychainHelper.save(resp.accessToken,  forKey: "supabase_access_token")
+        KeychainHelper.save(resp.refreshToken, forKey: "supabase_refresh_token")
         print("[Supabase] token refreshed successfully")
         return true
     }

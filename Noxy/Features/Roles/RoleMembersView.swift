@@ -227,7 +227,7 @@ struct RoleMembersView: View {
                 Label("\(membersToRemove.count)人から削除", systemImage: "minus.circle.fill")
                     .font(.captionSmall)
                     .fontWeight(.semibold)
-                    .foregroundStyle(Color(uiColor: UIColor(hex: 0xEF4444)))
+                    .foregroundStyle(Color.accentRed)
             }
             Spacer()
             Button("リセット") {
@@ -260,7 +260,7 @@ struct RoleMembersView: View {
                         if !membersToRemove.isEmpty {
                             Text("-\(membersToRemove.count)")
                                 .font(.captionSmall).fontWeight(.bold)
-                                .foregroundStyle(Color(uiColor: UIColor(hex: 0xEF4444)))
+                                .foregroundStyle(Color.accentRed)
                         }
                     }
                     Text("未保存の変更があります")
@@ -514,9 +514,9 @@ private struct MemberRoleRow: View {
         case .removing:
             Text("削除")
                 .font(.captionSmall).fontWeight(.semibold)
-                .foregroundStyle(Color(uiColor: UIColor(hex: 0xEF4444)))
+                .foregroundStyle(Color.accentRed)
                 .padding(.horizontal, 6).padding(.vertical, 2)
-                .background(Color(uiColor: UIColor(hex: 0xEF4444)).opacity(0.1))
+                .background(Color.accentRed.opacity(0.1))
                 .clipShape(Capsule())
         case .failed:
             Text("失敗")
@@ -547,7 +547,7 @@ private struct MemberRoleRow: View {
     private var rowBackground: Color {
         switch changeIndicator {
         case .adding:   return Color.accentGreen.opacity(0.05)
-        case .removing: return Color(uiColor: UIColor(hex: 0xEF4444)).opacity(0.05)
+        case .removing: return Color.accentRed.opacity(0.05)
         case .failed:   return Color.accentOrange.opacity(0.05)
         case .none:     return Color.bgSurface
         }
@@ -556,7 +556,7 @@ private struct MemberRoleRow: View {
     private var rowBorder: Color {
         switch changeIndicator {
         case .adding:   return Color.accentGreen.opacity(0.25)
-        case .removing: return Color(uiColor: UIColor(hex: 0xEF4444)).opacity(0.2)
+        case .removing: return Color.accentRed.opacity(0.2)
         case .failed:   return Color.accentOrange.opacity(0.3)
         case .none:     return Color.border
         }
@@ -569,5 +569,4 @@ private struct MemberRoleRow: View {
         RoleMembersView(role: DiscordRole.mockRoles[1], guildId: "g001")
     }
     .environment(\.services, ServiceContainer.live())
-    .preferredColorScheme(.dark)
 }

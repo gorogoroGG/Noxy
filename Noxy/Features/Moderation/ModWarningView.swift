@@ -1,60 +1,43 @@
 import SwiftUI
 
 struct ModWarningView: View {
-    @State private var warnings: [ModWarning] = ModWarning.mock
-    @State private var showAddSheet = false
-    @State private var searchText = ""
-    @State private var showRevoked = false
+    let guildId: String
 
-    // ユーザーごとにグルーピング
-    private var grouped: [(user: String, displayName: String, warnings: [ModWarning])] {
-        var result: [String: (displayName: String, warnings: [ModWarning])] = [:]
+    @State private var loadState: LoadState<[ModWarning]> = .loading
+    @State private var showAddSheet = false
+    @State private var showRevoked = false
+    @State private var toast: String? = nil
+
+    private let service = ModerationService()
+
+    private func grouped(_ warnings: [ModWarning]) -> [(userId: String, displayName: String, warnings: [ModWarning])] {
         let base = showRevoked ? warnings : warnings.filter { !$0.isRevoked }
-        let filtered = searchText.isEmpty ? base : base.filter {
-            $0.displayName.localizedCaseInsensitiveContains(searchText) ||
-            $0.username.localizedCaseInsensitiveContains(searchText)
+        var dict: [String: (String, [ModWarning])] = [:]
+        for w in base {
+            if dict[w.userId] == nil { dict[w.userId] = (w.displayName, []) }
+            dict[w.userId]!.1.append(w)
         }
-        for w in filtered {
-            if result[w.userId] == nil { result[w.userId] = (w.displayName, []) }
-            result[w.userId]!.warnings.append(w)
-        }
-        return result.map { (user: $0.key, displayName: $0.value.displayName, warnings: $0.value.warnings) }
+        return dict
+            .map { (userId: $0.key, displayName: $0.value.0, warnings: $0.value.1) }
             .sorted { lhs, rhs in
-                let la = lhs.warnings.filter { !$0.isRevoked }.count
-                let ra = rhs.warnings.filter { !$0.isRevoked }.count
-                return la > ra
+                lhs.warnings.filter { !$0.isRevoked }.count >
+                rhs.warnings.filter { !$0.isRevoked }.count
             }
     }
 
     var body: some View {
-        ZStack {
+        ZStack(alignment: .bottom) {
             Color.bgPrimary.ignoresSafeArea()
-
-            ScrollView {
-                VStack(spacing: .spacing12) {
-                    escalationRulesCard
-                    filterRow
-
-                    if grouped.isEmpty {
-                        emptyState
-                            .padding(.top, .spacing32)
-                    } else {
-                        ForEach(grouped, id: \.user) { group in
-                            UserWarningCard(
-                                displayName: group.displayName,
-                                warnings: group.warnings,
-                                onRevoke: { id in revokeWarning(id) }
-                            )
-                        }
-                    }
-
-                    Spacer(minLength: 32)
-                }
-                .padding(.horizontal, .spacing16)
-                .padding(.top, .spacing12)
+            mainContent
+            if let msg = toast {
+                ModSuccessToast(message: msg)
+                    .padding(.bottom, .spacing32)
+                    .transition(.move(edge: .bottom).combined(with: .opacity))
             }
         }
-        .searchable(text: $searchText, prompt: "ユーザー名で検索")
+        .animation(.spring(duration: 0.3), value: toast != nil)
+        .task { await load() }
+        .refreshable { await load() }
         .toolbar {
             ToolbarItem(placement: .navigationBarTrailing) {
                 Button {
@@ -65,75 +48,115 @@ struct ModWarningView: View {
             }
         }
         .sheet(isPresented: $showAddSheet) {
-            AddWarningSheet { newWarning in
-                warnings.append(newWarning)
+            AddWarningSheet(guildId: guildId, service: service) { newW in
+                if case .loaded(var list) = loadState {
+                    list.append(newW)
+                    loadState = .loaded(list)
+                }
+                showToast("\(newW.displayName) に警告を追加しました")
             }
         }
     }
 
-    // MARK: - Escalation Rules Card
+    @ViewBuilder
+    private var mainContent: some View {
+        switch loadState {
+        case .loading:
+            loadingView("警告データを取得中...")
+        case .error(let msg):
+            ModErrorView(message: msg) { Task { await load() } }
+        case .loaded(let warnings):
+            warningList(warnings)
+        }
+    }
 
-    private var escalationRulesCard: some View {
-        VStack(alignment: .leading, spacing: .spacing10) {
-            HStack {
-                Image(systemName: "arrow.triangle.2.circlepath")
-                    .foregroundStyle(Color.accentPurple)
-                Text("自動エスカレーションルール")
-                    .font(.bodySmall).fontWeight(.semibold).foregroundStyle(Color.textPrimary)
-                Spacer()
+    private func warningList(_ warnings: [ModWarning]) -> some View {
+        let groups = grouped(warnings)
+        return ScrollView {
+            LazyVStack(spacing: .spacing12) {
+                Color.clear.frame(height: .spacing8)
+                escalationCard
+                filterControl(warnings)
+                if groups.isEmpty {
+                    ModEmptyView(icon: "checkmark.circle",
+                                 title: "警告はありません").padding(.top, .spacing32)
+                } else {
+                    ForEach(groups, id: \.userId) { g in
+                        UserWarningCard(displayName: g.displayName, warnings: g.warnings) { id in
+                            revokeWarning(id)
+                        }
+                    }
+                }
+                bottomPad
             }
+            .padding(.horizontal, .spacing16)
+            .padding(.top, .spacing12)
+        }
+    }
+
+    private var escalationCard: some View {
+        VStack(alignment: .leading, spacing: .spacing10) {
+            Label("自動エスカレーション", systemImage: "arrow.triangle.2.circlepath")
+                .font(.bodySmall).fontWeight(.semibold).foregroundStyle(Color.textPrimary)
             ForEach(EscalationRule.defaults) { rule in
                 HStack(spacing: .spacing8) {
                     Image(systemName: rule.action.icon)
-                        .font(.system(size: 12))
-                        .foregroundStyle(rule.action.color)
-                        .frame(width: 20)
-                    Text(rule.label)
-                        .font(.captionRegular)
-                        .foregroundStyle(Color.textSecondary)
-                    Spacer()
+                        .font(.system(size: 12)).foregroundStyle(rule.action.color).frame(width: 16)
+                    Text(rule.label).font(.captionRegular).foregroundStyle(Color.textSecondary)
                 }
             }
         }
         .padding(.spacing12)
-        .background(Color.accentPurple.opacity(0.07))
+        .background(Color.accentPurple.opacity(0.06))
         .clipShape(RoundedRectangle(cornerRadius: .cornerRadiusMedium))
-        .overlay(RoundedRectangle(cornerRadius: .cornerRadiusMedium).stroke(Color.accentPurple.opacity(0.2), lineWidth: 1))
+        .overlay(RoundedRectangle(cornerRadius: .cornerRadiusMedium)
+            .stroke(Color.accentPurple.opacity(0.2), lineWidth: 1))
     }
 
-    // MARK: - Filter Row
-
-    private var filterRow: some View {
+    private func filterControl(_ warnings: [ModWarning]) -> some View {
         HStack {
-            Text("\(grouped.count)人のユーザーに警告")
-                .font(.captionSmall).foregroundStyle(Color.textTertiary)
-            Spacer()
+            sectionHeader(icon: "exclamationmark.triangle.fill", color: .accentOrange,
+                          title: "\(grouped(warnings).count)人に警告あり")
             Button {
                 withAnimation { showRevoked.toggle() }
             } label: {
-                Label(showRevoked ? "取り消し済みを非表示" : "取り消し済みを表示",
+                Label(showRevoked ? "取り消し済みを隠す" : "取り消し済みを表示",
                       systemImage: showRevoked ? "eye.slash" : "eye")
-                    .font(.captionSmall)
-                    .foregroundStyle(Color.accentIndigo)
+                    .font(.captionSmall).foregroundStyle(Color.accentIndigo)
             }
         }
     }
 
-    private var emptyState: some View {
-        VStack(spacing: .spacing12) {
-            Image(systemName: "exclamationmark.triangle")
-                .font(.system(size: 40)).foregroundStyle(Color.textTertiary.opacity(0.5))
-            Text("警告はありません")
-                .font(.titleMedium).foregroundStyle(Color.textPrimary)
+    private func load() async {
+        loadState = .loading
+        do {
+            loadState = .loaded(try await service.fetchWarnings(guildId: guildId))
+        } catch {
+            loadState = .error("警告データの取得に失敗しました。\n「mod_warnings」テーブルが存在するか確認してください。")
         }
     }
 
-    // MARK: - Actions
-
     private func revokeWarning(_ id: String) {
-        if let i = warnings.firstIndex(where: { $0.id == id }) {
-            withAnimation { warnings[i].isRevoked = true }
-            UIImpactFeedbackGenerator(style: .light).impactOccurred()
+        Task {
+            do {
+                try await service.revokeWarning(id: id)
+                if case .loaded(var list) = loadState,
+                   let i = list.firstIndex(where: { $0.id == id }) {
+                    list[i].isRevoked = true
+                    loadState = .loaded(list)
+                }
+                UIImpactFeedbackGenerator(style: .light).impactOccurred()
+            } catch {
+                showToast("取り消しに失敗しました")
+            }
+        }
+    }
+
+    private func showToast(_ msg: String) {
+        withAnimation { toast = msg }
+        Task {
+            try? await Task.sleep(for: .seconds(2.5))
+            await MainActor.run { withAnimation { toast = nil } }
         }
     }
 }
@@ -144,62 +167,47 @@ private struct UserWarningCard: View {
     let displayName: String
     let warnings: [ModWarning]
     let onRevoke: (String) -> Void
-
     @State private var isExpanded = true
 
     private var activeCount: Int { warnings.filter { !$0.isRevoked }.count }
-    private var nextRule: EscalationRule? {
-        EscalationRule.defaults.first { $0.threshold > activeCount }
+    private var nextRule: EscalationRule? { EscalationRule.defaults.first { $0.threshold > activeCount } }
+    private var accentColor: Color {
+        if activeCount >= 7 { return .accentRed }
+        if activeCount >= 3 { return .accentOrange }
+        return .accentIndigo
     }
 
     var body: some View {
         VStack(spacing: 0) {
-            // Header
             Button {
                 withAnimation(.spring(duration: 0.25)) { isExpanded.toggle() }
                 UIImpactFeedbackGenerator(style: .light).impactOccurred()
             } label: {
                 HStack(spacing: .spacing12) {
-                    // Avatar with warning badge
                     ZStack(alignment: .topTrailing) {
-                        Circle()
-                            .fill(warningColor.opacity(0.15))
-                            .frame(width: 40, height: 40)
-                        Text(displayName.prefix(1).uppercased())
-                            .font(.bodyRegular).fontWeight(.bold)
-                            .foregroundStyle(warningColor)
-
+                        Circle().fill(accentColor.opacity(0.12)).frame(width: 40, height: 40)
+                        Text(String(displayName.prefix(1)).uppercased())
+                            .font(.bodyRegular).fontWeight(.bold).foregroundStyle(accentColor)
                         Text("\(activeCount)")
-                            .font(.system(size: 10, weight: .bold))
-                            .foregroundStyle(.white)
-                            .padding(4)
-                            .background(warningColor)
-                            .clipShape(Circle())
+                            .font(.system(size: 10, weight: .bold)).foregroundStyle(.white)
+                            .padding(4).background(accentColor).clipShape(Circle())
                             .offset(x: 4, y: -4)
                     }
-
                     VStack(alignment: .leading, spacing: 2) {
                         Text(displayName)
                             .font(.bodySmall).fontWeight(.semibold).foregroundStyle(Color.textPrimary)
                         if let rule = nextRule {
-                            HStack(spacing: 4) {
-                                Image(systemName: "arrow.right.circle.fill")
-                                    .font(.captionSmall).foregroundStyle(rule.action.color)
-                                Text("次: \(rule.label)")
-                                    .font(.captionSmall).foregroundStyle(rule.action.color)
-                            }
+                            Label("次: \(rule.label)", systemImage: "arrow.right.circle.fill")
+                                .font(.captionSmall).foregroundStyle(rule.action.color)
                         } else {
-                            Text("BAN済み または BAN閾値超え")
-                                .font(.captionSmall).foregroundStyle(Color(uiColor: UIColor(hex: 0xEF4444)))
+                            Text("BAN閾値に達しています")
+                                .font(.captionSmall).foregroundStyle(Color.accentRed)
                         }
                     }
-
                     Spacer()
-
                     Image(systemName: "chevron.down")
                         .font(.captionSmall).foregroundStyle(Color.textTertiary)
                         .rotationEffect(.degrees(isExpanded ? 0 : -90))
-                        .animation(.spring(duration: 0.25), value: isExpanded)
                 }
                 .padding(.spacing12)
             }
@@ -207,10 +215,9 @@ private struct UserWarningCard: View {
 
             if isExpanded {
                 Divider().padding(.horizontal, .spacing12)
-
-                VStack(spacing: .spacing4) {
-                    ForEach(warnings) { warning in
-                        WarningRow(warning: warning, onRevoke: { onRevoke(warning.id) })
+                VStack(spacing: 2) {
+                    ForEach(warnings.sorted { $0.createdAt > $1.createdAt }) { w in
+                        WarningRowView(warning: w) { onRevoke(w.id) }
                     }
                 }
                 .padding(.spacing8)
@@ -219,155 +226,77 @@ private struct UserWarningCard: View {
         }
         .background(Color.bgSurface)
         .clipShape(RoundedRectangle(cornerRadius: .cornerRadiusMedium))
-        .overlay(
-            RoundedRectangle(cornerRadius: .cornerRadiusMedium)
-                .stroke(warningColor.opacity(0.3), lineWidth: 1)
-        )
+        .overlay(RoundedRectangle(cornerRadius: .cornerRadiusMedium)
+            .stroke(accentColor.opacity(0.25), lineWidth: 1))
         .animation(.spring(duration: 0.25), value: isExpanded)
-    }
-
-    private var warningColor: Color {
-        if activeCount >= 7 { return Color(uiColor: UIColor(hex: 0xEF4444)) }
-        if activeCount >= 5 { return .accentOrange }
-        if activeCount >= 3 { return .accentOrange }
-        return .accentIndigo
     }
 }
 
-// MARK: - WarningRow
-
-private struct WarningRow: View {
+private struct WarningRowView: View {
     let warning: ModWarning
     let onRevoke: () -> Void
 
     var body: some View {
-        HStack(spacing: .spacing10) {
-            Image(systemName: warning.isRevoked ? "xmark.circle" : "exclamationmark.circle.fill")
-                .font(.system(size: 14))
+        HStack(spacing: .spacing8) {
+            Image(systemName: warning.isRevoked ? "checkmark.circle" : "exclamationmark.circle.fill")
+                .font(.system(size: 13))
                 .foregroundStyle(warning.isRevoked ? Color.textTertiary : Color.accentOrange)
-
             VStack(alignment: .leading, spacing: 2) {
                 Text(warning.reason)
                     .font(.captionRegular).fontWeight(.medium)
                     .foregroundStyle(warning.isRevoked ? Color.textTertiary : Color.textPrimary)
                     .strikethrough(warning.isRevoked)
-                HStack(spacing: .spacing6) {
+                HStack(spacing: 4) {
                     Text(warning.staffName)
                     Text("·")
                     Text(warning.createdAt.formatted(.relative(presentation: .named)))
                 }
                 .font(.captionSmall).foregroundStyle(Color.textTertiary)
             }
-
             Spacer()
-
             if !warning.isRevoked {
                 Button("取り消し", action: onRevoke)
                     .font(.captionSmall).foregroundStyle(Color.textTertiary)
-                    .padding(.horizontal, .spacing8).padding(.vertical, 4)
-                    .background(Color.bgElevated)
-                    .clipShape(Capsule())
+                    .padding(.horizontal, .spacing8).padding(.vertical, 3)
+                    .background(Color.bgElevated).clipShape(Capsule())
             } else {
-                Text("取り消し済み")
-                    .font(.captionSmall).foregroundStyle(Color.textTertiary)
+                Text("取り消し済み").font(.captionSmall).foregroundStyle(Color.textTertiary)
             }
         }
         .padding(.horizontal, .spacing8).padding(.vertical, .spacing6)
-        .background(warning.isRevoked ? Color.clear : Color.bgElevated.opacity(0.5))
+        .background(warning.isRevoked ? Color.clear : Color.bgElevated.opacity(0.4))
         .clipShape(RoundedRectangle(cornerRadius: .cornerRadiusSmall))
     }
 }
 
-// MARK: - AddWarningSheet
+// MARK: - AddWarningSheet（メンバー選択式）
 
-private struct AddWarningSheet: View {
+struct AddWarningSheet: View {
+    let guildId: String
+    let service: ModerationService
     let onAdd: (ModWarning) -> Void
+
     @Environment(\.dismiss) private var dismiss
-
-    @State private var selectedUser: String = "m010"
+    @State private var members: [Member] = []
+    @State private var isLoadingMembers = true
+    @State private var memberSearch = ""
+    @State private var selectedMember: Member? = nil
     @State private var reason = ""
-    @State private var customReason = ""
-    @FocusState private var reasonFocused: Bool
+    @State private var isSubmitting = false
 
-    private let mockTargets: [(id: String, name: String)] = [
-        ("m010", "ShadowX"),
-        ("m002", "ProPlayer99"),
-        ("m006", "雪ゲーマー"),
-        ("m009", "リカちゃん"),
-    ]
+    private let presets = ["スパム", "暴言", "荒らし", "規約違反", "差別的発言"]
 
-    private let presetReasons = ["スパム", "暴言", "荒らし", "規約違反", "差別的発言", "その他"]
+    private var filteredMembers: [Member] {
+        if memberSearch.isEmpty { return members }
+        return members.filter {
+            $0.displayName.localizedCaseInsensitiveContains(memberSearch) ||
+            $0.username.localizedCaseInsensitiveContains(memberSearch)
+        }
+    }
 
     var body: some View {
         NavigationView {
-            ZStack {
-                Color.bgPrimary.ignoresSafeArea()
-
-                ScrollView {
-                    VStack(spacing: .spacing16) {
-                        // User picker
-                        VStack(alignment: .leading, spacing: .spacing8) {
-                            Text("対象ユーザー")
-                                .font(.captionSmall).foregroundStyle(Color.textTertiary)
-                            ScrollView(.horizontal, showsIndicators: false) {
-                                HStack(spacing: .spacing8) {
-                                    ForEach(mockTargets, id: \.id) { target in
-                                        Button {
-                                            selectedUser = target.id
-                                            UIImpactFeedbackGenerator(style: .light).impactOccurred()
-                                        } label: {
-                                            Text(target.name)
-                                                .font(.bodySmall).fontWeight(selectedUser == target.id ? .semibold : .regular)
-                                                .foregroundStyle(selectedUser == target.id ? .white : Color.textSecondary)
-                                                .padding(.horizontal, .spacing12).padding(.vertical, .spacing8)
-                                                .background(selectedUser == target.id ? Color.accentIndigo : Color.bgSurface)
-                                                .clipShape(Capsule())
-                                                .overlay(Capsule().stroke(Color.border, lineWidth: selectedUser == target.id ? 0 : 1))
-                                        }
-                                        .buttonStyle(.plain)
-                                    }
-                                }
-                            }
-                        }
-
-                        // Reason picker
-                        VStack(alignment: .leading, spacing: .spacing8) {
-                            Text("理由")
-                                .font(.captionSmall).foregroundStyle(Color.textTertiary)
-                            LazyVGrid(columns: [.init(.flexible()), .init(.flexible()), .init(.flexible())], spacing: .spacing8) {
-                                ForEach(presetReasons, id: \.self) { preset in
-                                    Button {
-                                        reason = preset == "その他" ? "" : preset
-                                        if preset == "その他" { reasonFocused = true }
-                                        UIImpactFeedbackGenerator(style: .light).impactOccurred()
-                                    } label: {
-                                        Text(preset)
-                                            .font(.captionRegular).fontWeight(.medium)
-                                            .foregroundStyle(reason == preset ? .white : Color.textSecondary)
-                                            .frame(maxWidth: .infinity).padding(.vertical, .spacing8)
-                                            .background(reason == preset ? Color.accentOrange : Color.bgSurface)
-                                            .clipShape(RoundedRectangle(cornerRadius: .cornerRadiusSmall))
-                                            .overlay(RoundedRectangle(cornerRadius: .cornerRadiusSmall).stroke(Color.border, lineWidth: 1))
-                                    }
-                                    .buttonStyle(.plain)
-                                }
-                            }
-
-                            TextField("詳細・カスタム理由を入力", text: $reason, axis: .vertical)
-                                .font(.bodySmall).padding(.spacing12)
-                                .background(Color.bgSurface)
-                                .clipShape(RoundedRectangle(cornerRadius: .cornerRadiusSmall))
-                                .overlay(RoundedRectangle(cornerRadius: .cornerRadiusSmall).stroke(Color.border, lineWidth: 1))
-                                .focused($reasonFocused)
-                                .lineLimit(2...4)
-                        }
-
-                        // Next auto action
-                        nextActionPreview
-                    }
-                    .padding(.spacing16)
-                }
-            }
+            ZStack { Color.bgPrimary.ignoresSafeArea(); form }
             .navigationTitle("警告を追加")
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
@@ -375,62 +304,218 @@ private struct AddWarningSheet: View {
                     Button("キャンセル") { dismiss() }.foregroundStyle(Color.textSecondary)
                 }
                 ToolbarItem(placement: .navigationBarTrailing) {
-                    Button("追加") {
-                        addWarning()
+                    if isSubmitting {
+                        ProgressView().scaleEffect(0.8)
+                    } else {
+                        Button("追加") { Task { await submit() } }
+                            .fontWeight(.semibold).foregroundStyle(Color.accentOrange)
+                            .disabled(selectedMember == nil || reason.trimmingCharacters(in: .whitespaces).isEmpty)
                     }
-                    .fontWeight(.semibold).foregroundStyle(Color.accentOrange)
-                    .disabled(reason.trimmingCharacters(in: .whitespaces).isEmpty)
                 }
             }
         }
-        .preferredColorScheme(.dark)
+        .task { await loadMembers() }
     }
 
-    private var nextActionPreview: some View {
-        let currentCount = ModWarning.mock.filter { $0.userId == selectedUser && !$0.isRevoked }.count
-        let nextCount = currentCount + 1
-        let rule = EscalationRule.defaults.first { $0.threshold == nextCount }
+    private var form: some View {
+        ScrollView {
+            VStack(spacing: .spacing20) {
+                memberPickerSection
+                reasonSection
+            }
+            .padding(.spacing16)
+        }
+    }
 
+    // MARK: - Member Picker
+
+    private var memberPickerSection: some View {
+        VStack(alignment: .leading, spacing: .spacing10) {
+            Text("対象メンバー")
+                .font(.captionSmall).foregroundStyle(Color.textTertiary)
+
+            // 選択中のメンバー表示
+            if let m = selectedMember {
+                HStack(spacing: .spacing10) {
+                    Avatar(name: m.displayName, size: 36, accentColor: .accentIndigo)
+                    VStack(alignment: .leading, spacing: 2) {
+                        Text(m.displayName).font(.bodySmall).fontWeight(.semibold).foregroundStyle(Color.textPrimary)
+                        Text("@\(m.username)").font(.captionSmall).foregroundStyle(Color.textTertiary)
+                    }
+                    Spacer()
+                    Button {
+                        withAnimation { selectedMember = nil }
+                    } label: {
+                        Image(systemName: "xmark.circle.fill")
+                            .foregroundStyle(Color.textTertiary).font(.system(size: 18))
+                    }
+                }
+                .padding(.spacing10)
+                .background(Color.accentIndigo.opacity(0.08))
+                .clipShape(RoundedRectangle(cornerRadius: .cornerRadiusSmall))
+                .overlay(RoundedRectangle(cornerRadius: .cornerRadiusSmall)
+                    .stroke(Color.accentIndigo.opacity(0.3), lineWidth: 1))
+            }
+
+            // 検索フィールド
+            HStack(spacing: .spacing8) {
+                Image(systemName: "magnifyingglass").foregroundStyle(Color.textTertiary)
+                TextField("名前で検索", text: $memberSearch)
+                    .font(.bodySmall)
+                if !memberSearch.isEmpty {
+                    Button { memberSearch = "" } label: {
+                        Image(systemName: "xmark.circle.fill").foregroundStyle(Color.textTertiary)
+                    }
+                }
+            }
+            .padding(.spacing10)
+            .background(Color.bgSurface)
+            .clipShape(RoundedRectangle(cornerRadius: .cornerRadiusSmall))
+            .overlay(RoundedRectangle(cornerRadius: .cornerRadiusSmall).stroke(Color.border, lineWidth: 1))
+
+            // メンバーリスト
+            if isLoadingMembers {
+                HStack { Spacer(); ProgressView().tint(Color.accentIndigo); Spacer() }
+                    .padding(.spacing16)
+            } else {
+                VStack(spacing: 2) {
+                    ForEach(filteredMembers.prefix(30)) { member in
+                        MemberPickerRow(
+                            member: member,
+                            isSelected: selectedMember?.id == member.id
+                        ) {
+                            withAnimation(.easeInOut(duration: 0.15)) {
+                                selectedMember = member
+                                memberSearch = ""
+                            }
+                            UIImpactFeedbackGenerator(style: .light).impactOccurred()
+                        }
+                    }
+                    if filteredMembers.count > 30 {
+                        Text("さらに\(filteredMembers.count - 30)人います。検索で絞り込んでください。")
+                            .font(.captionSmall).foregroundStyle(Color.textTertiary)
+                            .padding(.top, .spacing6)
+                    }
+                }
+                .background(Color.bgSurface)
+                .clipShape(RoundedRectangle(cornerRadius: .cornerRadiusSmall))
+                .overlay(RoundedRectangle(cornerRadius: .cornerRadiusSmall).stroke(Color.border, lineWidth: 1))
+            }
+        }
+    }
+
+    // MARK: - Reason
+
+    private var reasonSection: some View {
+        VStack(alignment: .leading, spacing: .spacing10) {
+            Text("理由")
+                .font(.captionSmall).foregroundStyle(Color.textTertiary)
+
+            LazyVGrid(columns: [.init(.flexible()), .init(.flexible()), .init(.flexible())], spacing: .spacing8) {
+                ForEach(presets, id: \.self) { preset in
+                    Button {
+                        reason = preset
+                        UIImpactFeedbackGenerator(style: .light).impactOccurred()
+                    } label: {
+                        Text(preset)
+                            .font(.captionRegular).fontWeight(.medium)
+                            .foregroundStyle(reason == preset ? .white : Color.textSecondary)
+                            .frame(maxWidth: .infinity).padding(.vertical, .spacing8)
+                            .background(reason == preset ? Color.accentOrange : Color.bgSurface)
+                            .clipShape(RoundedRectangle(cornerRadius: .cornerRadiusSmall))
+                            .overlay(RoundedRectangle(cornerRadius: .cornerRadiusSmall).stroke(Color.border, lineWidth: 1))
+                    }
+                    .buttonStyle(.plain)
+                }
+            }
+
+            TextField("詳細・カスタム理由を入力", text: $reason, axis: .vertical)
+                .font(.bodySmall).padding(.spacing12).lineLimit(2...4)
+                .background(Color.bgSurface)
+                .clipShape(RoundedRectangle(cornerRadius: .cornerRadiusSmall))
+                .overlay(RoundedRectangle(cornerRadius: .cornerRadiusSmall).stroke(Color.border, lineWidth: 1))
+
+            // 次のエスカレーションプレビュー
+            if let member = selectedMember {
+                escalationPreview(for: member)
+            }
+        }
+    }
+
+    private func escalationPreview(for member: Member) -> some View {
+        // モックでは常にルール1が次になる（実際はDBから現在の警告数を取得）
+        let rule = EscalationRule.defaults.first
         return Group {
             if let rule {
                 HStack(spacing: .spacing8) {
-                    Image(systemName: rule.action.icon)
-                        .foregroundStyle(rule.action.color)
-                    Text("この警告が\(nextCount)回目のため、\(rule.label)が自動実行されます")
-                        .font(.captionRegular).foregroundStyle(Color.textSecondary)
+                    Image(systemName: rule.action.icon).foregroundStyle(rule.action.color)
+                    Text("この警告で \(rule.label) が自動実行されます")
+                        .font(.captionSmall).foregroundStyle(Color.textSecondary)
                 }
-                .padding(.spacing12)
-                .background(rule.action.color.opacity(0.08))
+                .padding(.spacing10)
+                .background(rule.action.color.opacity(0.07))
                 .clipShape(RoundedRectangle(cornerRadius: .cornerRadiusSmall))
             }
         }
     }
 
-    private func addWarning() {
-        let target = mockTargets.first { $0.id == selectedUser }
-        let currentCount = ModWarning.mock.filter { $0.userId == selectedUser && !$0.isRevoked }.count
-        let nextCount = currentCount + 1
-        let autoAction: String? = {
-            guard let rule = EscalationRule.defaults.first(where: { $0.threshold == nextCount }) else { return nil }
-            switch rule.action {
-            case .timeout(let h): return "timeout_\(h)h"
-            case .ban:            return "ban"
-            }
-        }()
+    // MARK: - Actions
 
-        let warning = ModWarning(
-            id: UUID().uuidString,
-            userId: selectedUser,
-            username: target?.name.lowercased() ?? selectedUser,
-            displayName: target?.name ?? selectedUser,
-            reason: reason.trimmingCharacters(in: .whitespaces),
-            staffName: "Admin",
-            createdAt: .now,
-            isRevoked: false
-        )
-        onAdd(warning)
-        UINotificationFeedbackGenerator().notificationOccurred(.success)
-        _ = autoAction  // 実際のAPIではこれを送信する
-        dismiss()
+    private func loadMembers() async {
+        isLoadingMembers = true
+        if let fetched = try? await DiscordMemberService().fetchMembers(guildId: guildId) {
+            members = fetched
+        }
+        isLoadingMembers = false
+    }
+
+    private func submit() async {
+        guard let member = selectedMember else { return }
+        isSubmitting = true
+        let rsn = reason.trimmingCharacters(in: .whitespaces)
+        do {
+            let w = try await service.addWarning(
+                guildId: guildId, userId: member.id,
+                username: member.username, displayName: member.displayName,
+                reason: rsn.isEmpty ? "理由なし" : rsn,
+                staffId: "app-staff", staffName: "Staff (App)", autoAction: nil
+            )
+            onAdd(w)
+            UINotificationFeedbackGenerator().notificationOccurred(.success)
+            dismiss()
+        } catch {
+            UINotificationFeedbackGenerator().notificationOccurred(.error)
+        }
+        isSubmitting = false
+    }
+}
+
+// MARK: - MemberPickerRow
+
+private struct MemberPickerRow: View {
+    let member: Member
+    let isSelected: Bool
+    let onTap: () -> Void
+
+    var body: some View {
+        Button(action: onTap) {
+            HStack(spacing: .spacing10) {
+                Avatar(name: member.displayName, size: 32, accentColor: .accentIndigo)
+                VStack(alignment: .leading, spacing: 1) {
+                    Text(member.displayName)
+                        .font(.bodySmall).fontWeight(.medium).foregroundStyle(Color.textPrimary)
+                    Text("@\(member.username)")
+                        .font(.captionSmall).foregroundStyle(Color.textTertiary)
+                }
+                Spacer()
+                if isSelected {
+                    Image(systemName: "checkmark.circle.fill")
+                        .foregroundStyle(Color.accentIndigo).font(.system(size: 18))
+                }
+            }
+            .padding(.horizontal, .spacing10).padding(.vertical, .spacing8)
+            .background(isSelected ? Color.accentIndigo.opacity(0.08) : Color.clear)
+        }
+        .buttonStyle(.plain)
     }
 }

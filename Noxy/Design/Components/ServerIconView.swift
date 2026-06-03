@@ -49,5 +49,4 @@ struct ServerIconView: View {
     }
     .padding()
     .background(Color.bgPrimary)
-    .preferredColorScheme(.dark)
 }

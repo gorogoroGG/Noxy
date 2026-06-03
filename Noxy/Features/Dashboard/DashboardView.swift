@@ -110,17 +110,16 @@ struct DashboardView: View {
             } label: {
                 HStack(spacing: .spacing8) {
                     Image(systemName: "server.rack")
-                        .font(.system(size: 14))
+                        .font(.captionRegular)
                     Text(appState.selectedGuild?.name ?? "サーバーを選択")
                         .font(.bodySmall)
-                        .fontWeight(.medium)
                         .lineLimit(1)
                     Spacer()
                     Text("\(botGuildCount) サーバー稼働中")
                         .font(.captionSmall)
                         .foregroundStyle(Color.textTertiary)
                     Image(systemName: "chevron.down")
-                        .font(.system(size: 10, weight: .semibold))
+                        .font(.captionSmall)
                         .foregroundStyle(Color.textTertiary)
                 }
                 .foregroundStyle(Color.accentIndigo)
@@ -152,7 +151,7 @@ struct DashboardView: View {
                     .font(.titleMedium)
             }
 
-            VStack(alignment: .leading, spacing: 4) {
+            VStack(alignment: .leading, spacing: .spacing4) {
                 Text("Noxy Bot")
                     .font(.titleMedium)
                     .foregroundStyle(Color.textPrimary)
@@ -225,21 +224,62 @@ struct DashboardView: View {
 
     // MARK: Recent Activity
 
+    @State private var recentActivities: [ActivityItem_] = []
+
     private var recentActivitySection: some View {
         VStack(spacing: 0) {
-            SectionHeader(title: "最近の動向")
-            VStack(spacing: 0) {
-                ForEach(recentActivities) { activity in
-                    ActivityRow(activity: activity)
-                    if activity.id != recentActivities.last?.id {
-                        Divider()
-                            .background(Color.border)
-                            .padding(.leading, 56)
+            SectionHeader(title: "サーバーの状況")
+            if recentActivities.isEmpty {
+                VStack(spacing: .spacing8) {
+                    Image(systemName: "chart.bar.fill")
+                        .font(.system(size: 28))
+                        .foregroundStyle(Color.textTertiary)
+                    Text("アクティビティはまだありません")
+                        .font(.bodySmall)
+                        .foregroundStyle(Color.textSecondary)
+                    Text("Botの操作やイベントがここに表示されます")
+                        .font(.captionSmall)
+                        .foregroundStyle(Color.textTertiary)
+                }
+                .frame(maxWidth: .infinity)
+                .padding(.vertical, .spacing24)
+                .background(Color.bgSurface)
+                .clipShape(RoundedRectangle(cornerRadius: .cornerRadiusMedium))
+                .padding(.horizontal)
+            } else {
+                VStack(spacing: 0) {
+                    ForEach(Array(recentActivities.prefix(5).enumerated()), id: \.element.id) { idx, activity in
+                        ActivityRow(activity: activity)
+                        if idx < min(recentActivities.count, 5) - 1 {
+                            Divider()
+                                .background(Color.border)
+                                .padding(.leading, 56)
+                        }
                     }
                 }
+                .background(Color.bgSurface)
+                .clipShape(RoundedRectangle(cornerRadius: .cornerRadiusMedium))
+                .padding(.horizontal)
             }
-            .background(Color.bgSurface)
-            .clipShape(RoundedRectangle(cornerRadius: .cornerRadiusMedium))
+
+            NavigationLink(destination: MonitorView()) {
+                HStack {
+                    Image(systemName: "waveform")
+                        .font(.system(size: 14))
+                        .foregroundStyle(Color.accentGreen)
+                    Text("モニターを開く")
+                        .font(.bodySmall)
+                        .fontWeight(.medium)
+                        .foregroundStyle(Color.accentGreen)
+                    Spacer()
+                    Image(systemName: "chevron.right")
+                        .font(.system(size: 10, weight: .semibold))
+                        .foregroundStyle(Color.textTertiary)
+                }
+                .padding(.spacing12)
+            }
+            .buttonStyle(.plain)
+            .padding(.top, .spacing8)
             .padding(.horizontal)
         }
     }
@@ -261,6 +301,7 @@ struct DashboardView: View {
             if let g = botGuild {
                 appState.selectedGuildId = g.id
                 appState.selectedGuild = g
+                await loadRecentActivity(guildId: g.id)
             }
         }
 
@@ -268,20 +309,22 @@ struct DashboardView: View {
         isLoading = false
     }
 
-    struct ActivityItem_: Identifiable {
-        let id = UUID()
-        let icon: String
-        let text: String
-        let timeAgo: String
+    private func loadRecentActivity(guildId: String) async {
+        guard let url = URL(string: "\(DiscordConfig.workerURL)/bot/recent-activity?guild_id=\(guildId)") else { return }
+        guard let (data, _) = try? await URLSession.shared.data(from: url),
+              let items = try? JSONDecoder().decode([ActivityItem_].self, from: data) else {
+            recentActivities = []
+            return
+        }
+        recentActivities = items
     }
 
-    private let recentActivities: [ActivityItem_] = [
-        ActivityItem_(icon: "🎫", text: "@ShadowX がチケットを作成",             timeAgo: "2分前"),
-        ActivityItem_(icon: "✉️", text: "#announcements に Embed を送信",        timeAgo: "15分前"),
-        ActivityItem_(icon: "👤", text: "新メンバーが Valorant JP に参加",        timeAgo: "1時間前"),
-        ActivityItem_(icon: "⚔️", text: "トーナメント Embed がスケジュール済み",  timeAgo: "2時間前"),
-        ActivityItem_(icon: "🛡️", text: "スパムを自動検知・削除 (Gaming Hub)",   timeAgo: "3時間前"),
-    ]
+    struct ActivityItem_: Identifiable, Codable {
+        var id = UUID()
+        var icon: String
+        var text: String
+        var timeAgo: String
+    }
 }
 
 // MARK: - Sub-components
@@ -595,5 +638,4 @@ private struct InviteBotSheet: View {
     DashboardView()
         .environment(AppState())
         .environment(\.services, ServiceContainer.live())
-        .preferredColorScheme(.dark)
 }

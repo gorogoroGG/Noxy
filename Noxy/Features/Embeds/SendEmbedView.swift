@@ -235,5 +235,4 @@ struct SendSuccessView: View {
     SendEmbedView(embed: .blank())
         .environment(\.services, ServiceContainer.live())
         .environment(AppState())
-        .preferredColorScheme(.dark)
 }

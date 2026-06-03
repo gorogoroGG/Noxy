@@ -53,3 +53,24 @@ protocol GreetingServiceProtocol: Sendable {
     func fetch(guildId: String) async throws -> GreetingSettings
     func save(_ settings: GreetingSettings) async throws -> GreetingSettings
 }
+
+protocol SubscriptionServiceProtocol: Sendable {
+    /// Worker からサブスク状態を取得
+    func fetchStatus(discordUserId: String) async throws -> SubscriptionStatus
+    /// StoreKit 2 で購入を実行し、Worker に通知
+    func purchase(productId: String) async throws -> SubscriptionStatus
+    /// 購入復元
+    func restore() async throws -> SubscriptionStatus
+    /// サーバーを有効化（Worker 経由でオーナー検証 + DB 登録）
+    func activateServer(guildId: String) async throws
+    /// サーバーの有効化を解除
+    func deactivateServer(guildId: String) async throws
+}
+
+protocol StatChannelServiceProtocol: Sendable {
+    func fetchAll(guildId: String) async throws -> [StatChannel]
+    func create(guildId: String, statType: StatType, categoryId: String?) async throws -> StatChannel
+    func toggle(id: String, enabled: Bool) async throws -> StatChannel
+    func delete(id: String) async throws
+    func refresh(id: String) async throws
+}

@@ -3,118 +3,177 @@ import SwiftUI
 // MARK: - ModerationCenterView
 
 struct ModerationCenterView: View {
-    @State private var tab: ModTab = .overview
+    @Environment(AppState.self) private var appState
+    @State private var tab: ModTab = .ban
 
-    enum ModTab: String, CaseIterable {
-        case overview  = "概要"
-        case ban       = "BAN"
-        case timeout   = "タイムアウト"
-        case warning   = "警告"
+    enum ModTab: CaseIterable {
+        case ban, timeout, warning, automod
 
+        var label: String {
+            switch self {
+            case .ban:     "BANリスト"
+            case .timeout: "タイムアウト"
+            case .warning: "警告管理"
+            case .automod: "AutoMod"
+            }
+        }
         var icon: String {
             switch self {
-            case .overview: "shield.lefthalf.filled"
-            case .ban:      "hand.raised.slash.fill"
-            case .timeout:  "timer"
-            case .warning:  "exclamationmark.triangle.fill"
+            case .ban:     "hand.raised.slash.fill"
+            case .timeout: "timer"
+            case .warning: "exclamationmark.triangle.fill"
+            case .automod: "shield.lefthalf.filled.badge.checkmark"
+            }
+        }
+        var color: Color {
+            switch self {
+            case .ban:     .accentRed
+            case .timeout: .accentPurple
+            case .warning: .accentOrange
+            case .automod: .accentIndigo
             }
         }
     }
 
     var body: some View {
-        VStack(spacing: 0) {
-            tabBar
-            Divider()
+        ZStack(alignment: .top) {
             tabContent
+                .padding(.top, 44) // タブバーの高さ分だけ下にずらす
+            tabBar
         }
         .background(Color.bgPrimary)
         .navigationTitle("モデレーション")
-        .navigationBarTitleDisplayMode(.large)
+        .navigationBarTitleDisplayMode(.inline)
     }
 
-    // MARK: - Tab Bar
+    // MARK: - Tab Bar（常に固定）
 
     private var tabBar: some View {
-        ScrollView(.horizontal, showsIndicators: false) {
-            HStack(spacing: 0) {
-                ForEach(ModTab.allCases, id: \.self) { t in
-                    Button {
-                        withAnimation(.easeInOut(duration: 0.2)) { tab = t }
-                        UIImpactFeedbackGenerator(style: .light).impactOccurred()
-                    } label: {
-                        VStack(spacing: 4) {
-                            HStack(spacing: 5) {
-                                Image(systemName: t.icon)
-                                    .font(.system(size: 12, weight: .semibold))
-                                Text(t.rawValue)
-                                    .font(.bodySmall)
-                                    .fontWeight(tab == t ? .semibold : .regular)
-                            }
-                            .foregroundStyle(tab == t ? Color.accentIndigo : Color.textSecondary)
-
-                            Rectangle()
-                                .fill(tab == t ? Color.accentIndigo : Color.clear)
-                                .frame(height: 2)
-                                .clipShape(Capsule())
-                        }
-                        .padding(.horizontal, .spacing16)
-                        .padding(.top, .spacing8)
+        HStack(spacing: 0) {
+            ForEach(ModTab.allCases, id: \.label) { t in
+                Button {
+                    withAnimation(.easeInOut(duration: 0.18)) { tab = t }
+                    UIImpactFeedbackGenerator(style: .light).impactOccurred()
+                } label: {
+                    VStack(spacing: 4) {
+                        Image(systemName: t.icon)
+                            .font(.system(size: 18, weight: .medium))
+                            .foregroundStyle(tab == t ? t.color : Color.textTertiary)
+                        Text(t.label)
+                            .font(.captionSmall)
+                            .fontWeight(tab == t ? .semibold : .regular)
+                            .foregroundStyle(tab == t ? t.color : Color.textTertiary)
+                        Rectangle()
+                            .fill(tab == t ? t.color : Color.clear)
+                            .frame(height: 2)
+                            .clipShape(Capsule())
                     }
-                    .buttonStyle(.plain)
+                    .frame(maxWidth: .infinity)
+                    .padding(.vertical, .spacing10)
+                    .contentShape(Rectangle())
                 }
+                .buttonStyle(.plain)
             }
         }
         .background(Color.bgSurface)
+        .overlay(Divider(), alignment: .bottom)
     }
 
-    // MARK: - Content
+    // MARK: - Tab Content
 
     @ViewBuilder
     private var tabContent: some View {
+        let guildId = appState.selectedGuildId
         switch tab {
-        case .overview: ModOverviewView()
-        case .ban:      ModBanListView()
-        case .timeout:  ModTimeoutView()
-        case .warning:  ModWarningView()
+        case .ban:     ModBanListView(guildId: guildId)
+        case .timeout: ModTimeoutView(guildId: guildId)
+        case .warning: ModWarningView(guildId: guildId)
+        case .automod: AutoModSettingsView()
         }
     }
 }
 
-// MARK: - Stat Card (shared)
+// MARK: - Shared: LoadState
 
-struct ModStatCard: View {
-    let icon: String
-    let color: Color
-    let value: String
-    let label: String
+enum LoadState<T> {
+    case loading
+    case loaded(T)
+    case error(String)
+}
+
+// MARK: - Shared: Error State
+
+struct ModErrorView: View {
+    let message: String
+    let retry: () -> Void
 
     var body: some View {
-        VStack(spacing: .spacing8) {
-            Image(systemName: icon)
-                .font(.system(size: 20, weight: .medium))
-                .foregroundStyle(color)
-                .frame(width: 44, height: 44)
-                .background(color.opacity(0.12))
-                .clipShape(RoundedRectangle(cornerRadius: 12))
-
-            Text(value)
-                .font(.displayMedium)
-                .foregroundStyle(Color.textPrimary)
-
-            Text(label)
-                .font(.captionSmall)
+        VStack(spacing: .spacing16) {
+            Spacer()
+            Image(systemName: "wifi.exclamationmark")
+                .font(.system(size: 40, weight: .thin))
+                .foregroundStyle(Color.textTertiary)
+            Text(message)
+                .font(.bodySmall)
                 .foregroundStyle(Color.textSecondary)
                 .multilineTextAlignment(.center)
+                .padding(.horizontal, .spacing32)
+            Button("再試行", action: retry)
+                .font(.bodySmall).fontWeight(.semibold)
+                .foregroundStyle(.white)
+                .padding(.horizontal, .spacing24).frame(height: 40)
+                .background(Color.accentIndigo)
+                .clipShape(Capsule())
+            Spacer()
         }
         .frame(maxWidth: .infinity)
-        .padding(.spacing16)
-        .background(Color.bgSurface)
-        .clipShape(RoundedRectangle(cornerRadius: .cornerRadiusMedium))
-        .overlay(RoundedRectangle(cornerRadius: .cornerRadiusMedium).stroke(Color.border, lineWidth: 1))
+    }
+}
+
+// MARK: - Shared: Success Toast
+
+struct ModSuccessToast: View {
+    let message: String
+
+    var body: some View {
+        HStack(spacing: .spacing8) {
+            Image(systemName: "checkmark.circle.fill").foregroundStyle(.white)
+            Text(message)
+                .font(.bodySmall).fontWeight(.semibold).foregroundStyle(.white)
+        }
+        .padding(.horizontal, .spacing20).frame(height: 48)
+        .background(Color.accentGreen)
+        .clipShape(Capsule())
+        .shadow(color: .black.opacity(0.2), radius: 8, y: 4)
+    }
+}
+
+// MARK: - Shared: Empty State
+
+struct ModEmptyView: View {
+    let icon: String
+    let title: String
+    var subtitle: String? = nil
+
+    var body: some View {
+        VStack(spacing: .spacing12) {
+            Spacer()
+            Image(systemName: icon)
+                .font(.system(size: 48, weight: .thin))
+                .foregroundStyle(Color.accentGreen.opacity(0.6))
+            Text(title)
+                .font(.titleMedium).foregroundStyle(Color.textPrimary)
+            if let subtitle {
+                Text(subtitle)
+                    .font(.bodySmall).foregroundStyle(Color.textSecondary)
+            }
+            Spacer()
+        }
+        .frame(maxWidth: .infinity)
     }
 }
 
 #Preview {
     NavigationStack { ModerationCenterView() }
-        .preferredColorScheme(.dark)
+        .environment(AppState())
 }

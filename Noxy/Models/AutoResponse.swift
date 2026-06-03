@@ -4,7 +4,7 @@ enum MatchType: String, Codable {
     case exact, contains, regex, startsWith
 }
 
-struct AutoResponse: Identifiable, Codable, Hashable {
+struct AutoResponse: Identifiable, Codable, Hashable, Sendable {
     let id: String
     let guildId: String
     var trigger: String

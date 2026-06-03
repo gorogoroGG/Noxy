@@ -16,6 +16,9 @@ struct RootView: View {
     @AppStorage("hasSeenOnboarding") private var hasSeenOnboarding = false
 
     init() {
+        // #3: 旧 UserDefaults トークンを Keychain に移行
+        KeychainHelper.migrateFromUserDefaults()
+
         let svc = ServiceContainer.live()
         _services    = State(initialValue: svc)
         _authManager = State(initialValue: AuthManager(services: svc))

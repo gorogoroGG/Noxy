@@ -1,31 +1,17 @@
 import SwiftUI
 
+// #5: Discord OAuth 実装済みのためバナーは不要 → このファイルを残しつつ非表示化
+
 struct MockBanner: ViewModifier {
+    var isVisible: Bool = false // デフォルト非表示
+
     func body(content: Content) -> some View {
-        ZStack(alignment: .bottom) {
-            content
-            VStack {
-                Spacer()
-                HStack(spacing: .spacing8) {
-                    Image(systemName: "info.circle.fill")
-                        .font(.captionRegular)
-                    Text("Discord連携は近日対応 · Mock data")
-                        .font(.captionSmall)
-                }
-                .foregroundStyle(Color.white)
-                .padding(.horizontal, .spacing12)
-                .padding(.vertical, .spacing6)
-                .background(Color.accentIndigo.opacity(0.9))
-                .clipShape(Capsule())
-                .padding(.bottom, 90) // above tab bar
-            }
-            .allowsHitTesting(false)
-        }
+        content // バナーを表示しない
     }
 }
 
 extension View {
-    func mockBanner() -> some View {
-        modifier(MockBanner())
+    func mockBanner(isVisible: Bool = false) -> some View {
+        modifier(MockBanner(isVisible: isVisible))
     }
 }

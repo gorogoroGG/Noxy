@@ -14,7 +14,7 @@ enum TicketPriority: String, Codable {
 
 // MARK: - Ticket
 
-struct Ticket: Identifiable, Codable, Hashable {
+struct Ticket: Identifiable, Codable, Hashable, Sendable {
     let id: String
     let guildId: String
     let channelId: String
@@ -29,7 +29,7 @@ struct Ticket: Identifiable, Codable, Hashable {
     var lastMessageAt: Date
     var messageCount: Int
 
-    init(id: String, guildId: String, channelId: String, openedBy: String,
+    nonisolated init(id: String, guildId: String, channelId: String, openedBy: String,
          subject: String, status: TicketStatus, priority: TicketPriority,
          assignedToUserId: String? = nil, panelId: Int? = nil,
          openedAt: Date, closedAt: Date? = nil,

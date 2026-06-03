@@ -2,7 +2,7 @@ import SwiftUI
 
 // MARK: - Shop
 
-struct Shop: Identifiable, Codable, Hashable {
+struct Shop: Identifiable, Codable, Hashable, Sendable {
     let id: String
     var guildId: String
     var name: String
@@ -29,7 +29,7 @@ struct Shop: Identifiable, Codable, Hashable {
 
     var isDeployed: Bool { messageId != nil && !(messageId!.isEmpty) }
 
-    static func blank(guildId: String) -> Shop {
+    nonisolated static func blank(guildId: String) -> Shop {
         Shop(
             id: UUID().uuidString,
             guildId: guildId,

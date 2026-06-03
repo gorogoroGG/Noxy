@@ -8,7 +8,7 @@ enum OnlineStatus {
         case .online:  .accentGreen
         case .idle:    .accentOrange
         case .dnd:     .accentPink
-        case .offline: Color(uiColor: .systemGray)
+        case .offline: .gray
         }
     }
 }
@@ -43,7 +43,8 @@ struct Avatar: View {
                 .frame(width: size, height: size)
                 .overlay {
                     Text(initials)
-                        .font(.system(size: size * 0.32, weight: .bold))
+                        .font(.system(size: size * 0.32))
+                        .bold()
                         .foregroundStyle(.white)
                 }
 
@@ -66,5 +67,4 @@ struct Avatar: View {
     }
     .padding()
     .background(Color.bgPrimary)
-    .preferredColorScheme(.dark)
 }

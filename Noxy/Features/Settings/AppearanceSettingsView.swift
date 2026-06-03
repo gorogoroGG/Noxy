@@ -11,7 +11,7 @@ struct AppearanceSettingsView: View {
     private let accentColors: [(String, Color)] = [
         ("Indigo", .accentIndigo), ("Pink", .accentPink), ("Purple", .accentPurple),
         ("Green", .accentGreen), ("Orange", .accentOrange),
-        ("Red", Color(uiColor: UIColor(hex: 0xEF4444))),
+        ("Red", .accentRed),
         ("Teal", Color(uiColor: UIColor(hex: 0x14B8A6))),
         ("Yellow", Color(uiColor: UIColor(hex: 0xEAB308))),
     ]
@@ -82,5 +82,4 @@ struct AppearanceSettingsView: View {
 
 #Preview {
     NavigationStack { AppearanceSettingsView() }
-        .preferredColorScheme(.dark)
 }

@@ -132,5 +132,4 @@ struct CommandDetailView: View {
 #Preview {
     SlashCommandsView()
         .environment(\.services, ServiceContainer.live())
-        .preferredColorScheme(.dark)
 }

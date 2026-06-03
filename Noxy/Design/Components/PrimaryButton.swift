@@ -141,5 +141,4 @@ struct ScalePressButtonStyle: SwiftUI.ButtonStyle {
     }
     .padding()
     .background(Color.bgPrimary)
-    .preferredColorScheme(.dark)
 }

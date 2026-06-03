@@ -331,5 +331,4 @@ private func applyPattern(
         .padding()
     }
     .background(Color.bgPrimary)
-    .preferredColorScheme(.dark)
 }

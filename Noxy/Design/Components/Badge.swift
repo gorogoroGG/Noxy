@@ -10,7 +10,7 @@ struct Badge: View {
     var body: some View {
         Text(text)
             .font(.captionSmall)
-            .fontWeight(.bold)
+            .bold()
             .tracking(0.4)
             .foregroundStyle(style == .filled ? .white : color)
             .padding(.horizontal, 5)
@@ -37,5 +37,4 @@ struct Badge: View {
     }
     .padding()
     .background(Color.bgPrimary)
-    .preferredColorScheme(.dark)
 }

@@ -7,15 +7,14 @@ struct AutomationTabView: View {
         NavigationStack {
             List {
                 Section("自動化") {
-                    // TODO: Coming Soon - 自動応答
-//                    NavigationLink {
-//                        AutoResponsesListView(guildId: appState.selectedGuildId)
-//                    } label: {
-//                        AutomationMenuRow(icon: "bubble.left.and.text.bubble.right.fill",
-//                                          title: "自動返信",
-//                                          subtitle: "キーワード → 返信の自動化",
-//                                          color: .accentIndigo)
-//                    }
+                    NavigationLink {
+                        AutoResponsesListView(guildId: appState.selectedGuildId)
+                    } label: {
+                        AutomationMenuRow(icon: "bubble.left.and.text.bubble.right.fill",
+                                          title: "自動返信",
+                                          subtitle: "キーワード → 返信の自動化",
+                                          color: .accentIndigo)
+                    }
 
                     NavigationLink {
                         ReactionRolesView()
@@ -93,7 +92,7 @@ struct AutomationTabView: View {
 //                        AutomationMenuRow(icon: "shield.fill",
 //                                          title: "自動モデレーション",
 //                                          subtitle: "スパム・大文字・メンション制限",
-//                                          color: Color(uiColor: UIColor(hex: 0xEF4444)))
+//                                          color: .accentRed)
 //                    }
 
 //                    NavigationLink {
@@ -111,7 +110,7 @@ struct AutomationTabView: View {
 //                        AutomationMenuRow(icon: "nosign",
 //                                          title: "ワードフィルター",
 //                                          subtitle: "特定ワードをブロック",
-//                                          color: Color(uiColor: UIColor(hex: 0xEF4444)))
+//                                          color: .accentRed)
 //                    }
                 }
             }
@@ -156,5 +155,4 @@ struct PlaceholderView: View {
     AutomationTabView()
         .environment(AppState())
         .environment(\.services, ServiceContainer.live())
-        .preferredColorScheme(.dark)
 }

@@ -92,5 +92,4 @@ struct AutoRoleView: View {
 
 #Preview {
     NavigationStack { AutoRoleView() }
-        .preferredColorScheme(.dark)
 }

@@ -159,5 +159,4 @@ struct Giveaway: Identifiable {
 
 #Preview {
     NavigationStack { GiveawaysView() }
-        .preferredColorScheme(.dark)
 }
