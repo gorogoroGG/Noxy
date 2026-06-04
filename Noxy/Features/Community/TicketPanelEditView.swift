@@ -7,8 +7,9 @@ struct TicketPanelEditView: View {
     let guildId: String
     let onSave: (TicketPanel) -> Void
 
-    @Environment(\.services) private var services
-    @Environment(\.dismiss)  private var dismiss
+    @Environment(\.services)    private var services
+    @Environment(\.dismiss)     private var dismiss
+    @Environment(AppState.self) private var appState
 
     // ── フィールド ──
     @State private var title             = "サポートチケット"
@@ -77,37 +78,58 @@ struct TicketPanelEditView: View {
     // ── パネルの見た目 ──
     private var panelAppearanceSection: some View {
         Section {
+            // タイトル（無料でも変更可）
             LabeledContent("タイトル") {
                 TextField("サポートチケット", text: $title).multilineTextAlignment(.trailing)
             }
+
+            // 説明・ボタン・カラー（Proのみ編集可）
             VStack(alignment: .leading, spacing: 6) {
-                Text("説明").font(.captionSmall).foregroundStyle(Color.textTertiary)
+                HStack {
+                    Text("説明").font(.captionSmall).foregroundStyle(Color.textTertiary)
+                    if !appState.isPro { Spacer(); Badge(text: "Pro", color: .accentOrange) }
+                }
                 TextEditor(text: $description)
                     .frame(minHeight: 60).scrollContentBackground(.hidden)
+                    .disabled(!appState.isPro)
+                    .foregroundStyle(appState.isPro ? Color.textPrimary : Color.textTertiary)
             }
-            LabeledContent("ボタンラベル") {
+            LabeledContent {
                 TextField("チケットを作成", text: $buttonLabel).multilineTextAlignment(.trailing)
+                    .disabled(!appState.isPro)
+                    .foregroundStyle(appState.isPro ? Color.textPrimary : Color.textTertiary)
+            } label: {
+                HStack { Text("ボタンラベル"); if !appState.isPro { Badge(text: "Pro", color: .accentOrange) } }
             }
-            LabeledContent("ボタン絵文字") {
+            LabeledContent {
                 TextField("🎫", text: $buttonEmoji).multilineTextAlignment(.trailing)
+                    .disabled(!appState.isPro)
+                    .foregroundStyle(appState.isPro ? Color.textPrimary : Color.textTertiary)
+            } label: {
+                HStack { Text("ボタン絵文字"); if !appState.isPro { Badge(text: "Pro", color: .accentOrange) } }
             }
-            // カラー選択
             HStack {
                 Text("カラー")
+                if !appState.isPro { Badge(text: "Pro", color: .accentOrange) }
                 Spacer()
                 HStack(spacing: 8) {
                     ForEach(colorPresets, id: \.self) { hex in
                         ZStack {
                             Circle().fill(Color(uiColor: UIColor(hex: hex))).frame(width: 26, height: 26)
+                                .opacity(appState.isPro ? 1 : 0.4)
                             if colorHex == hex {
                                 Image(systemName: "checkmark").font(.system(size: 10, weight: .bold)).foregroundStyle(.white)
                             }
                         }
-                        .onTapGesture { withAnimation(.easeInOut(duration: 0.15)) { colorHex = hex } }
+                        .onTapGesture {
+                            guard appState.isPro else { return }
+                            withAnimation(.easeInOut(duration: 0.15)) { colorHex = hex }
+                        }
                     }
                 }
             }
         } header: { Text("パネルの見た目") }
+          footer: { if !appState.isPro { Text("タイトル以外の変更はProプランで利用できます。") } }
     }
 
     // ── パネルプレビュー ──
@@ -202,50 +224,93 @@ struct TicketPanelEditView: View {
           footer: { Text("チケットが作成されたとき、チャンネル内に表示されるメッセージ。変数を使うと実際の値に置き換えられます。") }
     }
 
-    // ── ウェルカムメッセージ プレビュー ──
+    // ── ウェルカムメッセージ プレビュー（Discord風） ──
     private var welcomeMessagePreviewSection: some View {
-        Section {
-            VStack(alignment: .leading, spacing: 8) {
-                // ヘッダー（埋め込みタイトル）
-                HStack(spacing: 8) {
-                    Text("🎫 \(ticketEmbedTitle.isEmpty ? "チケット" : ticketEmbedTitle) #abc123")
-                        .font(.captionRegular).fontWeight(.bold).foregroundStyle(Color.textPrimary)
-                }
+        let msgPreview = ticketMsgContent
+            .replacingOccurrences(of: "{user.mention}", with: "@SampleUser")
+            .replacingOccurrences(of: "{user.name}",    with: "SampleUser")
+            .replacingOccurrences(of: "{subject}",      with: "お問い合わせ内容")
+            .replacingOccurrences(of: "{ticket_id}",    with: "abc123")
+        let embedTitle = ticketEmbedTitle.isEmpty ? "チケット" : ticketEmbedTitle
 
-                // ウェルカム本文（変数をサンプル値に置換）
-                let preview = ticketMsgContent
-                    .replacingOccurrences(of: "{user.mention}", with: "@SampleUser")
-                    .replacingOccurrences(of: "{user.name}",    with: "SampleUser")
-                    .replacingOccurrences(of: "{subject}",      with: "件名の例")
-                    .replacingOccurrences(of: "{ticket_id}",    with: "abc123")
-
-                Text(preview.isEmpty ? "（メッセージなし）" : preview)
-                    .font(.captionRegular).foregroundStyle(Color.textSecondary)
-
-                Divider()
-
-                // フィールド行
-                HStack(spacing: 16) {
-                    VStack(alignment: .leading, spacing: 2) {
-                        Text("件名").font(.system(size: 10, weight: .bold)).foregroundStyle(Color.textTertiary)
-                        Text("件名の例").font(.captionSmall).foregroundStyle(Color.textPrimary)
-                    }
-                    VStack(alignment: .leading, spacing: 2) {
-                        Text("優先度").font(.system(size: 10, weight: .bold)).foregroundStyle(Color.textTertiary)
-                        Text("medium").font(.captionSmall).foregroundStyle(Color.textPrimary)
-                    }
-                }
-
-                // クローズボタン
+        return Section {
+            // Discord のチャット背景を模した暗めのコンテナ
+            VStack(alignment: .leading, spacing: 0) {
+                // チャンネルヘッダー
                 HStack(spacing: 6) {
-                    Text("🔒 チケットを閉じる")
-                        .font(.captionSmall).fontWeight(.semibold).foregroundStyle(Color.textSecondary)
-                        .padding(.horizontal, 12).padding(.vertical, 6)
-                        .background(Color(.tertiarySystemGroupedBackground))
-                        .clipShape(RoundedRectangle(cornerRadius: 5))
-                    Spacer()
+                    Image(systemName: "lock.fill")
+                        .font(.system(size: 10)).foregroundStyle(Color.textTertiary)
+                    Text("ticket-abc123")
+                        .font(.captionSmall).fontWeight(.semibold).foregroundStyle(Color.textTertiary)
                 }
+                .padding(.horizontal, 12).padding(.top, 10).padding(.bottom, 6)
+
+                Divider().opacity(0.3)
+
+                // Bot メッセージ行
+                HStack(alignment: .top, spacing: 10) {
+                    // アバター
+                    ZStack {
+                        Circle().fill(previewColor).frame(width: 36, height: 36)
+                        Text("🤖").font(.system(size: 16))
+                    }
+
+                    VStack(alignment: .leading, spacing: 4) {
+                        // ユーザー名 + 時刻
+                        HStack(spacing: 6) {
+                            Text("Noxy").font(.system(size: 13, weight: .semibold)).foregroundStyle(previewColor)
+                            Text("BOT").font(.system(size: 9, weight: .bold)).foregroundStyle(.white)
+                                .padding(.horizontal, 4).padding(.vertical, 1)
+                                .background(Color.accentIndigo).clipShape(RoundedRectangle(cornerRadius: 3))
+                            Text("今日 12:00").font(.captionSmall).foregroundStyle(Color.textTertiary)
+                        }
+
+                        // メッセージ本文
+                        if !msgPreview.isEmpty {
+                            Text(msgPreview)
+                                .font(.captionRegular).foregroundStyle(Color.textPrimary)
+                        }
+
+                        // Embed カード
+                        HStack(alignment: .top, spacing: 0) {
+                            RoundedRectangle(cornerRadius: 2).fill(previewColor).frame(width: 3)
+                            VStack(alignment: .leading, spacing: 6) {
+                                Text("🎫 \(embedTitle) #abc123")
+                                    .font(.system(size: 12, weight: .bold)).foregroundStyle(Color.textPrimary)
+                                // フィールド
+                                HStack(spacing: 16) {
+                                    VStack(alignment: .leading, spacing: 2) {
+                                        Text("件名").font(.system(size: 9, weight: .bold)).foregroundStyle(Color.textTertiary)
+                                        Text("お問い合わせ内容").font(.captionSmall).foregroundStyle(Color.textPrimary)
+                                    }
+                                    VStack(alignment: .leading, spacing: 2) {
+                                        Text("優先度").font(.system(size: 9, weight: .bold)).foregroundStyle(Color.textTertiary)
+                                        Text("medium").font(.captionSmall).foregroundStyle(Color.textPrimary)
+                                    }
+                                }
+                            }
+                            .padding(10)
+                        }
+                        .background(Color.bgElevated)
+                        .clipShape(RoundedRectangle(cornerRadius: 4))
+                        .overlay(RoundedRectangle(cornerRadius: 4).strokeBorder(Color.border, lineWidth: 0.5))
+
+                        // ボタン
+                        HStack(spacing: 6) {
+                            Text("🔒 チケットを閉じる")
+                                .font(.captionSmall).fontWeight(.semibold).foregroundStyle(Color.textSecondary)
+                                .padding(.horizontal, 12).padding(.vertical, 6)
+                                .background(Color.bgElevated)
+                                .clipShape(RoundedRectangle(cornerRadius: 5))
+                                .overlay(RoundedRectangle(cornerRadius: 5).strokeBorder(Color.border, lineWidth: 0.5))
+                            Spacer()
+                        }
+                    }
+                }
+                .padding(.horizontal, 12).padding(.vertical, 10)
             }
+            .background(Color(.secondarySystemGroupedBackground))
+            .clipShape(RoundedRectangle(cornerRadius: 8))
             .padding(.vertical, 4)
         } header: {
             HStack(spacing: 5) {
@@ -253,7 +318,7 @@ struct TicketPanelEditView: View {
                 Text("チケット内のプレビュー")
             }
         } footer: {
-            Text("チケットが作成されたときにチャンネル内に表示される内容のイメージです。変数はサンプル値で表示しています。")
+            Text("チケット作成時にチャンネル内に投稿されるメッセージのイメージです。変数はサンプル値で表示しています。")
         }
     }
 

@@ -483,6 +483,7 @@ private struct ChannelPickerForPublishView: View {
 struct ReactionRoleEditorView: View {
     @Environment(\.services) private var services
     @Environment(\.dismiss) private var dismiss
+    @Environment(AppState.self) private var appState
 
     let embeds: [EmbedModel]
     let existing: ReactionRoleItem?
@@ -499,6 +500,7 @@ struct ReactionRoleEditorView: View {
     @State private var showRolePicker = false
     @State private var rolePickerPairIndex = 0
     @State private var isSaving = false
+    @State private var showProSheet = false
 
     private let existingId: String?
 
@@ -596,19 +598,62 @@ struct ReactionRoleEditorView: View {
                     }
                     .onDelete { pairs.remove(atOffsets: $0) }
 
+                    let atFreeLimit = !appState.isPro && pairs.count >= 3
                     Button {
-                        pairs.append(ReactionPair(emoji: "", roleId: "", roleName: ""))
+                        if atFreeLimit {
+                            showProSheet = true
+                        } else {
+                            pairs.append(ReactionPair(emoji: "", roleId: "", roleName: ""))
+                        }
                     } label: {
-                        Label("追加", systemImage: "plus.circle.fill")
-                            .foregroundStyle(Color.accentPink)
+                        HStack(spacing: .spacing6) {
+                            Label("追加", systemImage: "plus.circle.fill")
+                                .foregroundStyle(atFreeLimit ? Color.accentOrange : Color.accentPink)
+                            if atFreeLimit {
+                                Image(systemName: "crown.fill")
+                                    .font(.system(size: 11))
+                                    .foregroundStyle(Color.accentOrange)
+                            }
+                        }
+                    }
+                    .sheet(isPresented: $showProSheet) {
+                        NavigationStack {
+                            ProUpgradeView(
+                                featureIcon: "heart.fill",
+                                featureTitle: "リアクションロール",
+                                description: "Proプランでは無制限にリアクションを追加できます。認証・永続モードも利用可能です。",
+                                proFeatures: [
+                                    ("♾️", "リアクション数 無制限"),
+                                    ("🔐", "認証モード（付与後に剥奪不可）"),
+                                    ("📌", "永続モード（付与のみ）"),
+                                ]
+                            )
+                        }
+                    }
+
+                    if atFreeLimit {
+                        Text("無料版は3つまで · 追加するにはProへ")
+                            .font(.captionSmall)
+                            .foregroundStyle(Color.accentOrange)
                     }
                 } header: { Text("リアクション → ロール") }
 
                 Section {
                     Picker("モード", selection: $mode) {
-                        ForEach(ReactionMode.allCases, id: \.self) { m in
-                            Text("\(m.rawValue)（\(m.description)）").tag(m)
+                        ForEach(appState.isPro ? ReactionMode.allCases : [.normal], id: \.self) { m in
+                            HStack {
+                                Text("\(m.rawValue)（\(m.description)）")
+                                if !appState.isPro && m != .normal {
+                                    Badge(text: "Pro", color: .accentOrange)
+                                }
+                            }
+                            .tag(m)
                         }
+                    }
+                    if !appState.isPro {
+                        Text("認証・永続モードはProプランで利用可能")
+                            .font(.captionSmall)
+                            .foregroundStyle(Color.textTertiary)
                     }
                 } header: { Text("詳細") }
 

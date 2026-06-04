@@ -3,7 +3,8 @@ import SwiftUI
 struct TempVCListView: View {
     let guildId: String
 
-    @Environment(\.services) private var services
+    @Environment(\.services)    private var services
+    @Environment(AppState.self) private var appState
     @State private var sources: [TempVCSource] = []
     @State private var isLoading = true
     @State private var isEditing = false
@@ -62,13 +63,32 @@ struct TempVCListView: View {
         .navigationBarTitleDisplayMode(.large)
         .toolbar {
             ToolbarItem(placement: .topBarTrailing) {
+                let atFreeLimit = !appState.isPro && sources.count >= 1
                 Button {
                     editingSource = TempVCSource.defaultSource(guildId: guildId)
                     isEditing = true
                 } label: {
                     Image(systemName: "plus")
                         .fontWeight(.semibold)
+                        .foregroundStyle(atFreeLimit ? Color.textTertiary : Color.accentIndigo)
                 }
+                .disabled(atFreeLimit)
+            }
+        }
+        .safeAreaInset(edge: .bottom) {
+            if !appState.isPro && !sources.isEmpty {
+                HStack(spacing: .spacing6) {
+                    Image(systemName: "lock.fill").font(.captionSmall)
+                    Text("無料プランはソース1つまで。Proプランで追加できます。")
+                        .font(.captionSmall)
+                    Spacer()
+                    NavigationLink(destination: SubscriptionView()) {
+                        Text("アップグレード").font(.captionSmall).fontWeight(.semibold)
+                    }
+                }
+                .foregroundStyle(Color.textTertiary)
+                .padding(.horizontal).padding(.vertical, .spacing10)
+                .background(.regularMaterial)
             }
         }
         .sheet(isPresented: $isEditing) {

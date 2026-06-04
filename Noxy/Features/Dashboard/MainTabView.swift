@@ -1,7 +1,8 @@
 import SwiftUI
 
 struct MainTabView: View {
-    @Environment(AuthManager.self) private var authManager
+    @Environment(AuthManager.self)  private var authManager
+    @Environment(\.services)        private var services
     @State private var appState = AppState()
 
     var body: some View {
@@ -28,6 +29,13 @@ struct MainTabView: View {
             }
         }
         .animation(.easeInOut(duration: 0.25), value: appState.isSwitchingServer)
+        .task { await loadSubscription() }
+    }
+
+    private func loadSubscription() async {
+        let userId = KeychainHelper.load(forKey: "discord_user_id") ?? ""
+        let status = (try? await services.subscription.fetchStatus(discordUserId: userId)) ?? .inactive
+        withAnimation { appState.subscriptionStatus = status }
     }
 }
 

@@ -33,22 +33,50 @@ struct FeaturesTabView: View {
             }
 
             NavigationLink {
-                ScheduledMessagesListView()
+                if appState.isPro {
+                    ScheduledMessagesListView()
+                } else {
+                    ProUpgradeView(
+                        featureIcon: "clock.fill",
+                        featureTitle: "予約投稿",
+                        description: "指定時刻に自動でメッセージを送信できます",
+                        proFeatures: [
+                            ("📅", "日時指定で自動送信"),
+                            ("🔁", "繰り返し投稿"),
+                            ("📝", "Embedテンプレート使用"),
+                        ]
+                    )
+                }
             } label: {
                 FeatureRow(
                     icon: "clock.fill",
                     title: "予約投稿",
-                    subtitle: "指定時刻にメッセージを送信"
+                    subtitle: "指定時刻にメッセージを送信",
+                    badge: appState.isPro ? nil : "Pro"
                 )
             }
 
             NavigationLink {
-                RecurringPostsListView()
+                if appState.isPro {
+                    RecurringPostsListView()
+                } else {
+                    ProUpgradeView(
+                        featureIcon: "repeat.circle.fill",
+                        featureTitle: "定期投稿",
+                        description: "日次・週次・月次で自動投稿できます",
+                        proFeatures: [
+                            ("🗓", "日次・週次・月次スケジュール"),
+                            ("📝", "Embedテンプレート使用"),
+                            ("⏱", "好きな時刻に配信"),
+                        ]
+                    )
+                }
             } label: {
                 FeatureRow(
                     icon: "repeat.circle.fill",
                     title: "定期投稿",
-                    subtitle: "日次・週次・月次の自動投稿"
+                    subtitle: "日次・週次・月次の自動投稿",
+                    badge: appState.isPro ? nil : "Pro"
                 )
             }
         }
@@ -102,13 +130,17 @@ struct FeaturesTabView: View {
             )
             .disabled(true)
 
-            FeatureRow(
-                icon: "gift.fill",
-                title: "ギブアウェイ",
-                subtitle: "景品プレゼント抽選",
-                isComingSoon: true
-            )
-            .disabled(true)
+            NavigationLink {
+                GiveawaysView()
+            } label: {
+                FeatureRow(
+                    icon: "gift.fill",
+                    title: "ギブアウェイ",
+                    subtitle: "景品プレゼント抽選",
+                    accentColor: .accentPink,
+                    badge: "Pro"
+                )
+            }
 
             FeatureRow(
                 icon: "star.fill",
@@ -220,12 +252,26 @@ struct FeaturesTabView: View {
     private var toolsSection: some View {
         Section("ツール") {
             NavigationLink {
-                ShopsListView(guildId: appState.selectedGuildId)
+                if appState.isPro {
+                    ShopsListView(guildId: appState.selectedGuildId)
+                } else {
+                    ProUpgradeView(
+                        featureIcon: "cart.fill",
+                        featureTitle: "ショップ",
+                        description: "Discordサーバーで商品を販売できます",
+                        proFeatures: [
+                            ("🛍", "商品ページの作成・管理"),
+                            ("📦", "注文の受付・履歴管理"),
+                            ("💳", "売上レポート"),
+                        ]
+                    )
+                }
             } label: {
                 FeatureRow(
                     icon: "cart.fill",
                     title: "ショップ",
-                    subtitle: "商品販売・注文管理"
+                    subtitle: "商品販売・注文管理",
+                    badge: appState.isPro ? nil : "Pro"
                 )
             }
 

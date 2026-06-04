@@ -4,6 +4,7 @@ struct DashboardView: View {
     @Environment(\.services) private var services
     @Environment(AppState.self) private var appState
     @State private var botStatus: BotStatus? = nil
+    @State private var isBotStatusLoading = true
     @State private var isLoading = true
     @State private var botGuildCount = 0
 
@@ -24,10 +25,20 @@ struct DashboardView: View {
                 } else {
                     VStack(alignment: .leading, spacing: .spacing24) {
                         headerSection
-                        if let status = botStatus { botStatusCard(status) }
+                        if isBotStatusLoading {
+                            botStatusLoadingCard
+                                .transition(.opacity)
+                        } else if let status = botStatus {
+                            botStatusCard(status)
+                                .transition(.asymmetric(
+                                    insertion: .opacity.combined(with: .scale(scale: 0.97, anchor: .leading)),
+                                    removal: .opacity
+                                ))
+                        }
                         quickActionsSection
                         recentActivitySection
                     }
+                    .animation(.spring(response: 0.45, dampingFraction: 0.85), value: isBotStatusLoading)
                     .padding(.vertical)
                 }
             }
@@ -134,6 +145,33 @@ struct DashboardView: View {
     }
 
     // MARK: Bot Status
+
+    private var botStatusLoadingCard: some View {
+        HStack(spacing: .spacing16) {
+            ZStack {
+                Circle()
+                    .fill(LinearGradient(
+                        colors: [Color.accentIndigo, Color.accentPurple],
+                        startPoint: .topLeading, endPoint: .bottomTrailing
+                    ))
+                    .frame(width: 48, height: 48)
+                Image(systemName: "bolt.fill")
+                    .foregroundStyle(.white)
+                    .font(.titleMedium)
+            }
+            VStack(alignment: .leading, spacing: .spacing4) {
+                Text("Noxy Bot")
+                    .font(.titleMedium)
+                    .foregroundStyle(Color.textPrimary)
+                BotStatusScanIndicator()
+            }
+            Spacer()
+        }
+        .padding(.spacing16)
+        .background(Color.bgSurface)
+        .clipShape(RoundedRectangle(cornerRadius: .cornerRadiusMedium))
+        .padding(.horizontal)
+    }
 
     private func botStatusCard(_ status: BotStatus) -> some View {
         HStack(spacing: .spacing16) {
@@ -288,6 +326,9 @@ struct DashboardView: View {
 
     private func loadData() async {
         isLoading = true
+        isBotStatusLoading = true
+        botStatus = nil
+
         let fetchedGuilds = (try? await services.guilds.fetchAll()) ?? []
         let botGuilds = (try? await DiscordService().fetchBotGuilds()) ?? []
         let botGuildIds = Set(botGuilds.map(\.id))
@@ -305,8 +346,14 @@ struct DashboardView: View {
             }
         }
 
-        botStatus = (try? await services.bot.fetchStatus())
+        // ギルド情報が揃った時点でページを表示。Bot statusは非同期で後から埋める
         isLoading = false
+
+        let fetchedStatus = try? await services.bot.fetchStatus()
+        withAnimation(.spring(response: 0.5, dampingFraction: 0.8)) {
+            botStatus = fetchedStatus
+            isBotStatusLoading = false
+        }
     }
 
     private func loadRecentActivity(guildId: String) async {
@@ -328,6 +375,51 @@ struct DashboardView: View {
 }
 
 // MARK: - Sub-components
+
+private struct BotStatusScanIndicator: View {
+    @State private var rotation: Double = 0
+    @State private var pulseScale: CGFloat = 1
+    @State private var pulseOpacity: Double = 0.55
+
+    var body: some View {
+        HStack(spacing: .spacing6) {
+            ZStack {
+                // Pulsing halo
+                Circle()
+                    .fill(Color.accentIndigo.opacity(pulseOpacity))
+                    .frame(width: 8, height: 8)
+                    .scaleEffect(pulseScale)
+                // Core dot
+                Circle()
+                    .fill(Color.accentIndigo.opacity(0.55))
+                    .frame(width: 5, height: 5)
+                // Spinning radar arc
+                Circle()
+                    .trim(from: 0, to: 0.3)
+                    .stroke(
+                        Color.accentIndigo,
+                        style: StrokeStyle(lineWidth: 1.5, lineCap: .round)
+                    )
+                    .frame(width: 10, height: 10)
+                    .rotationEffect(.degrees(rotation))
+            }
+            .frame(width: 14, height: 14)
+
+            Text("スキャン中...")
+                .font(.captionRegular)
+                .foregroundStyle(Color.textTertiary)
+        }
+        .onAppear {
+            withAnimation(.linear(duration: 1.0).repeatForever(autoreverses: false)) {
+                rotation = 360
+            }
+            withAnimation(.easeInOut(duration: 1.1).repeatForever(autoreverses: true)) {
+                pulseScale = 2.2
+                pulseOpacity = 0
+            }
+        }
+    }
+}
 
 private struct StatusDot: View {
     let isOnline: Bool

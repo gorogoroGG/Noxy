@@ -868,19 +868,41 @@ export default {
 
       const members = discordMembers
         .filter((m: any) => !m.user?.bot)
-        .map((m: any) => ({
-          id:          m.user.id,
-          guildId,
-          username:    m.user.username,
-          displayName: m.nick ?? m.user.global_name ?? m.user.username,
-          avatarUrl:   m.user.avatar
-            ? `https://cdn.discordapp.com/avatars/${m.user.id}/${m.user.avatar}.png`
-            : null,
-          roles:       (m.roles as string[]).map(id => roleMap[id]).filter(Boolean),
-          joinedAt:    m.joined_at,
-          isBoosting:  !!m.premium_since,
-          status:      "offline",
-        }));
+        .map((m: any) => {
+          const user = m.user;
+          const userId = user.id;
+          // Snowflake -> createdAt (Discord epoch: 1420070400000)
+          const createdTimestamp = ((BigInt(userId) >> 22n) + 1420070400000n);
+          const createdAt = new Date(Number(createdTimestamp)).toISOString();
+          return {
+            id:          userId,
+            guildId,
+            username:    user.username,
+            displayName: m.nick ?? user.global_name ?? user.username,
+            discriminator: user.discriminator ?? '0',
+            globalName:  user.global_name ?? null,
+            nick:        m.nick ?? null,
+            avatarUrl:   user.avatar
+              ? `https://cdn.discordapp.com/avatars/${userId}/${user.avatar}.png`
+              : null,
+            bannerUrl:   user.banner
+              ? `https://cdn.discordapp.com/banners/${userId}/${user.banner}.png`
+              : null,
+            accentColor: user.accent_color ?? null,
+            publicFlags: user.public_flags ?? 0,
+            isBot:       !!user.bot,
+            roles:       (m.roles as string[]).map(id => roleMap[id]).filter(Boolean),
+            joinedAt:    m.joined_at,
+            createdAt:   createdAt,
+            isBoosting:  !!m.premium_since,
+            boostSince:  m.premium_since ?? null,
+            isDeaf:      !!m.deaf,
+            isMute:      !!m.mute,
+            flags:       m.flags ?? 0,
+            communicationDisabledUntil: m.communication_disabled_until ?? null,
+            status:      "offline",
+          };
+        });
 
       return new Response(JSON.stringify(members), {
         headers: { "Content-Type": "application/json" },
@@ -1003,6 +1025,40 @@ export default {
           headers: { Authorization: `Bot ${env.DISCORD_BOT_TOKEN}` },
         });
         if (!resp.ok && resp.status !== 204) return new Response(await resp.text(), { status: resp.status });
+        return new Response(JSON.stringify({ success: true }), { headers: { "Content-Type": "application/json" } });
+      } catch (e) { return new Response(JSON.stringify({ error: String(e) }), { status: 500 }); }
+    }
+
+    // ── チャンネルへメッセージ送信 ────────────────────────────────
+    if (url.pathname === "/bot/send-message" && request.method === "POST") {
+      try {
+        const body = await request.json() as { guildId: string; channelId: string; content: string };
+        const resp = await fetch(`https://discord.com/api/v10/channels/${body.channelId}/messages`, {
+          method: "POST",
+          headers: {
+            Authorization: `Bot ${env.DISCORD_BOT_TOKEN}`,
+            "Content-Type": "application/json",
+          },
+          body: JSON.stringify({ content: body.content }),
+        });
+        if (!resp.ok) return new Response(await resp.text(), { status: resp.status });
+        return new Response(JSON.stringify({ success: true }), { headers: { "Content-Type": "application/json" } });
+      } catch (e) { return new Response(JSON.stringify({ error: String(e) }), { status: 500 }); }
+    }
+
+    // ── チャンネルへEmbed付きメッセージ送信 ──────────────────────
+    if (url.pathname === "/bot/send-embed" && request.method === "POST") {
+      try {
+        const body = await request.json() as { guildId: string; channelId: string; embed: any };
+        const resp = await fetch(`https://discord.com/api/v10/channels/${body.channelId}/messages`, {
+          method: "POST",
+          headers: {
+            Authorization: `Bot ${env.DISCORD_BOT_TOKEN}`,
+            "Content-Type": "application/json",
+          },
+          body: JSON.stringify({ embeds: [body.embed] }),
+        });
+        if (!resp.ok) return new Response(await resp.text(), { status: resp.status });
         return new Response(JSON.stringify({ success: true }), { headers: { "Content-Type": "application/json" } });
       } catch (e) { return new Response(JSON.stringify({ error: String(e) }), { status: 500 }); }
     }

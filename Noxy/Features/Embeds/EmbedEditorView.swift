@@ -1,5 +1,6 @@
 import SwiftUI
 import Observation
+import PhotosUI
 
 // MARK: - ViewModel
 
@@ -58,6 +59,12 @@ struct EmbedEditorView: View {
     @State private var errorMessage: String? = nil
     @State private var showCancelConfirm = false
     @State private var isPreviewExpanded = true
+    // 画像アップロード
+    @State private var thumbnailPhotoItem: PhotosPickerItem? = nil
+    @State private var imagePhotoItem: PhotosPickerItem?    = nil
+    @State private var isUploadingThumbnail = false
+    @State private var isUploadingImage     = false
+    @State private var uploadError: String? = nil
 
     let onSave: (EmbedModel) -> Void
 
@@ -201,14 +208,16 @@ struct EmbedEditorView: View {
                 .disabled(!vm.isValid)
                 .accessibilityLabel("送信")
 
-                // 保存ボタン
-                Button("保存") {
-                    saveName = vm.embed.name
-                    showSaveModal = true
+                // 保存ボタン（Proのみ）
+                if appState.isPro {
+                    Button("保存") {
+                        saveName = vm.embed.name
+                        showSaveModal = true
+                    }
+                    .fontWeight(.semibold)
+                    .foregroundStyle(vm.isOverLimit || !vm.isValid || vm.embed.hasAnyLimitViolation ? Color.textTertiary : Color.accentIndigo)
+                    .disabled(vm.isOverLimit || !vm.isValid || vm.embed.hasAnyLimitViolation || isSaving)
                 }
-                .fontWeight(.semibold)
-                .foregroundStyle(vm.isOverLimit || !vm.isValid || vm.embed.hasAnyLimitViolation ? Color.textTertiary : Color.accentIndigo)
-                .disabled(vm.isOverLimit || !vm.isValid || vm.embed.hasAnyLimitViolation || isSaving)
             }
         }
     }
@@ -316,15 +325,118 @@ struct EmbedEditorView: View {
     @ViewBuilder
     private var mediaSection: some View {
         SectionCard(title: "メディア") {
-            editorField("サムネイルURL（右上の小画像）", placeholder: "https://...", binding: Binding(
-                get: { vm.embed.thumbnailUrl ?? "" },
-                set: { vm.embed.thumbnailUrl = $0.isEmpty ? nil : $0; vm.isModified = true }
-            ), isURL: true)
-            editorField("画像URL（大きい画像）", placeholder: "https://...", binding: Binding(
-                get: { vm.embed.imageUrl ?? "" },
-                set: { vm.embed.imageUrl = $0.isEmpty ? nil : $0; vm.isModified = true }
-            ), isURL: true)
+            // サムネイル
+            VStack(alignment: .leading, spacing: .spacing8) {
+                HStack(spacing: .spacing8) {
+                    editorField("サムネイルURL（右上の小画像）", placeholder: "https://...", binding: Binding(
+                        get: { vm.embed.thumbnailUrl ?? "" },
+                        set: { vm.embed.thumbnailUrl = $0.isEmpty ? nil : $0; vm.isModified = true }
+                    ), isURL: true)
+                    if isUploadingThumbnail {
+                        ProgressView().scaleEffect(0.8).frame(width: 32)
+                    } else {
+                        PhotosPicker(selection: $thumbnailPhotoItem, matching: .images) {
+                            Image(systemName: "photo.badge.plus")
+                                .font(.system(size: 18))
+                                .foregroundStyle(Color.accentIndigo)
+                        }
+                        .frame(width: 32)
+                    }
+                }
+            }
+
+            // 大きい画像
+            VStack(alignment: .leading, spacing: .spacing8) {
+                HStack(spacing: .spacing8) {
+                    editorField("画像URL（大きい画像）", placeholder: "https://...", binding: Binding(
+                        get: { vm.embed.imageUrl ?? "" },
+                        set: { vm.embed.imageUrl = $0.isEmpty ? nil : $0; vm.isModified = true }
+                    ), isURL: true)
+                    if isUploadingImage {
+                        ProgressView().scaleEffect(0.8).frame(width: 32)
+                    } else {
+                        PhotosPicker(selection: $imagePhotoItem, matching: .images) {
+                            Image(systemName: "photo.badge.plus")
+                                .font(.system(size: 18))
+                                .foregroundStyle(Color.accentIndigo)
+                        }
+                        .frame(width: 32)
+                    }
+                }
+            }
+
+            if let err = uploadError {
+                Label(err, systemImage: "exclamationmark.triangle.fill")
+                    .font(.captionSmall).foregroundStyle(Color.accentPink)
+            }
         }
+        .onChange(of: thumbnailPhotoItem) { uploadPhoto(item: thumbnailPhotoItem, target: .thumbnail) }
+        .onChange(of: imagePhotoItem)     { uploadPhoto(item: imagePhotoItem,     target: .image) }
+    }
+
+    private enum ImageTarget { case thumbnail, image }
+
+    private func uploadPhoto(item: PhotosPickerItem?, target: ImageTarget) {
+        guard let item else { return }
+        Task {
+            switch target {
+            case .thumbnail: isUploadingThumbnail = true
+            case .image:     isUploadingImage = true
+            }
+            uploadError = nil
+            defer {
+                switch target {
+                case .thumbnail: isUploadingThumbnail = false
+                case .image:     isUploadingImage = false
+                }
+            }
+            do {
+                guard let data = try await item.loadTransferable(type: Data.self),
+                      let uiImage = UIImage(data: data),
+                      let jpeg = uiImage.jpegData(compressionQuality: 0.75) else {
+                    uploadError = "画像の読み込みに失敗しました"
+                    return
+                }
+                let url = try await uploadImageData(jpeg)
+                await MainActor.run {
+                    switch target {
+                    case .thumbnail:
+                        vm.embed.thumbnailUrl = url
+                    case .image:
+                        vm.embed.imageUrl = url
+                    }
+                    vm.isModified = true
+                }
+            } catch {
+                await MainActor.run { uploadError = "アップロード失敗: \(error.localizedDescription)" }
+            }
+        }
+    }
+
+    private func uploadImageData(_ data: Data) async throws -> String {
+        let endpoint = "\(DiscordConfig.workerURL)/upload/image"
+        guard let url = URL(string: endpoint) else { throw URLError(.badURL) }
+        var request = URLRequest(url: url, timeoutInterval: 30)
+        request.httpMethod = "POST"
+        let boundary = "Boundary-\(UUID().uuidString)"
+        request.setValue("multipart/form-data; boundary=\(boundary)", forHTTPHeaderField: "Content-Type")
+        if !DiscordConfig.workerAPISecret.isEmpty {
+            request.setValue(DiscordConfig.workerAPISecret, forHTTPHeaderField: "X-Bot-Secret")
+        }
+        var body = Data()
+        body.append("--\(boundary)\r\n".data(using: .utf8)!)
+        body.append("Content-Disposition: form-data; name=\"file\"; filename=\"image.jpg\"\r\n".data(using: .utf8)!)
+        body.append("Content-Type: image/jpeg\r\n\r\n".data(using: .utf8)!)
+        body.append(data)
+        body.append("\r\n--\(boundary)--\r\n".data(using: .utf8)!)
+        request.httpBody = body
+        let (respData, response) = try await URLSession.shared.data(for: request)
+        guard let http = response as? HTTPURLResponse, (200..<300).contains(http.statusCode) else {
+            throw URLError(.badServerResponse)
+        }
+        struct UploadResponse: Decodable { let url: String }
+        let decoded = try JSONDecoder().decode(UploadResponse.self, from: respData)
+        return decoded.url
     }
 
     @ViewBuilder

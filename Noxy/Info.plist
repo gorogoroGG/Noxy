@@ -41,6 +41,21 @@
 			</dict>
 		</dict>
 	</dict>
+	<!-- App Icon（Asset Catalog から読み込み） -->
+	<key>CFBundleIconName</key>
+	<string>AppIcon</string>
+	<key>CFBundleIcons</key>
+	<dict>
+		<key>CFBundlePrimaryIcon</key>
+		<dict>
+			<key>CFBundleIconName</key>
+			<string>AppIcon</string>
+			<key>CFBundleIconFiles</key>
+			<array/>
+			<key>UIPrerenderedIcon</key>
+			<false/>
+		</dict>
+	</dict>
 	<!-- Discord OAuth コールバック用 URL スキーム -->
 	<key>CFBundleURLTypes</key>
 	<array>

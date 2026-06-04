@@ -16,6 +16,12 @@ final class AppState {
     /// 利用可能なギルド一覧（DashboardView がロード後に書き込む）
     var guilds: [Guild] = []
 
+    /// サブスクリプション状態（MainTabView がロード後に書き込む）
+    var subscriptionStatus: SubscriptionStatus = .inactive
+
+    /// Pro プランが有効かどうか
+    var isPro: Bool { subscriptionStatus.isActive }
+
     /// サーバー切り替え中フラグ（trueのとき全画面ローディングを表示）
     var isSwitchingServer = false
 

@@ -146,9 +146,14 @@ actor MockMemberService: MemberServiceProtocol {
         if !updated.roles.contains(roleId) {
             let newRoles = updated.roles + [roleId]
             updated = Member(id: updated.id, guildId: updated.guildId, username: updated.username,
-                             displayName: updated.displayName, avatarUrl: updated.avatarUrl,
-                             roles: newRoles, joinedAt: updated.joinedAt,
-                             isBoosting: updated.isBoosting, status: updated.status)
+                             displayName: updated.displayName,
+                             discriminator: updated.discriminator, globalName: updated.globalName, nick: updated.nick,
+                             avatarUrl: updated.avatarUrl, bannerUrl: updated.bannerUrl,
+                             accentColor: updated.accentColor, publicFlags: updated.publicFlags, isBot: updated.isBot,
+                             roles: newRoles, joinedAt: updated.joinedAt, createdAt: updated.createdAt,
+                             isBoosting: updated.isBoosting, boostSince: updated.boostSince,
+                             isDeaf: updated.isDeaf, isMute: updated.isMute, flags: updated.flags,
+                             communicationDisabledUntil: updated.communicationDisabledUntil, status: updated.status)
             members[idx] = updated
         }
     }
@@ -159,9 +164,14 @@ actor MockMemberService: MemberServiceProtocol {
         var updated = members[idx]
         let newRoles = updated.roles.filter { $0 != roleId }
         updated = Member(id: updated.id, guildId: updated.guildId, username: updated.username,
-                         displayName: updated.displayName, avatarUrl: updated.avatarUrl,
-                         roles: newRoles, joinedAt: updated.joinedAt,
-                         isBoosting: updated.isBoosting, status: updated.status)
+                         displayName: updated.displayName,
+                         discriminator: updated.discriminator, globalName: updated.globalName, nick: updated.nick,
+                         avatarUrl: updated.avatarUrl, bannerUrl: updated.bannerUrl,
+                         accentColor: updated.accentColor, publicFlags: updated.publicFlags, isBot: updated.isBot,
+                         roles: newRoles, joinedAt: updated.joinedAt, createdAt: updated.createdAt,
+                         isBoosting: updated.isBoosting, boostSince: updated.boostSince,
+                         isDeaf: updated.isDeaf, isMute: updated.isMute, flags: updated.flags,
+                         communicationDisabledUntil: updated.communicationDisabledUntil, status: updated.status)
         members[idx] = updated
     }
 }
@@ -398,13 +408,16 @@ actor MockBotService: BotServiceProtocol {
 
     func fetchStatus() async throws -> BotStatus {
         let workerURL = await MainActor.run { DiscordConfig.workerURL }
+        let apiSecret = await MainActor.run { DiscordConfig.workerAPISecret }
         var isOnline = false
         var latency = 0
         var guildCount = 0
         if let url = URL(string: "\(workerURL)/bot/guilds") {
             let start = Date()
             do {
-                let (data, resp) = try await URLSession.shared.data(from: url)
+                var req = URLRequest(url: url, timeoutInterval: 10)
+                req.setValue(apiSecret, forHTTPHeaderField: "X-Bot-Secret")
+                let (data, resp) = try await URLSession.shared.data(for: req)
                 if let http = resp as? HTTPURLResponse, http.statusCode == 200 {
                     isOnline = true
                     latency = Int(Date().timeIntervalSince(start) * 1000)

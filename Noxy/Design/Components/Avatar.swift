@@ -32,21 +32,24 @@ struct Avatar: View {
 
     var body: some View {
         ZStack(alignment: .bottomTrailing) {
-            Circle()
-                .fill(
-                    LinearGradient(
-                        colors: [accentColor, accentColor.opacity(0.6)],
-                        startPoint: .topLeading,
-                        endPoint: .bottomTrailing
-                    )
-                )
-                .frame(width: size, height: size)
-                .overlay {
-                    Text(initials)
-                        .font(.system(size: size * 0.32))
-                        .bold()
-                        .foregroundStyle(.white)
+            if let imageUrl, let url = URL(string: imageUrl) {
+                AsyncImage(url: url) { phase in
+                    switch phase {
+                    case .success(let image):
+                        image
+                            .resizable()
+                            .scaledToFill()
+                            .frame(width: size, height: size)
+                            .clipShape(Circle())
+                    case .failure, .empty:
+                        fallbackAvatar
+                    @unknown default:
+                        fallbackAvatar
+                    }
                 }
+            } else {
+                fallbackAvatar
+            }
 
             if let status {
                 Circle()
@@ -55,6 +58,24 @@ struct Avatar: View {
                     .overlay(Circle().strokeBorder(Color.bgPrimary, lineWidth: 2))
             }
         }
+    }
+
+    private var fallbackAvatar: some View {
+        Circle()
+            .fill(
+                LinearGradient(
+                    colors: [accentColor, accentColor.opacity(0.6)],
+                    startPoint: .topLeading,
+                    endPoint: .bottomTrailing
+                )
+            )
+            .frame(width: size, height: size)
+            .overlay {
+                Text(initials)
+                    .font(.system(size: size * 0.32))
+                    .bold()
+                    .foregroundStyle(.white)
+            }
     }
 }
 

@@ -85,11 +85,20 @@ struct WelcomeMessageView: View {
                         // DM
                         GreetingRow(label: "ダイレクトメッセージ", icon: "envelope.fill", color: Color.accentGreen) {
                             VStack(alignment: .leading, spacing: .spacing10) {
-                                Toggle("新メンバーにDMを送信", isOn: $welcomeDmEnabled.animation())
-                                    .tint(Color.accentGreen)
-                                    .font(.bodySmall)
-
-                                if welcomeDmEnabled {
+                                HStack {
+                                    Toggle("新メンバーにDMを送信", isOn: $welcomeDmEnabled.animation())
+                                        .tint(Color.accentGreen)
+                                        .font(.bodySmall)
+                                        .disabled(!appState.isPro)
+                                    if !appState.isPro {
+                                        Badge(text: "Pro", color: .accentOrange)
+                                    }
+                                }
+                                if !appState.isPro {
+                                    Text("Proプランで利用可能")
+                                        .font(.captionSmall)
+                                        .foregroundStyle(Color.textTertiary)
+                                } else if welcomeDmEnabled {
                                     messageEditor(text: $welcomeDmMessage, placeholder: "DMメッセージを入力...", color: Color.accentGreen)
                                     variableChips(for: $welcomeDmMessage, variables: welcomeVars, color: Color.accentGreen)
                                     dmPreview(
@@ -107,11 +116,20 @@ struct WelcomeMessageView: View {
                         // ロール付与
                         GreetingRow(label: "参加時ロール付与", icon: "person.badge.plus.fill", color: Color.accentGreen) {
                             VStack(alignment: .leading, spacing: .spacing10) {
-                                Toggle("参加時にロールを付与", isOn: $welcomeRoleEnabled.animation())
-                                    .tint(Color.accentGreen)
-                                    .font(.bodySmall)
-
-                                if welcomeRoleEnabled {
+                                HStack {
+                                    Toggle("参加時にロールを付与", isOn: $welcomeRoleEnabled.animation())
+                                        .tint(Color.accentGreen)
+                                        .font(.bodySmall)
+                                        .disabled(!appState.isPro)
+                                    if !appState.isPro {
+                                        Badge(text: "Pro", color: .accentOrange)
+                                    }
+                                }
+                                if !appState.isPro {
+                                    Text("Proプランで利用可能")
+                                        .font(.captionSmall)
+                                        .foregroundStyle(Color.textTertiary)
+                                } else if welcomeRoleEnabled {
                                     rolePicker(id: $welcomeRoleId, name: $welcomeRoleName)
                                     if !welcomeRoleName.isEmpty {
                                         Label("全参加者に @\(welcomeRoleName) を付与します", systemImage: "checkmark.circle.fill")
@@ -170,11 +188,20 @@ struct WelcomeMessageView: View {
 
                         GreetingRow(label: "ダイレクトメッセージ", icon: "envelope.fill", color: Color.accentPink) {
                             VStack(alignment: .leading, spacing: .spacing10) {
-                                Toggle("退室前にDMを送信", isOn: $goodbyeDmEnabled.animation())
-                                    .tint(Color.accentPink)
-                                    .font(.bodySmall)
-
-                                if goodbyeDmEnabled {
+                                HStack {
+                                    Toggle("退室前にDMを送信", isOn: $goodbyeDmEnabled.animation())
+                                        .tint(Color.accentPink)
+                                        .font(.bodySmall)
+                                        .disabled(!appState.isPro)
+                                    if !appState.isPro {
+                                        Badge(text: "Pro", color: .accentOrange)
+                                    }
+                                }
+                                if !appState.isPro {
+                                    Text("Proプランで利用可能")
+                                        .font(.captionSmall)
+                                        .foregroundStyle(Color.textTertiary)
+                                } else if goodbyeDmEnabled {
                                     messageEditor(text: $goodbyeDmMessage, placeholder: "DMメッセージを入力...", color: Color.accentPink)
                                     variableChips(for: $goodbyeDmMessage, variables: goodbyeVars, color: Color.accentPink)
                                     dmPreview(

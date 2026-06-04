@@ -25,7 +25,9 @@ struct EmbedListView: View {
     var body: some View {
         ZStack(alignment: .bottomTrailing) {
             Group {
-                if isLoading {
+                if !appState.isPro {
+                    freeUserView
+                } else if isLoading {
                     ProgressView().frame(maxWidth: .infinity, maxHeight: .infinity)
                 } else if filtered.isEmpty {
                     EmptyStateView(
@@ -62,7 +64,7 @@ struct EmbedListView: View {
             .background(Color.bgPrimary)
 
             // FAB（リストが空のときはEmptyStateViewのボタンがあるので非表示）
-            if !isLoading && !filtered.isEmpty {
+            if appState.isPro && !isLoading && !filtered.isEmpty {
                 Button {
                     editingEmbed = nil
                     showEditor = true
@@ -108,6 +110,59 @@ struct EmbedListView: View {
         .toast($toast)
         .task { await load() }
         .onChange(of: appState.selectedGuildId) { Task { await load() } }
+    }
+
+    // MARK: - Free User View
+
+    private var freeUserView: some View {
+        ScrollView {
+            VStack(spacing: .spacing20) {
+                // Info card
+                HStack(alignment: .top, spacing: .spacing12) {
+                    Image(systemName: "info.circle.fill")
+                        .foregroundStyle(Color.accentIndigo)
+                        .font(.title3)
+                    VStack(alignment: .leading, spacing: .spacing4) {
+                        Text("送信専用モード")
+                            .font(.titleMedium)
+                            .foregroundStyle(Color.textPrimary)
+                        Text("無料プランではEmbedの保存ができません。作成したEmbedは直接送信できます。")
+                            .font(.bodySmall)
+                            .foregroundStyle(Color.textSecondary)
+                    }
+                }
+                .padding(.spacing16)
+                .background(Color.accentIndigo.opacity(0.08))
+                .clipShape(RoundedRectangle(cornerRadius: .cornerRadiusMedium))
+
+                // Send button
+                Button {
+                    editingEmbed = nil
+                    showEditor = true
+                } label: {
+                    HStack(spacing: .spacing8) {
+                        Image(systemName: "paperplane.fill")
+                        Text("新しいEmbedを作成・送信")
+                            .fontWeight(.semibold)
+                    }
+                    .foregroundStyle(.white)
+                    .frame(maxWidth: .infinity)
+                    .frame(height: 52)
+                    .background(Color.accentIndigo)
+                    .clipShape(RoundedRectangle(cornerRadius: .cornerRadiusMedium))
+                }
+                .buttonStyle(ScalePressButtonStyle())
+
+                // Upgrade link
+                NavigationLink(destination: SubscriptionView()) {
+                    Text("保存するにはProへアップグレード")
+                        .font(.captionRegular)
+                        .foregroundStyle(Color.accentOrange)
+                        .underline()
+                }
+            }
+            .padding()
+        }
     }
 
     // MARK: - Actions

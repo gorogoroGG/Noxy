@@ -220,18 +220,28 @@ private func saveSession(_ session: AuthSession) {
 private struct SupabaseUserResponse: Decodable {
     let id: String
     let email: String?
+
     struct UserMetadata: Decodable {
         let fullName: String?
         let name: String?
         let preferredUsername: String?
         let avatarUrl: String?
-        let providerId: String?
+        let providerId: String?  // Discord ID が入っていることが多い
         let sub: String?
     }
+
+    struct Identity: Decodable {
+        struct IdentityData: Decodable {
+            let sub: String?  // Discord ID
+        }
+        let identityData: IdentityData?
+    }
+
     let userMetadata: UserMetadata?
+    let identities: [Identity]?
 
     enum CodingKeys: String, CodingKey {
-        case id, email
+        case id, email, identities
         case userMetadata = "user_metadata"
     }
 }
@@ -253,18 +263,27 @@ private func fetchSupabaseUser(accessToken: String) async throws -> User {
                    ?? supaUser.email
                    ?? supaUser.id
     let avatarUrl = supaUser.userMetadata?.avatarUrl
-    // Discord の provider_id を discord_user_id として保存（一致確認用）
+    // Discord ID の取得優先順位を Worker の verifySupabaseJwt と完全に一致させる
+    //   1. user_metadata.provider_id
+    //   2. user_metadata.sub
+    //   3. identities[0].identity_data.sub  ← Worker と同じパスを追加
+    //   Supabase UUID にはフォールバックしない（Worker が見つけられず不一致になるため）
     let discordId = supaUser.userMetadata?.providerId
                     ?? supaUser.userMetadata?.sub
-                    ?? supaUser.id
-    KeychainHelper.save(discordId,  forKey: "discord_user_id")
+                    ?? supaUser.identities?.first?.identityData?.sub
+
+    if let id = discordId {
+        KeychainHelper.save(id, forKey: "discord_user_id")
+    }
+    // discordId が取れなかった場合は既存の Keychain 値を維持する（fetchDiscordUser で保存済みなら正しい）
+    let resolvedId = discordId ?? KeychainHelper.load(forKey: "discord_user_id") ?? supaUser.id
     KeychainHelper.save(username,   forKey: "discord_username")
     if let avatar = avatarUrl {
         KeychainHelper.save(avatar, forKey: "discord_avatar")
     }
     return User(
-        id: discordId,
-        discordId: discordId,
+        id: resolvedId,
+        discordId: resolvedId,
         username: username,
         displayName: username,
         avatarUrl: avatarUrl,

@@ -260,7 +260,7 @@ private struct MemberCard: View {
     var body: some View {
         HStack(spacing: .spacing12) {
             ZStack(alignment: .bottomTrailing) {
-                Avatar(name: member.displayName, size: 48, accentColor: member.isBoosting ? .accentPink : .accentIndigo)
+                Avatar(imageUrl: member.avatarUrl, name: member.displayName, size: 48, accentColor: member.isBoosting ? .accentPink : .accentIndigo)
                 Circle().fill(member.status.color).frame(width: 14, height: 14)
                     .overlay(Circle().strokeBorder(Color(.secondarySystemGroupedBackground), lineWidth: 2)).offset(x: 2, y: 2)
             }.frame(width: 52, height: 52)
@@ -302,11 +302,14 @@ struct MemberDetailView: View {
     let onAction: (MemberAction) -> Void
 
     @Environment(\.dismiss) private var dismiss
+    @Environment(\.services) private var services
+    @Environment(AppState.self) private var appState
     @State private var showDMSheet = false
     @State private var showRoleSheet = false
     @State private var showTimeoutSheet = false
     @State private var showKickSheet = false
     @State private var showBanSheet = false
+    @State private var toast: String? = nil
 
     var body: some View {
         NavigationStack {
@@ -329,6 +332,19 @@ struct MemberDetailView: View {
                     Button("閉じる") { dismiss() }.foregroundStyle(Color.accentIndigo)
                 }
             }
+            .overlay(alignment: .bottom) {
+                if let toast {
+                    toastView(toast)
+                        .padding(.bottom, 20)
+                        .transition(.move(edge: .bottom).combined(with: .opacity))
+                        .onAppear {
+                            DispatchQueue.main.asyncAfter(deadline: .now() + 2.0) {
+                                withAnimation { self.toast = nil }
+                            }
+                        }
+                }
+            }
+            .animation(.easeInOut(duration: 0.2), value: toast)
         }
         .sheet(isPresented: $showDMSheet) {
             SendDMSheet(member: member) { msg in onAction(.sendDM(message: msg)); dismiss() }
@@ -349,10 +365,10 @@ struct MemberDetailView: View {
 
     private var profileHeader: some View {
         ZStack(alignment: .bottom) {
-            LinearGradient(colors: [member.isBoosting ? Color.accentPink.opacity(0.5) : Color.accentIndigo.opacity(0.5), Color(.systemGroupedBackground)], startPoint: .top, endPoint: .bottom).frame(height: 200)
+            LinearGradient(colors: [member.isBoosting ? Color.accentPink.opacity(0.5) : Color.accentIndigo.opacity(0.5), Color(.systemGroupedBackground)], startPoint: .top, endPoint: .bottom).frame(height: 220)
             VStack(spacing: .spacing12) {
                 ZStack(alignment: .bottomTrailing) {
-                    Avatar(name: member.displayName, size: 84, accentColor: member.isBoosting ? .accentPink : .accentIndigo)
+                    Avatar(imageUrl: member.avatarUrl, name: member.displayName, size: 84, accentColor: member.isBoosting ? .accentPink : .accentIndigo)
                         .overlay(Circle().strokeBorder(Color(.systemGroupedBackground), lineWidth: 4))
                     Circle().fill(member.status.color).frame(width: 22, height: 22)
                         .overlay(Circle().strokeBorder(Color(.systemGroupedBackground), lineWidth: 3)).offset(x: 2, y: 2)
@@ -363,6 +379,9 @@ struct MemberDetailView: View {
                         if member.isBoosting { Image(systemName: "bolt.fill").foregroundStyle(Color.accentPink) }
                     }
                     Text("@\(member.username)").font(.bodySmall).foregroundStyle(Color.textSecondary)
+                    if member.discriminator != "0" {
+                        Text("#\(member.discriminator)").font(.captionSmall).foregroundStyle(Color.textTertiary)
+                    }
                     HStack(spacing: 5) {
                         Circle().fill(member.status.color).frame(width: 8, height: 8)
                         Text(member.status.label).font(.captionSmall).fontWeight(.medium).foregroundStyle(member.status.color)
@@ -374,13 +393,37 @@ struct MemberDetailView: View {
 
     private var infoCard: some View {
         VStack(spacing: 0) {
-            cardHeader("情報", icon: "info.circle.fill", color: .accentIndigo)
+            cardHeader("ユーザー情報", icon: "info.circle.fill", color: .accentIndigo)
             Divider()
-            infoRow("参加日", value: member.joinedAt.formatted(date: .long, time: .omitted))
+            infoRow("ID", value: member.id)
             Divider().padding(.leading, .spacing16)
-            infoRow("ブースト", value: member.isBoosting ? "ブースト中 ⚡️" : "なし")
+            infoRow("ユーザー名", value: member.fullUsername)
             Divider().padding(.leading, .spacing16)
+            if let nick = member.nick, !nick.isEmpty {
+                infoRow("サーバーニックネーム", value: nick)
+                Divider().padding(.leading, .spacing16)
+            }
+            infoRow("アカウント作成日", value: member.createdAt.formatted(date: .long, time: .shortened))
+            Divider().padding(.leading, .spacing16)
+            infoRow("サーバー参加日", value: member.joinedAt.formatted(date: .long, time: .shortened))
+            Divider().padding(.leading, .spacing16)
+            infoRow("ブースト", value: member.isBoosting ? (member.boostSince != nil ? "ブースト中 ⚡️" : "ブースト中") : "なし")
+            Divider().padding(.leading, .spacing16)
+            if member.isDeaf {
+                infoRow("音声", value: "スピーカーミュート 🔇")
+                Divider().padding(.leading, .spacing16)
+            }
+            if member.isMute {
+                infoRow("マイク", value: "ミュート 🎤")
+                Divider().padding(.leading, .spacing16)
+            }
+            if let until = member.communicationDisabledUntil {
+                infoRow("タイムアウト", value: "\(until.formatted(date: .abbreviated, time: .shortened)) まで ⏳")
+                Divider().padding(.leading, .spacing16)
+            }
             infoRow("ロール数", value: "\(member.roles.count)個")
+            Divider().padding(.leading, .spacing16)
+            infoRow("Bot", value: member.isBot ? "はい 🤖" : "いいえ")
         }
         .background(Color(.secondarySystemGroupedBackground))
         .clipShape(RoundedRectangle(cornerRadius: 14))
@@ -460,7 +503,28 @@ struct MemberDetailView: View {
             Text(label).font(.bodySmall).foregroundStyle(Color.textSecondary)
             Spacer()
             Text(value).font(.bodySmall).fontWeight(.medium).foregroundStyle(Color.textPrimary)
-        }.padding(.horizontal, .spacing16).padding(.vertical, .spacing12)
+                .multilineTextAlignment(.trailing)
+        }
+        .padding(.horizontal, .spacing16).padding(.vertical, .spacing12)
+        .contentShape(Rectangle())
+        .onLongPressGesture {
+            UIPasteboard.general.string = value
+            UIImpactFeedbackGenerator(style: .light).impactOccurred()
+            withAnimation { toast = "\(label)をコピーしました" }
+            DispatchQueue.main.asyncAfter(deadline: .now() + 2.0) {
+                withAnimation { toast = nil }
+            }
+        }
+    }
+
+    private func toastView(_ message: String) -> some View {
+        HStack(spacing: .spacing8) {
+            Image(systemName: "checkmark.circle.fill").foregroundStyle(.white)
+            Text(message).font(.captionRegular).fontWeight(.semibold).foregroundStyle(.white)
+        }
+        .padding(.horizontal, .spacing20).frame(height: 44)
+        .background(Color.accentGreen).clipShape(Capsule())
+        .shadow(color: .black.opacity(0.15), radius: 8, y: 4)
     }
 
     private func actionButton(icon: String, label: String, description: String, color: Color, isDestructive: Bool = false, action: @escaping () -> Void) -> some View {

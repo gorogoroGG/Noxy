@@ -204,9 +204,36 @@ private struct ShopDeployChannelPickerSheet: View {
     @State private var channels: [(id: String, name: String)] = []
     @State private var isLoading = true
 
+    /// ショップ内容を EmbedData に変換してプレビュー用に使う
+    private var shopEmbedPreview: EmbedData {
+        let accentColor = Color(uiColor: UIColor(hex: UInt32(shop.color)))
+        return EmbedData(
+            color: accentColor,
+            botName: "Noxy",
+            messageContent: nil,
+            title: "🛒 \(shop.name)",
+            description: shop.description.isEmpty ? nil : shop.description,
+            fields: [],
+            footerText: "商品を選択して注文してください"
+        )
+    }
+
     var body: some View {
         NavigationStack {
             List {
+                // ─── Embed プレビュー ───
+                Section {
+                    EmbedPreviewCard(embed: shopEmbedPreview)
+                        .listRowInsets(EdgeInsets(top: 8, leading: 16, bottom: 8, trailing: 16))
+                } header: {
+                    HStack(spacing: 4) {
+                        Image(systemName: "eye.fill").font(.captionSmall)
+                        Text("送信されるEmbedのプレビュー")
+                    }
+                } footer: {
+                    Text("Discordに投稿されるショップパネルのイメージです。実際の商品一覧はBot側で自動的に追加されます。")
+                }
+
                 if isLoading {
                     HStack { Spacer(); ProgressView(); Spacer() }
                         .listRowBackground(Color(.systemGroupedBackground))
