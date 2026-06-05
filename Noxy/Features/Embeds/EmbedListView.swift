@@ -29,7 +29,7 @@ struct EmbedListView: View {
                     freeUserView
                 } else if isLoading {
                     ProgressView().frame(maxWidth: .infinity, maxHeight: .infinity)
-                } else if filtered.isEmpty {
+                } else if filtered.isEmpty && searchText.isEmpty {
                     EmptyStateView(
                         icon: "rectangle.stack.badge.plus",
                         title: "Embedがありません",
@@ -39,31 +39,49 @@ struct EmbedListView: View {
                         editingEmbed = nil
                         showEditor = true
                     }
+                } else if filtered.isEmpty {
+                    VStack(spacing: .spacing8) {
+                        Image(systemName: "magnifyingglass")
+                            .font(.system(size: 32))
+                            .foregroundStyle(Color.textTertiary)
+                        Text("「\(searchText)」に一致するEmbedがありません")
+                            .font(.bodySmall)
+                            .foregroundStyle(Color.textSecondary)
+                    }
+                    .frame(maxWidth: .infinity, maxHeight: .infinity)
                 } else {
-                    ScrollView {
-                        LazyVStack(spacing: .spacing12) {
-                            ForEach(filtered) { embed in
-                                EmbedCard(embed: embed) {
-                                    embedToSend = embed
-                                } onEdit: {
-                                    editingEmbed = embed
-                                    showEditor = true
-                                } onDuplicate: {
-                                    duplicateEmbed(embed)
-                                } onDelete: {
+                    List {
+                        ForEach(filtered) { embed in
+                            EmbedCard(
+                                embed: embed,
+                                onSend: { embedToSend = embed },
+                                onEdit: { editingEmbed = embed; showEditor = true },
+                                onDuplicate: { duplicateEmbed(embed) }
+                            )
+                            .listRowInsets(EdgeInsets(top: 6, leading: 16, bottom: 6, trailing: 16))
+                            .listRowBackground(Color.clear)
+                            .listRowSeparator(.hidden)
+                            .swipeActions(edge: .trailing, allowsFullSwipe: false) {
+                                Button(role: .destructive) {
                                     deleteTarget = embed
                                     showDeleteConfirm = true
+                                } label: {
+                                    Label("削除", systemImage: "trash")
                                 }
                             }
                         }
-                        .padding()
-                        .padding(.bottom, 80)  // FAB分の余白
+                        // FAB 分の余白
+                        Color.clear
+                            .frame(height: 80)
+                            .listRowBackground(Color.clear)
+                            .listRowSeparator(.hidden)
                     }
+                    .listStyle(.plain)
+                    .scrollContentBackground(.hidden)
                 }
             }
             .background(Color.bgPrimary)
 
-            // FAB（リストが空のときはEmptyStateViewのボタンがあるので非表示）
             if appState.isPro && !isLoading && !filtered.isEmpty {
                 Button {
                     editingEmbed = nil
@@ -81,7 +99,7 @@ struct EmbedListView: View {
                 .padding(.bottom, .spacing24)
             }
         }
-        .navigationTitle("埋め込みメッセージ")
+        .navigationTitle("Embed")
         .navigationBarTitleDisplayMode(.large)
         .searchable(text: $searchText, prompt: "Embedを検索")
         .sheet(isPresented: $showEditor, onDismiss: { Task { await load() } }) {
@@ -117,7 +135,6 @@ struct EmbedListView: View {
     private var freeUserView: some View {
         ScrollView {
             VStack(spacing: .spacing20) {
-                // Info card
                 HStack(alignment: .top, spacing: .spacing12) {
                     Image(systemName: "info.circle.fill")
                         .foregroundStyle(Color.accentIndigo)
@@ -135,7 +152,6 @@ struct EmbedListView: View {
                 .background(Color.accentIndigo.opacity(0.08))
                 .clipShape(RoundedRectangle(cornerRadius: .cornerRadiusMedium))
 
-                // Send button
                 Button {
                     editingEmbed = nil
                     showEditor = true
@@ -153,7 +169,6 @@ struct EmbedListView: View {
                 }
                 .buttonStyle(ScalePressButtonStyle())
 
-                // Upgrade link
                 NavigationLink(destination: SubscriptionView()) {
                     Text("保存するにはProへアップグレード")
                         .font(.captionRegular)
@@ -235,7 +250,6 @@ private struct EmbedCard: View {
     let onSend: () -> Void
     let onEdit: () -> Void
     let onDuplicate: () -> Void
-    let onDelete: () -> Void
 
     private var accentColor: Color {
         Color(uiColor: UIColor(hex: embed.colorHex))
@@ -243,59 +257,64 @@ private struct EmbedCard: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: 0) {
-            // カラーバー + メタ情報
-            HStack(spacing: .spacing12) {
+            // ヘッダー: カラーバー + 名前 + メニュー
+            HStack(spacing: .spacing10) {
                 RoundedRectangle(cornerRadius: 2)
                     .fill(accentColor)
-                    .frame(width: 4, height: 24)
+                    .frame(width: 4, height: 20)
 
-                VStack(alignment: .leading, spacing: 3) {
-                    Text(embed.name)
-                        .font(.titleMedium)
-                        .foregroundStyle(Color.textPrimary)
-                        .lineLimit(1)
-                }
+                Text(embed.name.isEmpty ? "名前なし" : embed.name)
+                    .font(.titleMedium)
+                    .foregroundStyle(embed.name.isEmpty ? Color.textTertiary : Color.textPrimary)
+                    .lineLimit(1)
 
                 Spacer()
+
+                Menu {
+                    Button { onEdit() } label: {
+                        Label("編集", systemImage: "pencil")
+                    }
+                    Button { onDuplicate() } label: {
+                        Label("複製", systemImage: "doc.on.doc")
+                    }
+                } label: {
+                    Image(systemName: "ellipsis.circle")
+                        .font(.system(size: 20))
+                        .foregroundStyle(Color.textTertiary)
+                }
             }
             .padding(.horizontal, .spacing12)
-            .padding(.vertical, .spacing12)
+            .padding(.top, .spacing12)
+            .padding(.bottom, .spacing8)
 
-            // Embed プレビュー（コンパクト）
+            // プレビュー
             if embed.title != nil || embed.description != nil || !embed.fields.isEmpty {
                 EmbedPreviewCard(embed: .from(embed))
                     .padding(.horizontal, .spacing12)
                     .padding(.bottom, .spacing12)
             }
 
-            Divider().background(Color.border)
-
-            // アクションボタン（送信・編集・複製・削除）
-            HStack(spacing: 0) {
-                ForEach([
-                    ("paperplane.fill", "送信", Color.accentIndigo, onSend),
-                    ("pencil", "編集", Color.textSecondary, onEdit),
-                    ("doc.on.doc", "複製", Color.textSecondary, onDuplicate),
-                    ("trash", "削除", Color.accentPink, onDelete),
-                ] as [(String, String, Color, () -> Void)], id: \.1) { icon, label, color, action in
-                    Button(action: action) {
-                        VStack(spacing: 3) {
-                            Image(systemName: icon)
-                                .font(.system(size: 14))
-                                .foregroundStyle(color)
-                            Text(label)
-                                .font(.captionSmall)
-                                .foregroundStyle(color)
-                        }
-                        .frame(maxWidth: .infinity)
-                        .padding(.vertical, .spacing8)
-                    }
-                    .buttonStyle(.plain)
-                    if label != "削除" {
-                        Divider().frame(height: 24)
-                    }
+            // 送信ボタン
+            Button(action: onSend) {
+                HStack(spacing: .spacing6) {
+                    Image(systemName: "paperplane.fill")
+                        .font(.system(size: 13))
+                    Text("このEmbedを送信")
+                        .font(.bodySmall)
+                        .fontWeight(.semibold)
                 }
+                .foregroundStyle(.white)
+                .frame(maxWidth: .infinity)
+                .frame(height: 40)
+                .background(accentColor)
+                .clipShape(
+                    UnevenRoundedRectangle(
+                        bottomLeadingRadius: .cornerRadiusMedium,
+                        bottomTrailingRadius: .cornerRadiusMedium
+                    )
+                )
             }
+            .buttonStyle(.plain)
         }
         .background(Color.bgSurface)
         .clipShape(RoundedRectangle(cornerRadius: .cornerRadiusMedium))
@@ -306,5 +325,6 @@ private struct EmbedCard: View {
     NavigationStack {
         EmbedListView()
             .environment(\.services, ServiceContainer.live())
+            .environment(AppState())
     }
 }

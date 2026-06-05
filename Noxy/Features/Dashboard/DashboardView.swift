@@ -13,7 +13,6 @@ struct DashboardView: View {
     @State private var showGuildPicker = false
     @State private var showCreateEmbed = false
     @State private var showTickets = false
-    @State private var showSchedule = false
     @State private var showMembers = false
 
     var body: some View {
@@ -61,7 +60,7 @@ struct DashboardView: View {
             }
             .sheet(isPresented: $showTickets) {
                 NavigationStack {
-                    TicketsListView(guildId: appState.selectedGuildId)
+                    TicketsCoordinatorView(guildId: appState.selectedGuildId)
                         .navigationTitle("チケット一覧")
                         .toolbar {
                             ToolbarItem(placement: .topBarTrailing) {
@@ -69,9 +68,6 @@ struct DashboardView: View {
                             }
                         }
                 }
-            }
-            .sheet(isPresented: $showSchedule) {
-                ScheduleMessageView { _ in } onCreateTemplate: { }
             }
             .sheet(isPresented: $showMembers) {
                 NavigationStack {
@@ -241,13 +237,6 @@ struct DashboardView: View {
                     subtitle: "サポート対応",
                     color: .accentOrange
                 ) { showTickets = true }
-
-                QuickActionCard(
-                    icon: "calendar.badge.plus",
-                    title: "予約送信",
-                    subtitle: "後で送る",
-                    color: .accentGreen
-                ) { showSchedule = true }
 
                 QuickActionCard(
                     icon: "person.3.fill",

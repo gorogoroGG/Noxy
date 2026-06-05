@@ -7,6 +7,7 @@ protocol TicketServiceProtocol: Sendable {
     func create(guildId: String, subject: String) async throws -> Ticket
     func close(id: String) async throws
     func reopen(id: String) async throws
+    func setStatus(id: String, status: TicketStatus) async throws
     func updatePriority(id: String, priority: TicketPriority) async throws
     func fetchMessages(ticketId: String) async throws -> [TicketMessage]
     func reply(ticketId: String, message: String) async throws

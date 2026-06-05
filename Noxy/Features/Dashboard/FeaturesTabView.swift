@@ -32,53 +32,6 @@ struct FeaturesTabView: View {
                 )
             }
 
-            NavigationLink {
-                if appState.isPro {
-                    ScheduledMessagesListView()
-                } else {
-                    ProUpgradeView(
-                        featureIcon: "clock.fill",
-                        featureTitle: "予約投稿",
-                        description: "指定時刻に自動でメッセージを送信できます",
-                        proFeatures: [
-                            ("📅", "日時指定で自動送信"),
-                            ("🔁", "繰り返し投稿"),
-                            ("📝", "Embedテンプレート使用"),
-                        ]
-                    )
-                }
-            } label: {
-                FeatureRow(
-                    icon: "clock.fill",
-                    title: "予約投稿",
-                    subtitle: "指定時刻にメッセージを送信",
-                    badge: appState.isPro ? nil : "Pro"
-                )
-            }
-
-            NavigationLink {
-                if appState.isPro {
-                    RecurringPostsListView()
-                } else {
-                    ProUpgradeView(
-                        featureIcon: "repeat.circle.fill",
-                        featureTitle: "定期投稿",
-                        description: "日次・週次・月次で自動投稿できます",
-                        proFeatures: [
-                            ("🗓", "日次・週次・月次スケジュール"),
-                            ("📝", "Embedテンプレート使用"),
-                            ("⏱", "好きな時刻に配信"),
-                        ]
-                    )
-                }
-            } label: {
-                FeatureRow(
-                    icon: "repeat.circle.fill",
-                    title: "定期投稿",
-                    subtitle: "日次・週次・月次の自動投稿",
-                    badge: appState.isPro ? nil : "Pro"
-                )
-            }
         }
     }
 
@@ -95,7 +48,7 @@ struct FeaturesTabView: View {
             }
 
             NavigationLink {
-                TicketsListView(guildId: appState.selectedGuildId)
+                TicketsCoordinatorView(guildId: appState.selectedGuildId)
             } label: {
                 FeatureRow(
                     icon: "ticket.fill",

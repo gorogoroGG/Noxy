@@ -16,10 +16,27 @@ struct SendEmbedView: View {
     @State private var showConfirm = false
     @State private var channelSearchText = ""
 
-    private var filteredChannels: [Channel] {
-        let textChannels = channels.filter { $0.type == .text }
-        guard !channelSearchText.isEmpty else { return textChannels }
-        return textChannels.filter { $0.name.localizedCaseInsensitiveContains(channelSearchText) }
+    // テキストチャンネルをカテゴリー別にグループ化
+    private var groupedChannels: [(category: String, channels: [Channel])] {
+        let textChannels = channels.filter { $0.type == .text && $0.botCanSend }
+        let filtered = channelSearchText.isEmpty
+            ? textChannels
+            : textChannels.filter { $0.name.localizedCaseInsensitiveContains(channelSearchText) }
+
+        var groups: [(String, [Channel])] = []
+        var seen = Set<String>()
+
+        for ch in filtered {
+            let cat = ch.categoryName ?? "カテゴリーなし"
+            if !seen.contains(cat) {
+                seen.insert(cat)
+                groups.append((cat, []))
+            }
+            if let idx = groups.firstIndex(where: { $0.0 == cat }) {
+                groups[idx].1.append(ch)
+            }
+        }
+        return groups.map { (category: $0.0, channels: $0.1) }
     }
 
     var body: some View {
@@ -66,47 +83,46 @@ struct SendEmbedView: View {
 
             Divider().background(Color.border)
 
-            // エラー
             if let errorMessage {
-                Text("❌ \(errorMessage)")
-                    .font(.captionRegular)
-                    .foregroundStyle(.red)
-                    .padding()
+                HStack(spacing: .spacing8) {
+                    Image(systemName: "exclamationmark.triangle.fill")
+                        .foregroundStyle(.red)
+                    Text(errorMessage)
+                        .font(.captionRegular)
+                        .foregroundStyle(.red)
+                }
+                .padding()
             }
 
-            // チャンネル一覧
             if isLoading {
-                ProgressView().frame(maxWidth: .infinity, minHeight: 100)
-            } else if channels.isEmpty {
-                Text("送信可能なチャンネルがありません")
-                    .font(.bodySmall)
-                    .foregroundStyle(Color.textTertiary)
-                    .frame(maxWidth: .infinity, minHeight: 100)
+                ProgressView().frame(maxWidth: .infinity, minHeight: 120)
+            } else if groupedChannels.isEmpty {
+                VStack(spacing: .spacing8) {
+                    Image(systemName: "number")
+                        .font(.system(size: 28))
+                        .foregroundStyle(Color.textTertiary)
+                    Text("送信可能なチャンネルがありません")
+                        .font(.bodySmall)
+                        .foregroundStyle(Color.textTertiary)
+                }
+                .frame(maxWidth: .infinity, minHeight: 120)
             } else {
                 List {
-                    ForEach(filteredChannels) { ch in
-                        Button {
-                            selectedChannel = ch
-                        } label: {
-                            HStack {
-                                Image(systemName: "number")
-                                    .font(.captionRegular)
-                                    .foregroundStyle(Color.textTertiary)
-                                Text(ch.name)
-                                    .font(.bodySmall)
-                                    .foregroundStyle(Color.textPrimary)
-                                Spacer()
-                                if selectedChannel?.id == ch.id {
-                                    Image(systemName: "checkmark.circle.fill")
-                                        .foregroundStyle(Color.accentIndigo)
-                                }
+                    ForEach(groupedChannels, id: \.category) { group in
+                        Section {
+                            ForEach(group.channels) { ch in
+                                channelRow(ch)
                             }
+                        } header: {
+                            Text(group.category)
+                                .font(.captionSmall)
+                                .fontWeight(.semibold)
+                                .foregroundStyle(Color.textSecondary)
+                                .textCase(.uppercase)
                         }
-                        .buttonStyle(.plain)
-                        .listRowBackground(selectedChannel?.id == ch.id ? Color.accentIndigo.opacity(0.1) : Color.bgSurface)
                     }
                 }
-                .listStyle(.plain)
+                .listStyle(.insetGrouped)
                 .scrollContentBackground(.hidden)
                 .searchable(text: $channelSearchText, prompt: "チャンネルを検索")
             }
@@ -121,7 +137,7 @@ struct SendEmbedView: View {
                             ProgressView().tint(.white).scaleEffect(0.85)
                         } else {
                             Image(systemName: "paperplane.fill")
-                            Text("送信する")
+                            Text("#\(ch.name) に送信する")
                         }
                     }
                     .font(.titleMedium)
@@ -142,6 +158,36 @@ struct SendEmbedView: View {
         }
     }
 
+    // MARK: - Channel Row
+
+    @ViewBuilder
+    private func channelRow(_ ch: Channel) -> some View {
+        Button {
+            selectedChannel = ch
+        } label: {
+            HStack(spacing: .spacing10) {
+                Image(systemName: "number")
+                    .font(.captionRegular)
+                    .foregroundStyle(Color.textTertiary)
+                    .frame(width: 16)
+                Text(ch.name)
+                    .font(.bodySmall)
+                    .foregroundStyle(Color.textPrimary)
+                Spacer()
+                if selectedChannel?.id == ch.id {
+                    Image(systemName: "checkmark.circle.fill")
+                        .foregroundStyle(Color.accentIndigo)
+                }
+            }
+        }
+        .buttonStyle(.plain)
+        .listRowBackground(
+            selectedChannel?.id == ch.id
+                ? Color.accentIndigo.opacity(0.1)
+                : Color.bgSurface
+        )
+    }
+
     // MARK: - Actions
 
     private func loadChannels() async {
@@ -158,9 +204,7 @@ struct SendEmbedView: View {
             let embedToSend: EmbedModel
             if isNewEmbed {
                 var toSave = embed
-                if toSave.name.isEmpty {
-                    toSave.name = "Untitled"
-                }
+                if toSave.name.isEmpty { toSave.name = "Untitled" }
                 embedToSend = try await services.embeds.create(toSave)
             } else {
                 embedToSend = embed

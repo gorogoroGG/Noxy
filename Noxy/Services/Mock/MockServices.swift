@@ -214,6 +214,19 @@ actor MockTicketService: TicketServiceProtocol {
         var t = tickets[idx]; t.status = .open; t.closedAt = nil; tickets[idx] = t
     }
 
+    func setStatus(id: String, status: TicketStatus) async throws {
+        try await mockDelay()
+        guard let idx = tickets.firstIndex(where: { $0.id == id }) else { return }
+        var t = tickets[idx]
+        t.status = status
+        if status == .closed {
+            t.closedAt = .now
+        } else {
+            t.closedAt = nil
+        }
+        tickets[idx] = t
+    }
+
     func updatePriority(id: String, priority: TicketPriority) async throws {
         try await mockDelay()
         guard let idx = tickets.firstIndex(where: { $0.id == id }) else { return }
@@ -301,57 +314,6 @@ actor MockAutoResponseService: AutoResponseServiceProtocol {
         try await mockDelay()
         guard let idx = items.firstIndex(where: { $0.id == id }) else { return }
         items[idx].enabled = enabled
-    }
-}
-
-// MARK: - ScheduledMessage
-
-actor MockScheduledMessageService: ScheduledMessageServiceProtocol {
-    private var messages: [ScheduledMessage] = []
-    private let storageURL: URL
-
-    init() {
-        let docs = FileManager.default.urls(for: .documentDirectory, in: .userDomainMask)[0]
-        storageURL = docs.appendingPathComponent("scheduled_messages.json")
-        // ローカル保存があれば読込、なければ MockData で初期化
-        if let data = try? Data(contentsOf: storageURL),
-           let saved = try? JSONDecoder().decode([ScheduledMessage].self, from: data) {
-            messages = saved
-        } else {
-            messages = MockData.scheduledMessages
-        }
-    }
-
-    private func saveToDisk() {
-        guard let data = try? JSONEncoder().encode(messages) else { return }
-        try? data.write(to: storageURL)
-    }
-
-    func fetchAll() async throws -> [ScheduledMessage] {
-        try await mockDelay()
-        return messages
-    }
-
-    func create(_ message: ScheduledMessage) async throws -> ScheduledMessage {
-        try await mockDelay()
-        messages.append(message)
-        saveToDisk()
-        return message
-    }
-
-    func update(_ message: ScheduledMessage) async throws -> ScheduledMessage {
-        try await mockDelay()
-        guard let idx = messages.firstIndex(where: { $0.id == message.id }) else { throw ServiceError.notFound }
-        messages[idx] = message
-        saveToDisk()
-        return message
-    }
-
-    func cancel(id: String) async throws {
-        try await mockDelay()
-        guard let idx = messages.firstIndex(where: { $0.id == id }) else { return }
-        messages[idx].status = .cancelled
-        saveToDisk()
     }
 }
 

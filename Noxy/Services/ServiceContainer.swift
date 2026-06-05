@@ -10,7 +10,6 @@ final class ServiceContainer {
     let members:  any MemberServiceProtocol
     let tickets:  any TicketServiceProtocol
     let autoResponses:      any AutoResponseServiceProtocol
-    let scheduledMessages:  any ScheduledMessageServiceProtocol
     let auditLogs:          any AuditLogServiceProtocol
     let notifications:      any NotificationServiceProtocol
     let analytics:          any AnalyticsServiceProtocol
@@ -30,7 +29,6 @@ final class ServiceContainer {
         members:           any MemberServiceProtocol,
         tickets:           any TicketServiceProtocol,
         autoResponses:     any AutoResponseServiceProtocol,
-        scheduledMessages: any ScheduledMessageServiceProtocol,
         auditLogs:         any AuditLogServiceProtocol,
         notifications:     any NotificationServiceProtocol,
         analytics:         any AnalyticsServiceProtocol,
@@ -49,7 +47,6 @@ final class ServiceContainer {
         self.members = members
         self.tickets = tickets
         self.autoResponses = autoResponses
-        self.scheduledMessages = scheduledMessages
         self.auditLogs = auditLogs
         self.notifications = notifications
         self.analytics = analytics
@@ -72,7 +69,6 @@ final class ServiceContainer {
             members:           MockMemberService(),
             tickets:           MockTicketService(),
             autoResponses:     MockAutoResponseService(),
-            scheduledMessages: MockScheduledMessageService(),
             auditLogs:         MockAuditLogService(),
             notifications:     MockNotificationService(),
             analytics:         MockAnalyticsService(),
@@ -96,7 +92,6 @@ final class ServiceContainer {
             members:           DiscordMemberService(),
             tickets:           WorkerTicketService(),
             autoResponses:     WorkerAutoResponseService(),
-            scheduledMessages: SupabaseScheduledMessageService(),
             auditLogs:         MockAuditLogService(),
             notifications:     MockNotificationService(),
             analytics:         WorkerAnalyticsService(),

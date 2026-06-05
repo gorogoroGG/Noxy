@@ -34,47 +34,25 @@ struct SupabaseEmbedService: EmbedServiceProtocol {
     }
 
     func send(embedId: String, guildId: String, channelId: String) async throws {
-        let body = ScheduledMessage(
-            id: UUID().uuidString,
-            guildId: guildId,
-            channelId: channelId,
-            embedId: embedId,
-            title: "",
-            scheduledFor: Date(),
-            repeatRule: .none,
-            status: .pending,
-            endDate: nil
-        )
-        try await client.postVoid("scheduled_messages", body: body)
-    }
-}
-
-// ============================================================
-// MARK: - Supabase ScheduledMessage Service
-// ============================================================
-
-struct SupabaseScheduledMessageService: ScheduledMessageServiceProtocol {
-    private let client = SupabaseClient()
-
-    func fetchAll() async throws -> [ScheduledMessage] {
-        try await client.get("scheduled_messages", order: "scheduled_for.desc")
-    }
-
-    func fetchByGuild(_ guildId: String) async throws -> [ScheduledMessage] {
-        try await client.get("scheduled_messages", query: ["guild_id": "eq.\(guildId)"], order: "scheduled_for.desc")
-    }
-
-    func create(_ message: ScheduledMessage) async throws -> ScheduledMessage {
-        try await client.postFirst("scheduled_messages", body: message)
-    }
-
-    func update(_ message: ScheduledMessage) async throws -> ScheduledMessage {
-        try await client.patchFirst("scheduled_messages", body: message, where: "id", equals: message.id)
-    }
-
-    func cancel(id: String) async throws {
-        let body = ["status": "cancelled"]
-        try await client.patch("scheduled_messages", body: body, where: "id", equals: id)
+        let embed = try await fetch(id: embedId)
+        let endpoint = "\(DiscordConfig.workerURL)/bot/send-embed"
+        guard let url = URL(string: endpoint) else { throw URLError(.badURL) }
+        var request = URLRequest(url: url, timeoutInterval: 30)
+        request.httpMethod = "POST"
+        request.setValue("application/json", forHTTPHeaderField: "Content-Type")
+        if !DiscordConfig.workerAPISecret.isEmpty {
+            request.setValue(DiscordConfig.workerAPISecret, forHTTPHeaderField: "X-Bot-Secret")
+        }
+        let body: [String: Any] = [
+            "guildId": guildId,
+            "channelId": channelId,
+            "embed": embed.asDiscordPayload
+        ]
+        request.httpBody = try JSONSerialization.data(withJSONObject: body)
+        let (_, response) = try await URLSession.shared.data(for: request)
+        guard let http = response as? HTTPURLResponse, (200..<300).contains(http.statusCode) else {
+            throw URLError(.badServerResponse)
+        }
     }
 }
 

@@ -197,20 +197,6 @@ enum MockData {
                      matchType: .regex, enabled: true, cooldownSeconds: 0, channelIds: []),
     ]
 
-    nonisolated static let scheduledMessages: [ScheduledMessage] = [
-        ScheduledMessage(id: "sm001", guildId: "g001", channelId: "c002", embedId: "e003",
-                         title: "", scheduledFor: Calendar.current.date(byAdding: .day, value: 5, to: .now)!,
-                         repeatRule: .none, status: .pending),
-        ScheduledMessage(id: "sm002", guildId: "g002", channelId: "c008", embedId: "e002",
-                         title: "", scheduledFor: Calendar.current.date(byAdding: .hour, value: 3, to: .now)!,
-                         repeatRule: .none, status: .pending),
-        ScheduledMessage(id: "sm003", guildId: "g001", channelId: "c001", embedId: "e006",
-                         title: "週次お知らせ", scheduledFor: date(daysAgo: 1), repeatRule: .weekly, status: .sent),
-        ScheduledMessage(id: "sm004", guildId: "g004", channelId: "c001", embedId: "e004",
-                         title: "", scheduledFor: Calendar.current.date(byAdding: .day, value: 2, to: .now)!,
-                         repeatRule: .none, status: .cancelled),
-    ]
-
     nonisolated static let auditLogs: [AuditLog] = [
         AuditLog(id: "al001", guildId: "g001", userId: "m001", action: "member_ban",
                  target: "spammer_user", timestamp: date(hoursAgo: 1), details: "Reason: Spam"),

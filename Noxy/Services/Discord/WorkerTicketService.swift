@@ -29,6 +29,11 @@ struct WorkerTicketService: TicketServiceProtocol {
         try await client.post("/bot/tickets/\(id)/reopen")
     }
 
+    func setStatus(id: String, status: TicketStatus) async throws {
+        struct Body: Encodable { let status: String }
+        try await client.postVoid("/bot/tickets/\(id)/status", body: Body(status: status.rawValue))
+    }
+
     func updatePriority(id: String, priority: TicketPriority) async throws {
         struct Body: Encodable { let priority: String }
         try await client.postVoid("/bot/tickets/\(id)/priority", body: Body(priority: priority.rawValue))

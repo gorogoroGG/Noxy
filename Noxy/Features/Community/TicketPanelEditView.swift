@@ -41,21 +41,27 @@ struct TicketPanelEditView: View {
 
     var body: some View {
         NavigationStack {
-            Form {
-                panelAppearanceSection
-                panelPreviewSection      // ← パネルのプレビュー
-                ticketSettingsSection
-                welcomeMessageSection
-                welcomeMessagePreviewSection // ← ウェルカムメッセージのプレビュー
-                ticketEmbedSection
+            ScrollView {
+                VStack(spacing: .spacing16) {
+                    panelAppearanceSection
+                    panelPreviewSection
+                    ticketSettingsSection
+                    welcomeMessageSection
+                    welcomeMessagePreviewSection
+                    ticketEmbedSection
 
-                if let err = errorMessage {
-                    Section {
-                        Label(err, systemImage: "exclamationmark.triangle.fill")
-                            .foregroundStyle(.orange).font(.captionRegular)
+                    if let err = errorMessage {
+                        Card {
+                            Label(err, systemImage: "exclamationmark.triangle.fill")
+                                .foregroundStyle(.orange)
+                                .font(.captionRegular)
+                        }
                     }
                 }
+                .padding(.spacing16)
+                .padding(.bottom, 24)
             }
+            .background(Color.bgPrimary)
             .navigationTitle(isNew ? "パネルを作成" : "パネルを編集")
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
@@ -77,64 +83,80 @@ struct TicketPanelEditView: View {
 
     // ── パネルの見た目 ──
     private var panelAppearanceSection: some View {
-        Section {
-            // タイトル（無料でも変更可）
-            LabeledContent("タイトル") {
-                TextField("サポートチケット", text: $title).multilineTextAlignment(.trailing)
-            }
+        FormSection("パネルの見た目", icon: "doc.text",
+                    footer: appState.isPro ? nil : "タイトル以外の変更はProプランで利用できます。") {
+            VStack(spacing: .spacing12) {
+                FormField.text(label: "タイトル", text: $title, placeholder: "サポートチケット", isRequired: true)
 
-            // 説明・ボタン・カラー（Proのみ編集可）
-            VStack(alignment: .leading, spacing: 6) {
-                HStack {
-                    Text("説明").font(.captionSmall).foregroundStyle(Color.textTertiary)
-                    if !appState.isPro { Spacer(); Badge(text: "Pro", color: .accentOrange) }
+                FormField(label: "説明") {
+                    TextEditor(text: $description)
+                        .font(.bodySmall)
+                        .scrollContentBackground(.hidden)
+                        .inputStyle(height: 80)
+                        .disabled(!appState.isPro)
+                        .foregroundStyle(appState.isPro ? Color.textPrimary : Color.textTertiary)
                 }
-                TextEditor(text: $description)
-                    .frame(minHeight: 60).scrollContentBackground(.hidden)
-                    .disabled(!appState.isPro)
-                    .foregroundStyle(appState.isPro ? Color.textPrimary : Color.textTertiary)
-            }
-            LabeledContent {
-                TextField("チケットを作成", text: $buttonLabel).multilineTextAlignment(.trailing)
-                    .disabled(!appState.isPro)
-                    .foregroundStyle(appState.isPro ? Color.textPrimary : Color.textTertiary)
-            } label: {
-                HStack { Text("ボタンラベル"); if !appState.isPro { Badge(text: "Pro", color: .accentOrange) } }
-            }
-            LabeledContent {
-                TextField("🎫", text: $buttonEmoji).multilineTextAlignment(.trailing)
-                    .disabled(!appState.isPro)
-                    .foregroundStyle(appState.isPro ? Color.textPrimary : Color.textTertiary)
-            } label: {
-                HStack { Text("ボタン絵文字"); if !appState.isPro { Badge(text: "Pro", color: .accentOrange) } }
-            }
-            HStack {
-                Text("カラー")
-                if !appState.isPro { Badge(text: "Pro", color: .accentOrange) }
-                Spacer()
-                HStack(spacing: 8) {
-                    ForEach(colorPresets, id: \.self) { hex in
-                        ZStack {
-                            Circle().fill(Color(uiColor: UIColor(hex: hex))).frame(width: 26, height: 26)
-                                .opacity(appState.isPro ? 1 : 0.4)
-                            if colorHex == hex {
-                                Image(systemName: "checkmark").font(.system(size: 10, weight: .bold)).foregroundStyle(.white)
+                .opacity(appState.isPro ? 1 : 0.6)
+
+                FormField(label: "ボタンラベル") {
+                    HStack {
+                        Spacer()
+                        TextField("チケットを作成", text: $buttonLabel)
+                            .multilineTextAlignment(.trailing)
+                            .font(.bodySmall)
+                            .disabled(!appState.isPro)
+                            .foregroundStyle(appState.isPro ? Color.textPrimary : Color.textTertiary)
+                    }
+                    .inputStyle(height: 44)
+                }
+                .opacity(appState.isPro ? 1 : 0.6)
+
+                FormField(label: "ボタン絵文字") {
+                    HStack {
+                        Spacer()
+                        TextField("🎫", text: $buttonEmoji)
+                            .multilineTextAlignment(.trailing)
+                            .font(.bodySmall)
+                            .disabled(!appState.isPro)
+                            .foregroundStyle(appState.isPro ? Color.textPrimary : Color.textTertiary)
+                    }
+                    .inputStyle(height: 44)
+                }
+                .opacity(appState.isPro ? 1 : 0.6)
+
+                // カラー
+                HStack {
+                    Text("カラー")
+                        .font(.captionSmall)
+                        .fontWeight(.semibold)
+                        .foregroundStyle(Color.textTertiary)
+                        .textCase(.uppercase)
+                    if !appState.isPro { Badge(text: "Pro", color: .accentOrange) }
+                    Spacer()
+                    HStack(spacing: 8) {
+                        ForEach(colorPresets, id: \.self) { hex in
+                            ZStack {
+                                Circle().fill(Color(uiColor: UIColor(hex: hex))).frame(width: 26, height: 26)
+                                    .opacity(appState.isPro ? 1 : 0.4)
+                                if colorHex == hex {
+                                    Image(systemName: "checkmark").font(.system(size: 10, weight: .bold)).foregroundStyle(.white)
+                                }
                             }
-                        }
-                        .onTapGesture {
-                            guard appState.isPro else { return }
-                            withAnimation(.easeInOut(duration: 0.15)) { colorHex = hex }
+                            .onTapGesture {
+                                guard appState.isPro else { return }
+                                withAnimation(.easeInOut(duration: 0.15)) { colorHex = hex }
+                            }
                         }
                     }
                 }
             }
-        } header: { Text("パネルの見た目") }
-          footer: { if !appState.isPro { Text("タイトル以外の変更はProプランで利用できます。") } }
+        }
     }
 
     // ── パネルプレビュー ──
     private var panelPreviewSection: some View {
-        Section {
+        FormSection("パネルのプレビュー", icon: "eye.fill",
+                    footer: "Discordに投稿されるパネルのイメージです。") {
             VStack(alignment: .leading, spacing: .spacing12) {
                 // Discord 風 embed プレビュー
                 HStack(alignment: .top, spacing: 0) {
@@ -162,66 +184,67 @@ struct TicketPanelEditView: View {
                     Spacer()
                 }
             }
-            .padding(.vertical, 4)
-        } header: {
-            HStack(spacing: 5) {
-                Image(systemName: "eye.fill").font(.captionSmall)
-                Text("パネルのプレビュー")
-            }
-        } footer: {
-            Text("Discordに投稿されるパネルのイメージです。")
         }
     }
 
     // ── チケット設定 ──
     private var ticketSettingsSection: some View {
-        Section {
-            if isLoading {
-                HStack { Spacer(); ProgressView().scaleEffect(0.8); Spacer() }
-            } else {
-                Picker("サポートロール", selection: $supportRoleId) {
-                    Text("なし").tag("")
-                    ForEach(roles.filter { !$0.managed && $0.name != "@everyone" }) {
-                        Text("@\($0.name)").tag($0.id)
+        FormSection("チケット設定", icon: "gear",
+                    footer: "サポートロール：チケットチャンネルに追加されるロール。\nオープン/クローズカテゴリ：チケット作成/クローズ時にチャンネルを移動するDiscordカテゴリ。") {
+            VStack(spacing: .spacing12) {
+                if isLoading {
+                    HStack { Spacer(); ProgressView().scaleEffect(0.8); Spacer() }
+                } else {
+                    FormField.picker(label: "サポートロール", selection: $supportRoleId) {
+                        Text("なし").tag("")
+                        ForEach(roles.filter { !$0.managed && $0.name != "@everyone" }) {
+                            Text("@\($0.name)").tag($0.id)
+                        }
+                    }
+
+                    FormField.picker(label: "オープンカテゴリ", selection: $openCategoryId) {
+                        Text("なし（デフォルト）").tag("")
+                        ForEach(categories, id: \.id) { Text($0.name).tag($0.id) }
+                    }
+
+                    FormField.picker(label: "クローズカテゴリ", selection: $closedCategoryId) {
+                        Text("なし（そのまま）").tag("")
+                        ForEach(categories, id: \.id) { Text($0.name).tag($0.id) }
                     }
                 }
-                Picker("オープンカテゴリ", selection: $openCategoryId) {
-                    Text("なし（デフォルト）").tag("")
-                    ForEach(categories, id: \.id) { Text($0.name).tag($0.id) }
-                }
-                Picker("クローズカテゴリ", selection: $closedCategoryId) {
-                    Text("なし（そのまま）").tag("")
-                    ForEach(categories, id: \.id) { Text($0.name).tag($0.id) }
-                }
+
+                FormField.stepper(label: "同時オープン上限", value: $maxOpenPerUser, range: 1...10, helper: "\(maxOpenPerUser)件")
             }
-            Stepper("同時オープン上限：\(maxOpenPerUser)件", value: $maxOpenPerUser, in: 1...10)
-        } header: { Text("チケット設定") }
-          footer: {
-              Text("サポートロール：チケットチャンネルに追加されるロール。\nオープン/クローズカテゴリ：チケット作成/クローズ時にチャンネルを移動するDiscordカテゴリ。")
-          }
+        }
     }
 
     // ── ウェルカムメッセージ ──
     private var welcomeMessageSection: some View {
-        Section {
-            TextEditor(text: $ticketMsgContent)
-                .frame(minHeight: 80)
-                .scrollContentBackground(.hidden)
-            // 変数チップ
-            ScrollView(.horizontal, showsIndicators: false) {
-                HStack(spacing: 6) {
-                    ForEach(["{user.mention}", "{user.name}", "{subject}", "{ticket_id}"], id: \.self) { v in
-                        Button { ticketMsgContent += v } label: {
-                            Text(v).font(.system(size: 11, weight: .semibold))
-                                .foregroundStyle(Color.accentIndigo)
-                                .padding(.horizontal, 8).padding(.vertical, 4)
-                                .background(Color.accentIndigo.opacity(0.1)).clipShape(Capsule())
-                        }.buttonStyle(.plain)
+        FormSection("チケット内ウェルカムメッセージ", icon: "message",
+                    footer: "チケットが作成されたとき、チャンネル内に表示されるメッセージ。変数を使うと実際の値に置き換えられます。") {
+            VStack(alignment: .leading, spacing: .spacing8) {
+                FormField(label: "メッセージ") {
+                    TextEditor(text: $ticketMsgContent)
+                        .font(.bodySmall)
+                        .scrollContentBackground(.hidden)
+                        .inputStyle(height: 100)
+                }
+
+                // 変数チップ
+                ScrollView(.horizontal, showsIndicators: false) {
+                    HStack(spacing: 6) {
+                        ForEach(["{user.mention}", "{user.name}", "{subject}", "{ticket_id}"], id: \.self) { v in
+                            Button { ticketMsgContent += v } label: {
+                                Text(v).font(.system(size: 11, weight: .semibold))
+                                    .foregroundStyle(Color.accentIndigo)
+                                    .padding(.horizontal, 8).padding(.vertical, 4)
+                                    .background(Color.accentIndigo.opacity(0.1)).clipShape(Capsule())
+                            }.buttonStyle(.plain)
+                        }
                     }
                 }
             }
-        } header: { Text("チケット内ウェルカムメッセージ") }
-          footer: { Text("チケットが作成されたとき、チャンネル内に表示されるメッセージ。変数を使うと実際の値に置き換えられます。") }
+        }
     }
 
     // ── ウェルカムメッセージ プレビュー（Discord風） ──
@@ -233,7 +256,8 @@ struct TicketPanelEditView: View {
             .replacingOccurrences(of: "{ticket_id}",    with: "abc123")
         let embedTitle = ticketEmbedTitle.isEmpty ? "チケット" : ticketEmbedTitle
 
-        return Section {
+        return FormSection("チケット内のプレビュー", icon: "eye.fill",
+                             footer: "チケット作成時にチャンネル内に投稿されるメッセージのイメージです。変数はサンプル値で表示しています。") {
             // Discord のチャット背景を模した暗めのコンテナ
             VStack(alignment: .leading, spacing: 0) {
                 // チャンネルヘッダー
@@ -311,27 +335,15 @@ struct TicketPanelEditView: View {
             }
             .background(Color(.secondarySystemGroupedBackground))
             .clipShape(RoundedRectangle(cornerRadius: 8))
-            .padding(.vertical, 4)
-        } header: {
-            HStack(spacing: 5) {
-                Image(systemName: "eye.fill").font(.captionSmall)
-                Text("チケット内のプレビュー")
-            }
-        } footer: {
-            Text("チケット作成時にチャンネル内に投稿されるメッセージのイメージです。変数はサンプル値で表示しています。")
         }
     }
 
     // ── チケット内埋め込み設定 ──
     private var ticketEmbedSection: some View {
-        Section {
-            LabeledContent("タイトル") {
-                TextField("チケット", text: $ticketEmbedTitle).multilineTextAlignment(.trailing)
-            }
-        } header: { Text("チケット内埋め込みのタイトル") }
-          footer: {
-              Text("チケットチャンネルに投稿される埋め込みのタイトル接頭辞です。\n例：「チケット」→ 🎫 チケット #abc123")
-          }
+        FormSection("チケット内埋め込みのタイトル", icon: "doc.plaintext",
+                    footer: "チケットチャンネルに投稿される埋め込みのタイトル接頭辞です。\n例：「チケット」→ 🎫 チケット #abc123") {
+            FormField.text(label: "タイトル", text: $ticketEmbedTitle, placeholder: "チケット")
+        }
     }
 
     // MARK: - Load

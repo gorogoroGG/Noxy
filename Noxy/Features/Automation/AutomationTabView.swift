@@ -53,26 +53,6 @@ struct AutomationTabView: View {
 //                    }
                 }
 
-                Section("スケジュール") {
-                    NavigationLink {
-                        ScheduledMessagesListView()
-                    } label: {
-                        AutomationMenuRow(icon: "calendar.badge.clock",
-                                          title: "予約送信",
-                                          subtitle: "指定時刻に送信",
-                                          color: .accentPurple)
-                    }
-
-                    NavigationLink {
-                        PlaceholderView(title: "定期アナウンス")
-                    } label: {
-                        AutomationMenuRow(icon: "repeat.circle.fill",
-                                          title: "定期アナウンス",
-                                          subtitle: "日次・週次投稿",
-                                          color: .accentIndigo)
-                    }
-                }
-
 //                Section("連携") {
 //                    NavigationLink {
 //                        SocialFeedsView()

@@ -38,7 +38,11 @@ struct RootView: View {
             } else if !hasSeenOnboarding {
                 OnboardingView()
             } else if !authManager.isLoggedIn {
+                #if DEBUG
+                MainTabView()
+                #else
                 LoginView()
+                #endif
             } else {
                 MainTabView()
             }

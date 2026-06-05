@@ -17,65 +17,74 @@ struct AppearanceSettingsView: View {
     ]
 
     var body: some View {
-        Form {
-            Section("テーマ") {
-                Picker("外観", selection: $colorScheme) {
-                    ForEach(schemes, id: \.self) { Text($0).tag($0) }
-                }
-                .pickerStyle(.segmented)
-            }
-
-            Section("アクセントカラー") {
-                LazyVGrid(columns: Array(repeating: GridItem(.flexible()), count: 8), spacing: .spacing12) {
-                    ForEach(Array(accentColors.enumerated()), id: \.offset) { index, item in
-                        Circle()
-                            .fill(item.1)
-                            .frame(width: 32, height: 32)
-                            .overlay {
-                                if accentColorIndex == index {
-                                    Image(systemName: "checkmark")
-                                        .font(.captionSmall)
-                                        .fontWeight(.bold)
-                                        .foregroundStyle(.white)
-                                }
-                            }
-                            .onTapGesture { accentColorIndex = index }
+        ScrollView {
+            VStack(spacing: .spacing16) {
+                FormSection("テーマ", icon: "paintbrush") {
+                    Picker("外観", selection: $colorScheme) {
+                        ForEach(schemes, id: \.self) { Text($0).tag($0) }
                     }
+                    .pickerStyle(.segmented)
+                    .inputStyle(height: 44)
                 }
-                .padding(.vertical, .spacing8)
-            }
 
-            Section("フォントサイズ") {
-                HStack {
-                    Text("A").font(.captionRegular)
-                    Slider(value: $fontSizeOffset, in: -2...4, step: 1)
-                        .tint(Color.accentIndigo)
-                    Text("A").font(.titleLarge)
-                }
-                Text("プレビュー: 素早い茶色の狐が怠惰な犬を飛び越えた。")
-                    .font(.system(size: 17 + fontSizeOffset))
-                    .foregroundStyle(Color.textSecondary)
-            }
-
-            Section("アクセシビリティ") {
-                Toggle("モーションを減らす", isOn: $reduceMotion).tint(Color.accentIndigo)
-                Toggle("高コントラスト", isOn: $highContrast).tint(Color.accentIndigo)
-            }
-
-            Section("プレビュー") {
-                VStack(alignment: .leading, spacing: .spacing8) {
-                    HStack(spacing: .spacing8) {
-                        ServerIconView(name: "Valorant JP", size: 40)
-                        VStack(alignment: .leading) {
-                            Text("Valorant JP").font(.titleMedium).foregroundStyle(Color.textPrimary)
-                            Text("1,234 メンバー").font(.captionRegular).foregroundStyle(Color.textSecondary)
+                FormSection("アクセントカラー", icon: "paintpalette") {
+                    LazyVGrid(columns: Array(repeating: GridItem(.flexible()), count: 8), spacing: .spacing12) {
+                        ForEach(Array(accentColors.enumerated()), id: \.offset) { index, item in
+                            Circle()
+                                .fill(item.1)
+                                .frame(width: 32, height: 32)
+                                .overlay {
+                                    if accentColorIndex == index {
+                                        Image(systemName: "checkmark")
+                                            .font(.captionSmall)
+                                            .fontWeight(.bold)
+                                            .foregroundStyle(.white)
+                                    }
+                                }
+                                .onTapGesture { accentColorIndex = index }
                         }
                     }
-                    PrimaryButton("Embedを作成", style: .filled, size: .medium) {}
+                    .padding(.vertical, .spacing8)
                 }
-                .padding(.vertical, .spacing4)
+
+                FormSection("フォントサイズ", icon: "textformat.size") {
+                    VStack(alignment: .leading, spacing: .spacing8) {
+                        HStack {
+                            Text("A").font(.captionRegular)
+                            Slider(value: $fontSizeOffset, in: -2...4, step: 1)
+                                .tint(Color.accentIndigo)
+                            Text("A").font(.titleLarge)
+                        }
+                        Text("プレビュー: 素早い茶色の狐が怠惰な犬を飛び越えた。")
+                            .font(.system(size: 17 + fontSizeOffset))
+                            .foregroundStyle(Color.textSecondary)
+                    }
+                }
+
+                FormSection("アクセシビリティ", icon: "accessibility") {
+                    VStack(spacing: .spacing8) {
+                        FormField.toggle(label: "モーションを減らす", isOn: $reduceMotion)
+                        FormField.toggle(label: "高コントラスト", isOn: $highContrast)
+                    }
+                }
+
+                FormSection("プレビュー", icon: "eye.fill") {
+                    VStack(alignment: .leading, spacing: .spacing8) {
+                        HStack(spacing: .spacing8) {
+                            ServerIconView(name: "Valorant JP", size: 40)
+                            VStack(alignment: .leading) {
+                                Text("Valorant JP").font(.titleMedium).foregroundStyle(Color.textPrimary)
+                                Text("1,234 メンバー").font(.captionRegular).foregroundStyle(Color.textSecondary)
+                            }
+                        }
+                        PrimaryButton("Embedを作成", style: .filled, size: .medium) {}
+                    }
+                }
             }
+            .padding(.spacing16)
+            .padding(.bottom, 24)
         }
+        .background(Color.bgPrimary)
         .navigationTitle("外観")
     }
 }

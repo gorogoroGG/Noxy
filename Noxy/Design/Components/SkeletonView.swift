@@ -80,10 +80,6 @@ struct SkeletonListView: View {
     }
 }
 
-extension CGFloat {
-    static let spacing64: CGFloat = 64
-}
-
 #Preview {
     VStack(spacing: .spacing16) {
         SkeletonListView(count: 5)

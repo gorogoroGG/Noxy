@@ -20,6 +20,12 @@ extension Color {
         })
     }
 
+    private init(light lightUIColor: UIColor, dark darkUIColor: UIColor) {
+        self.init(uiColor: UIColor { traits in
+            traits.userInterfaceStyle == .dark ? darkUIColor : lightUIColor
+        })
+    }
+
     private init(hex: UInt32) {
         self.init(uiColor: UIColor(hex: hex))
     }
@@ -39,8 +45,14 @@ extension Color {
 
     // Text
     static let textPrimary   = Color(light: 0x000000, dark: 0xFFFFFF)
-    static let textSecondary = Color(light: 0x3C3C43, dark: 0xEBEBF5)
-    static let textTertiary  = Color(light: 0x3C3C43, dark: 0xEBEBF5)
+    static let textSecondary = Color(
+        light: UIColor(red: 0.235, green: 0.235, blue: 0.263, alpha: 0.60),
+        dark:  UIColor(red: 0.922, green: 0.922, blue: 0.961, alpha: 0.70)
+    )
+    static let textTertiary  = Color(
+        light: UIColor(red: 0.235, green: 0.235, blue: 0.263, alpha: 0.35),
+        dark:  UIColor(red: 0.922, green: 0.922, blue: 0.961, alpha: 0.50)
+    )
 
     // Borders
     static let border       = Color(light: 0xE5E5EA, dark: 0x38383A)

@@ -8,52 +8,64 @@ struct SupabaseSettingsView: View {
     @State private var isTesting = false
 
     var body: some View {
-        Form {
-            Section {
-                TextField("Project URL", text: $supabaseURL)
-                    .keyboardType(.URL)
-                    .autocorrectionDisabled()
-                    .textInputAutocapitalization(.never)
+        ScrollView {
+            VStack(spacing: .spacing16) {
+                FormSection("Supabase", icon: "server.rack", footer: "Project Settings → API から取得") {
+                    VStack(spacing: .spacing12) {
+                        FormField.text(label: "Project URL", text: $supabaseURL)
+                            .keyboardType(.URL)
+                            .autocorrectionDisabled()
+                            .textInputAutocapitalization(.never)
 
-                SecureField("anon key", text: $anonKey)
-                    .autocorrectionDisabled()
-                    .textInputAutocapitalization(.never)
-            } header: {
-                Text("Supabase")
-            } footer: {
-                Text("Project Settings → API から取得")
-            }
-
-            Section {
-                Button {
-                    Task { await testConnection() }
-                } label: {
-                    HStack {
-                        if isTesting {
-                            ProgressView().scaleEffect(0.8)
+                        FormField(label: "anon key") {
+                            SecureField("anon key", text: $anonKey)
+                                .autocorrectionDisabled()
+                                .textInputAutocapitalization(.never)
+                                .inputStyle(height: 44)
                         }
-                        Text(isTesting ? "接続中..." : "接続テスト")
                     }
                 }
-                .disabled(isTesting || supabaseURL.isEmpty || anonKey.isEmpty)
 
-                if let result = testResult {
-                    Text(result)
-                        .font(.caption)
-                        .foregroundStyle(result.hasPrefix("✅") ? .green : .red)
-                }
-            }
+                Card {
+                    VStack(spacing: .spacing12) {
+                        Button {
+                            Task { await testConnection() }
+                        } label: {
+                            HStack {
+                                if isTesting {
+                                    ProgressView().scaleEffect(0.8)
+                                }
+                                Text(isTesting ? "接続中..." : "接続テスト")
+                                    .font(.bodySmall)
+                                    .fontWeight(.semibold)
+                            }
+                        }
+                        .disabled(isTesting || supabaseURL.isEmpty || anonKey.isEmpty)
+                        .frame(maxWidth: .infinity)
 
-            Section {
-                Button("ログアウト", role: .destructive) {
-                    Task {
-                        try? await SupabaseAuthService().logout()
+                        if let result = testResult {
+                            Text(result)
+                                .font(.caption)
+                                .foregroundStyle(result.hasPrefix("✅") ? .green : .red)
+                        }
                     }
                 }
-            } header: {
-                Text("アカウント")
+
+                Card {
+                    Button("ログアウト", role: .destructive) {
+                        Task {
+                            try? await SupabaseAuthService().logout()
+                        }
+                    }
+                    .font(.bodySmall)
+                    .fontWeight(.semibold)
+                    .frame(maxWidth: .infinity)
+                }
             }
+            .padding(.spacing16)
+            .padding(.bottom, 24)
         }
+        .background(Color.bgPrimary)
         .navigationTitle("設定")
         .navigationBarTitleDisplayMode(.inline)
     }

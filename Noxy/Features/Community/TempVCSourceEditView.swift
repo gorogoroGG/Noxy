@@ -38,80 +38,118 @@ struct TempVCSourceEditView: View {
     }
 
     var body: some View {
-        Form {
-            // 基本設定
-            Section {
-                VStack(alignment: .leading, spacing: 6) {
-                    Text("トリガーVCの名前")
-                        .font(.captionSmall)
-                        .foregroundStyle(Color.textTertiary)
-                    TextField("例: 一時VCを作ろう", text: Binding(
-                        get: { editedSource.triggerVcName },
-                        set: { editedSource.triggerVcName = $0 }
-                    ))
-                    .font(.bodySmall)
-                }
+        ScrollView {
+            VStack(spacing: .spacing16) {
+                FormSection("基本設定", icon: "gear",
+                            footer: "トリガーVC: ユーザーが最初に参加するVCです。保存時に自動作成されます。\nテキストチャンネル: Proプランでは一時VCと同時にテキストチャンネルも作成できます。") {
+                    VStack(spacing: .spacing12) {
+                        FormField.text(
+                            label: "トリガーVCの名前",
+                            text: Binding(
+                                get: { editedSource.triggerVcName },
+                                set: { editedSource.triggerVcName = $0 }
+                            ),
+                            placeholder: "例: 一時VCを作ろう"
+                        )
 
-                Picker("一時VCの作成先カテゴリ", selection: Binding(
-                    get: { editedSource.vcCategoryId },
-                    set: { editedSource.vcCategoryId = $0 }
-                )) {
-                    Text("選択してください").tag("")
-                    ForEach(categories, id: \.id) {
-                        Text($0.name).tag($0.id)
-                    }
-                }
-
-                // テキストチャンネル作成トグル（Proのみ）
-                if appState.isPro {
-                    Toggle(isOn: $createTextChannel.animation()) {
-                        Text("テキストチャンネルも作成する")
-                    }
-                    .tint(Color.accentIndigo)
-                    .onChange(of: createTextChannel) {
-                        if !createTextChannel { editedSource.textChannelCategoryId = "" }
-                    }
-
-                    if createTextChannel {
-                        Picker("テキストチャンネルのカテゴリ", selection: Binding(
-                            get: { editedSource.textChannelCategoryId },
-                            set: { editedSource.textChannelCategoryId = $0 }
-                        )) {
+                        FormField.picker(
+                            label: "一時VCの作成先カテゴリ",
+                            selection: Binding(
+                                get: { editedSource.vcCategoryId },
+                                set: { editedSource.vcCategoryId = $0 }
+                            )
+                        ) {
                             Text("選択してください").tag("")
-                            ForEach(categories, id: \.id) { Text($0.name).tag($0.id) }
+                            ForEach(categories, id: \.id) {
+                                Text($0.name).tag($0.id)
+                            }
+                        }
+
+                        // テキストチャンネル作成トグル（Proのみ）
+                        if appState.isPro {
+                            FormField.toggle(
+                                label: "テキストチャンネルも作成する",
+                                isOn: Binding(
+                                    get: { createTextChannel },
+                                    set: { newValue in
+                                        createTextChannel = newValue
+                                        if !newValue { editedSource.textChannelCategoryId = "" }
+                                    }
+                                )
+                            )
+
+                            if createTextChannel {
+                                FormField.picker(
+                                    label: "テキストチャンネルのカテゴリ",
+                                    selection: Binding(
+                                        get: { editedSource.textChannelCategoryId },
+                                        set: { editedSource.textChannelCategoryId = $0 }
+                                    )
+                                ) {
+                                    Text("選択してください").tag("")
+                                    ForEach(categories, id: \.id) { Text($0.name).tag($0.id) }
+                                }
+                            }
+                        } else {
+                            HStack {
+                                Text("テキストチャンネルも作成する")
+                                    .font(.bodySmall)
+                                    .foregroundStyle(Color.textTertiary)
+                                Spacer()
+                                Badge(text: "Pro", color: .accentOrange)
+                            }
+                            .inputStyle(height: 44)
                         }
                     }
-                } else {
-                    HStack {
-                        Text("テキストチャンネルも作成する")
-                            .foregroundStyle(Color.textTertiary)
-                        Spacer()
-                        Badge(text: "Pro", color: .accentOrange)
+                }
+
+                FormSection("一時VC名フォーマット", icon: "textformat",
+                            footer: appState.isPro ? "{user-name}=最初の参加者  {count}=連番" : "Proプランでカスタム名を設定できます。") {
+                    VStack(spacing: .spacing8) {
+                        FormField(label: "フォーマット") {
+                            TextField("例: {user-name}のVC", text: Binding(
+                                get: { editedSource.vcNameFormat },
+                                set: { editedSource.vcNameFormat = $0 }
+                            ))
+                            .font(.bodySmall)
+                            .inputStyle()
+                            .disabled(!appState.isPro)
+                            .foregroundStyle(appState.isPro ? Color.textPrimary : Color.textTertiary)
+                        }
+                        .opacity(appState.isPro ? 1 : 0.6)
+
+                        if appState.isPro {
+                            ScrollView(.horizontal, showsIndicators: false) {
+                                HStack(spacing: 6) {
+                                    ForEach(["{user-name}", "{count}"], id: \.self) { v in
+                                        Button { editedSource.vcNameFormat += v } label: {
+                                            Text(v).font(.system(size: 11, weight: .semibold))
+                                                .foregroundStyle(Color.accentIndigo)
+                                                .padding(.horizontal, 8).padding(.vertical, 4)
+                                                .background(Color.accentIndigo.opacity(0.1)).clipShape(Capsule())
+                                        }.buttonStyle(.plain)
+                                    }
+                                }
+                            }
+                        }
                     }
                 }
-            } header: { Text("基本設定") }
-              footer: { Text("トリガーVC: ユーザーが最初に参加するVCです。保存時に自動作成されます。\nテキストチャンネル: Proプランでは一時VCと同時にテキストチャンネルも作成できます。") }
 
-            // VC名フォーマット（Proのみ変更可）
-            Section {
-                VStack(alignment: .leading, spacing: 6) {
-                    HStack {
-                        Text("一時VC名フォーマット").font(.captionSmall).foregroundStyle(Color.textTertiary)
-                        Spacer()
-                        if !appState.isPro { Badge(text: "Pro", color: .accentOrange) }
-                    }
-                    TextField("例: {user-name}のVC", text: Binding(
-                        get: { editedSource.vcNameFormat },
-                        set: { editedSource.vcNameFormat = $0 }
-                    ))
-                    .font(.bodySmall)
-                    .disabled(!appState.isPro)
-                    .foregroundStyle(appState.isPro ? Color.textPrimary : Color.textTertiary)
-                    if appState.isPro {
+                FormSection("テキストチャンネル名フォーマット", icon: "textformat") {
+                    VStack(spacing: .spacing8) {
+                        FormField(label: "フォーマット") {
+                            TextField("例: {user-name}の部屋", text: Binding(
+                                get: { editedSource.channelNameFormat },
+                                set: { editedSource.channelNameFormat = $0 }
+                            ))
+                            .font(.bodySmall)
+                            .inputStyle()
+                        }
+
                         ScrollView(.horizontal, showsIndicators: false) {
                             HStack(spacing: 6) {
                                 ForEach(["{user-name}", "{count}"], id: \.self) { v in
-                                    Button { editedSource.vcNameFormat += v } label: {
+                                    Button { editedSource.channelNameFormat += v } label: {
                                         Text(v).font(.system(size: 11, weight: .semibold))
                                             .foregroundStyle(Color.accentIndigo)
                                             .padding(.horizontal, 8).padding(.vertical, 4)
@@ -122,87 +160,82 @@ struct TempVCSourceEditView: View {
                         }
                     }
                 }
-            } header: { Text("一時VC名フォーマット") }
-              footer: { Text(appState.isPro ? "{user-name}=最初の参加者  {count}=連番" : "Proプランでカスタム名を設定できます。") }
 
-            // チャンネル名フォーマット
-            Section {
-                VStack(alignment: .leading, spacing: 6) {
-                    Text("テキストチャンネル名フォーマット").font(.captionSmall).foregroundStyle(Color.textTertiary)
-                    TextField("例: {user-name}の部屋", text: Binding(
-                        get: { editedSource.channelNameFormat },
-                        set: { editedSource.channelNameFormat = $0 }
-                    ))
-                    .font(.bodySmall)
-                    ScrollView(.horizontal, showsIndicators: false) {
-                        HStack(spacing: 6) {
-                            ForEach(["{user-name}", "{count}"], id: \.self) { v in
-                                Button { editedSource.channelNameFormat += v } label: {
-                                    Text(v).font(.system(size: 11, weight: .semibold))
-                                        .foregroundStyle(Color.accentIndigo)
-                                        .padding(.horizontal, 8).padding(.vertical, 4)
-                                        .background(Color.accentIndigo.opacity(0.1)).clipShape(Capsule())
-                                }.buttonStyle(.plain)
+                FormSection("人数制限", icon: "person.2", footer: "0に設定すると無制限になります。") {
+                    FormField.stepper(
+                        label: "人数制限",
+                        value: Binding(
+                            get: { editedSource.userLimit },
+                            set: { editedSource.userLimit = $0 }
+                        ),
+                        range: 0...99,
+                        helper: editedSource.userLimit == 0 ? "無制限" : "\(editedSource.userLimit)人"
+                    )
+                }
+
+                FormSection("自動削除", icon: "trash",
+                            footer: appState.isPro ? "猶予時間を設けると、全員退室後もその間はメッセージを読めます。" : "猶予時間の設定はProプランで利用できます。") {
+                    VStack(spacing: .spacing12) {
+                        FormField.toggle(
+                            label: "全員退室後に自動削除",
+                            isOn: Binding(
+                                get: { editedSource.autoDelete },
+                                set: { editedSource.autoDelete = $0 }
+                            )
+                        )
+
+                        if editedSource.autoDelete {
+                            if appState.isPro {
+                                FormField.picker(
+                                    label: "削除までの猶予",
+                                    selection: Binding(
+                                        get: { editedSource.deleteDelayMinutes },
+                                        set: { editedSource.deleteDelayMinutes = $0 }
+                                    )
+                                ) {
+                                    ForEach(delayOptions, id: \.0) { sec, label in
+                                        Text(label).tag(sec)
+                                    }
+                                }
+                            } else {
+                                HStack {
+                                    Text("削除までの猶予")
+                                        .font(.bodySmall)
+                                        .foregroundStyle(Color.textTertiary)
+                                    Spacer()
+                                    Text("即座に削除").font(.captionRegular).foregroundStyle(Color.textTertiary)
+                                    Badge(text: "Pro", color: .accentOrange)
+                                }
+                                .inputStyle(height: 44)
                             }
                         }
                     }
                 }
-            } header: { Text("テキストチャンネル名フォーマット") }
 
-            // 人数制限
-            Section {
-                Stepper("人数制限：\(editedSource.userLimit == 0 ? "無制限" : "\(editedSource.userLimit)人")", value: Binding(
-                    get: { editedSource.userLimit },
-                    set: { editedSource.userLimit = $0 }
-                ), in: 0...99)
-            } header: { Text("人数制限") }
-              footer: { Text("0に設定すると無制限になります。") }
-
-            // 自動削除
-            Section {
-                Toggle("全員退室後に自動削除", isOn: Binding(
-                    get: { editedSource.autoDelete },
-                    set: { editedSource.autoDelete = $0 }
-                )).tint(Color.accentIndigo)
-
-                if editedSource.autoDelete {
-                    if appState.isPro {
-                        Picker("削除までの猶予", selection: Binding(
-                            get: { editedSource.deleteDelayMinutes },
-                            set: { editedSource.deleteDelayMinutes = $0 }
-                        )) {
-                            ForEach(delayOptions, id: \.0) { sec, label in
-                                Text(label).tag(sec)
-                            }
-                        }
-                    } else {
-                        HStack {
-                            Text("削除までの猶予").foregroundStyle(Color.textTertiary)
-                            Spacer()
-                            Text("即座に削除").font(.captionRegular).foregroundStyle(Color.textTertiary)
-                            Badge(text: "Pro", color: .accentOrange)
-                        }
-                    }
+                FormSection("通知", icon: "bell") {
+                    FormField.toggle(
+                        label: "参加/退出の通知",
+                        isOn: Binding(
+                            get: { editedSource.joinLeaveNotification },
+                            set: { editedSource.joinLeaveNotification = $0 }
+                        )
+                    )
                 }
-            } header: { Text("自動削除") }
-              footer: { Text(appState.isPro ? "猶予時間を設けると、全員退室後もその間はメッセージを読めます。" : "猶予時間の設定はProプランで利用できます。") }
 
-            // 通知
-            Section {
-                Toggle("参加/退出の通知", isOn: Binding(
-                    get: { editedSource.joinLeaveNotification },
-                    set: { editedSource.joinLeaveNotification = $0 }
-                )).tint(Color.accentIndigo)
-            } header: { Text("通知") }
-
-            // 有効/無効
-            Section {
-                Toggle("有効にする", isOn: Binding(
-                    get: { editedSource.enabled },
-                    set: { editedSource.enabled = $0 }
-                )).tint(Color.accentIndigo)
-            } footer: { Text("無効にすると、トリガーVCは非表示になります。") }
+                FormSection("有効/無効", icon: "power", footer: "無効にすると、トリガーVCは非表示になります。") {
+                    FormField.toggle(
+                        label: "有効にする",
+                        isOn: Binding(
+                            get: { editedSource.enabled },
+                            set: { editedSource.enabled = $0 }
+                        )
+                    )
+                }
+            }
+            .padding(.spacing16)
+            .padding(.bottom, 24)
         }
+        .background(Color.bgPrimary)
         .navigationTitle(source.id == nil ? "新規作成" : "編集")
         .navigationBarTitleDisplayMode(.inline)
         .toolbar {

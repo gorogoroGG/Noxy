@@ -11,8 +11,11 @@ struct MainTabView: View {
                 DashboardView()
                     .tabItem { Label("ホーム", systemImage: "house.fill") }
 
-                FeaturesTabView()
-                    .tabItem { Label("機能", systemImage: "square.grid.2x2.fill") }
+                ActionsTabView()
+                    .tabItem { Label("アクション", systemImage: "bolt.fill") }
+
+                ManageTabView()
+                    .tabItem { Label("管理", systemImage: "person.3.fill") }
 
                 MoreTabView()
                     .tabItem { Label("設定", systemImage: "gearshape.fill") }

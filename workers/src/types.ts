@@ -8,20 +8,6 @@ export interface Env {
   WORKER_API_SECRET: string; // #1: 認証シークレット (wrangler secret put WORKER_API_SECRET)
 }
 
-// ── ScheduledMessage ──────────────────────────────────────────
-
-export interface ScheduledMessage {
-  id: string;
-  guild_id: string;
-  channel_id: string;
-  embed_id: string;
-  title: string;
-  scheduled_for: string;
-  repeat_rule: string;
-  status: string;
-  end_date: string | null;
-}
-
 // ── Embed ─────────────────────────────────────────────────────
 
 export interface Embed {
@@ -255,35 +241,6 @@ export function mapAutoResponse(r: AutoResponseRow) {
     enabled:         r.is_enabled,
     cooldownSeconds: r.cooldown_sec,
     channelIds:      r.channel_ids ?? [],
-  };
-}
-
-// ── ScheduledMessage (Row) ────────────────────────────────────
-
-export interface ScheduledMessageRow {
-  id: string;
-  guild_id: string;
-  channel_id: string;
-  embed_id: string;
-  title: string;
-  scheduled_for: string;
-  repeat_rule: string;
-  status: string;
-  end_date: string | null;
-  created_at: string;
-}
-
-export function mapScheduledMessage(s: ScheduledMessageRow) {
-  return {
-    id:           s.id,
-    guildId:      s.guild_id,
-    channelId:    s.channel_id,
-    embedId:      s.embed_id,
-    title:        s.title,
-    scheduledFor: s.scheduled_for,
-    repeatRule:   s.repeat_rule,
-    status:       s.status,
-    endDate:      s.end_date ?? null,
   };
 }
 

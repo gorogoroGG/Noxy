@@ -8,13 +8,6 @@ protocol AutoResponseServiceProtocol: Sendable {
     func toggle(id: String, enabled: Bool) async throws
 }
 
-protocol ScheduledMessageServiceProtocol: Sendable {
-    func fetchAll() async throws -> [ScheduledMessage]
-    func create(_ message: ScheduledMessage) async throws -> ScheduledMessage
-    func update(_ message: ScheduledMessage) async throws -> ScheduledMessage
-    func cancel(id: String) async throws
-}
-
 protocol AuditLogServiceProtocol: Sendable {
     func fetch(guildId: String, page: Int) async throws -> [AuditLog]
 }

@@ -144,4 +144,33 @@ struct EmbedModel: Identifiable, Codable, Hashable, Sendable {
             createdAt: .now, updatedAt: .now
         )
     }
+
+    // MARK: - Discord Payload
+
+    var asDiscordPayload: [String: Any] {
+        var payload: [String: Any] = ["type": "rich"]
+        if let title { payload["title"] = title }
+        if let description { payload["description"] = description }
+        if let embedUrl { payload["url"] = embedUrl }
+        payload["color"] = Int(colorHex)
+        if !fields.isEmpty {
+            payload["fields"] = fields.map { [
+                "name": $0.name,
+                "value": $0.value,
+                "inline": $0.inline
+            ] }
+        }
+        if let imageUrl { payload["image"] = ["url": imageUrl] }
+        if let thumbnailUrl { payload["thumbnail"] = ["url": thumbnailUrl] }
+        if footerText != nil || showTimestamp {
+            var footer: [String: Any] = [:]
+            if let footerText { footer["text"] = footerText }
+            if let footerIconUrl { footer["icon_url"] = footerIconUrl }
+            payload["footer"] = footer
+        }
+        if showTimestamp {
+            payload["timestamp"] = ISO8601DateFormatter().string(from: Date())
+        }
+        return payload
+    }
 }

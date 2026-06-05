@@ -65,6 +65,7 @@ struct APITicketService: TicketServiceProtocol {
     func updatePanel(_ panel: TicketPanel) async throws -> TicketPanel { panel }
     func deletePanel(id: String) async throws {}
     func deployPanel(id: String, channelId: String) async throws -> TicketPanel { throw ServiceError.networkError }
+    func setStatus(id: String, status: TicketStatus) async throws {}
 }
 
 // ============================================================
@@ -206,26 +207,6 @@ private struct AutoResponseRequest: Encodable {
 }
 
 // ============================================================
-// MARK: - Scheduled Message Service
-// ============================================================
-
-struct APIScheduledMessageService: ScheduledMessageServiceProtocol {
-    private let client = APIClient()
-
-    func fetchAll() async throws -> [ScheduledMessage] {
-        try await client.get("/api/v1/scheduled-messages")
-    }
-    func create(_ message: ScheduledMessage) async throws -> ScheduledMessage {
-        try await client.post("/api/v1/scheduled-messages", body: message)
-    }
-    func update(_ message: ScheduledMessage) async throws -> ScheduledMessage {
-        try await client.put("/api/v1/scheduled-messages/\(message.id)", body: message)
-    }
-    func cancel(id: String) async throws {
-        try await client.post("/api/v1/scheduled-messages/\(id)/cancel")
-    }
-}
-
 // ============================================================
 // MARK: - Audit Log Service
 // ============================================================

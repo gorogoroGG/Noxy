@@ -1,24 +1,3 @@
-/**
- * Noxy Scheduler Worker
- *
- * 1分ごとに実行され、Supabase 内の送信予定メッセージを確認し、
- * 指定時刻になったものを Discord に投稿する。
- *
- * Cron トリガーで実行されるため、HTTP リクエストのハンドラは不要。
- */
-
-interface ScheduledMessage {
-  id: string;
-  guild_id: string;
-  channel_id: string;
-  embed_id: string;
-  title: string;
-  scheduled_for: string;
-  repeat_rule: string; // "none" | "daily" | "weekly" | "monthly"
-  status: string;      // "pending" | "sent" | "cancelled"
-  end_date: string | null;
-}
-
 // ── チケット型定義 ───────────────────────────────────────────
 
 interface TicketRow {
@@ -300,35 +279,6 @@ function mapAutoResponse(r: AutoResponseRow) {
     enabled:         r.is_enabled,
     cooldownSeconds: r.cooldown_sec,
     channelIds:      r.channel_ids ?? [],
-  };
-}
-
-// ── 予約メッセージ型定義 ────────────────────────────────────────
-
-interface ScheduledMessageRow {
-  id: string;
-  guild_id: string;
-  channel_id: string;
-  embed_id: string;
-  title: string;
-  scheduled_for: string;
-  repeat_rule: string;
-  status: string;
-  end_date: string | null;
-  created_at: string;
-}
-
-function mapScheduledMessage(s: ScheduledMessageRow) {
-  return {
-    id:           s.id,
-    guildId:      s.guild_id,
-    channelId:    s.channel_id,
-    embedId:      s.embed_id,
-    title:        s.title,
-    scheduledFor: s.scheduled_for,
-    repeatRule:   s.repeat_rule,
-    status:       s.status,
-    endDate:      s.end_date ?? null,
   };
 }
 
@@ -619,118 +569,6 @@ async function sendToDiscord(
   );
 
   return resp.ok;
-}
-
-// ── 繰り返し日時の計算 ──────────────────────────────────────
-
-function nextScheduledDate(current: Date, rule: string, endDate: string | null): Date | null {
-  const next = new Date(current);
-  switch (rule) {
-    case "daily":
-      next.setDate(next.getDate() + 1);
-      break;
-    case "weekly":
-      next.setDate(next.getDate() + 7);
-      break;
-    case "monthly":
-      next.setMonth(next.getMonth() + 1);
-      break;
-    default:
-      return null; // 繰り返しなし
-  }
-  if (endDate && next > new Date(endDate)) return null; // 終了日超過
-  return next;
-}
-
-// ── メイン処理 ──────────────────────────────────────────────
-
-async function processScheduledMessages(): Promise<{
-  sent: number;
-  rescheduled: number;
-  errors: number;
-}> {
-  const now = new Date().toISOString();
-  let sent = 0;
-  let rescheduled = 0;
-  let errors = 0;
-
-  // (1) 送信時刻を過ぎた pending メッセージを取得
-  // 1実行あたり最大15件に制限: 1 + (15 × 3) = 46 fetch() ≤ 50サブリクエスト制限
-  const BATCH_LIMIT = 15;
-  const resp = await supabaseFetch(
-    `/scheduled_messages?status=eq.pending&scheduled_for=lte.${now}&order=scheduled_for.asc&limit=${BATCH_LIMIT}`
-  );
-  if (!resp.ok) {
-    console.error(`Supabase fetch error: ${resp.status} ${await resp.text()}`);
-    return { sent, rescheduled, errors };
-  }
-  const messages: ScheduledMessage[] = await resp.json();
-  console.log(`Found ${messages.length} pending message(s) (batch limit: ${BATCH_LIMIT})`);
-
-  for (const msg of messages) {
-    try {
-      // (2) 埋め込みテンプレートを取得
-      const embedResp = await supabaseFetch(
-        `/embeds?id=eq.${msg.embed_id}`
-      );
-      if (!embedResp.ok) {
-        console.error(`Embed ${msg.embed_id} not found for message ${msg.id}`);
-        errors++;
-        continue;
-      }
-      const embeds: Embed[] = await embedResp.json();
-      if (embeds.length === 0) {
-        console.error(`Embed ${msg.embed_id} empty for message ${msg.id}`);
-        errors++;
-        continue;
-      }
-
-      // (3) Discord に送信
-      const ok = await sendToDiscord(msg.channel_id, embeds[0]);
-      if (!ok) {
-        console.error(`Failed to send message ${msg.id} to Discord`);
-        errors++;
-        continue;
-      }
-      sent++;
-      console.log(`Sent message ${msg.id} (${msg.title || "untitled"})`);
-
-      // (4) ステータス更新（繰り返しがあれば次回日時を設定）
-      if (msg.repeat_rule !== "none") {
-        const nextDate = nextScheduledDate(
-          new Date(msg.scheduled_for),
-          msg.repeat_rule,
-          msg.end_date
-        );
-        if (nextDate) {
-          await supabaseFetch(`/scheduled_messages?id=eq.${msg.id}`, {
-            method: "PATCH",
-            body: JSON.stringify({
-              scheduled_for: nextDate.toISOString(),
-            }),
-          });
-          rescheduled++;
-          console.log(`  → next: ${nextDate.toISOString()}`);
-        } else {
-          // 繰り返し終了
-          await supabaseFetch(`/scheduled_messages?id=eq.${msg.id}`, {
-            method: "PATCH",
-            body: JSON.stringify({ status: "sent" }),
-          });
-        }
-      } else {
-        await supabaseFetch(`/scheduled_messages?id=eq.${msg.id}`, {
-          method: "PATCH",
-          body: JSON.stringify({ status: "sent" }),
-        });
-      }
-    } catch (e) {
-      console.error(`Error processing message ${msg.id}:`, e);
-      errors++;
-    }
-  }
-
-  return { sent, rescheduled, errors };
 }
 
 // ── 注文タイムアウト処理 ──────────────────────────────────────
@@ -1288,6 +1126,61 @@ export default {
           headers: { Authorization: `Bot ${env.DISCORD_BOT_TOKEN}`, 'Content-Type': 'application/json' },
           body: JSON.stringify({ content: '🔒 **チケットがクローズされました。**\n作成者はこのチャンネルにアクセスできなくなりました。' }),
         });
+      } catch { /* ignore Discord errors */ }
+
+      return new Response(JSON.stringify({ ok: true }), { headers: { 'Content-Type': 'application/json' } });
+    }
+
+    // ステータス変更 POST /bot/tickets/:id/status
+    const ticketStatusMatch = url.pathname.match(/^\/bot\/tickets\/([^\/]+)\/status$/);
+    if (ticketStatusMatch && request.method === 'POST') {
+      const id = ticketStatusMatch[1];
+      const body = await request.json() as { status: string };
+      if (!['open', 'pending', 'closed'].includes(body.status))
+        return new Response('Invalid status', { status: 400 });
+
+      const ticketResp = await sb(`/tickets?id=eq.${id}`);
+      const tickets = await ticketResp.json() as TicketRow[];
+      if (!tickets.length) return new Response('Not found', { status: 404 });
+      const ticket = tickets[0];
+
+      const patchBody: any = { status: body.status };
+      if (body.status === 'closed') {
+        patchBody.closed_at = new Date().toISOString();
+      } else {
+        patchBody.closed_at = null;
+      }
+      await sb(`/tickets?id=eq.${id}`, {
+        method: 'PATCH',
+        body: JSON.stringify(patchBody),
+      });
+
+      // Discord通知
+      try {
+        const statusMessages: Record<string, string> = {
+          open: '🔓 **チケットが再オープンされました。**',
+          pending: '⏳ **チケットが対応中になりました。**',
+          closed: '🔒 **チケットがクローズされました。**',
+        };
+        await fetch(`https://discord.com/api/v10/channels/${ticket.channel_id}/messages`, {
+          method: 'POST',
+          headers: { Authorization: `Bot ${env.DISCORD_BOT_TOKEN}`, 'Content-Type': 'application/json' },
+          body: JSON.stringify({ content: statusMessages[body.status] }),
+        });
+
+        if (body.status === 'closed') {
+          await fetch(`https://discord.com/api/v10/channels/${ticket.channel_id}/permissions/${ticket.opened_by_user_id}`, {
+            method: 'PUT',
+            headers: { Authorization: `Bot ${env.DISCORD_BOT_TOKEN}`, 'Content-Type': 'application/json' },
+            body: JSON.stringify({ deny: '1024', type: 1 }),
+          });
+        } else if (body.status === 'open' || body.status === 'pending') {
+          await fetch(`https://discord.com/api/v10/channels/${ticket.channel_id}/permissions/${ticket.opened_by_user_id}`, {
+            method: 'PUT',
+            headers: { Authorization: `Bot ${env.DISCORD_BOT_TOKEN}`, 'Content-Type': 'application/json' },
+            body: JSON.stringify({ allow: '117760', type: 1 }),
+          });
+        }
       } catch { /* ignore Discord errors */ }
 
       return new Response(JSON.stringify({ ok: true }), { headers: { 'Content-Type': 'application/json' } });
@@ -2566,9 +2459,8 @@ export default {
       const guildId = url.searchParams.get('guild_id');
       if (!guildId) return new Response('Missing guild_id', { status: 400 });
 
-      const [ticketsResp, scheduledResp, ordersResp] = await Promise.all([
+      const [ticketsResp, ordersResp] = await Promise.all([
         sb(`/tickets?guild_id=eq.${guildId}&order=opened_at.desc&limit=5`),
-        sb(`/scheduled_messages?guild_id=eq.${guildId}&order=scheduled_for.desc&limit=5`),
         sb(`/orders?guild_id=eq.${guildId}&order=created_at.desc&limit=5`),
       ]);
 
@@ -2580,16 +2472,6 @@ export default {
           const mins = Math.floor((Date.now() - new Date(t.opened_at).getTime()) / 60000);
           const timeStr = mins < 60 ? `${mins}分前` : mins < 1440 ? `${Math.floor(mins/60)}時間前` : `${Math.floor(mins/1440)}日前`;
           activities.push({ type: 'ticket', icon: '🎫', text: `チケット「${t.subject}」が作成されました`, timeAgo: timeStr });
-        }
-      }
-
-      if (scheduledResp.ok) {
-        const scheduled = await scheduledResp.json() as any[];
-        for (const s of scheduled) {
-          const mins = Math.floor((Date.now() - new Date(s.scheduled_for).getTime()) / 60000);
-          const timeStr = mins < 60 ? `${mins}分前` : mins < 1440 ? `${Math.floor(mins/60)}時間前` : `${Math.floor(mins/1440)}日前`;
-          const statusLabel = s.status === 'sent' ? '送信完了' : s.status === 'pending' ? '予約済み' : s.status;
-          activities.push({ type: 'scheduled', icon: '📅', text: `${s.title || '予約メッセージ'} — ${statusLabel}`, timeAgo: timeStr });
         }
       }
 
@@ -2634,18 +2516,6 @@ export default {
           const mins = Math.floor((Date.now() - new Date(t.opened_at).getTime()) / 60000);
           const timeStr = mins < 1 ? 'たった今' : mins < 60 ? `${mins}分前` : mins < 1440 ? `${Math.floor(mins/60)}時間前` : `${Math.floor(mins/1440)}日前`;
           activities.push({ type: 'command', icon: 'terminal.fill', title: '/ticket create', detail: `チケット「${t.subject}」`, guildName: '', timeAgo: timeStr, isError: false });
-        }
-      }
-
-      // 予約メッセージ
-      const scheduledResp = await sb(`/scheduled_messages?guild_id=eq.${guildId}&order=scheduled_for.desc&limit=20`);
-      if (scheduledResp.ok) {
-        const scheduled = await scheduledResp.json() as any[];
-        for (const s of scheduled) {
-          const mins = Math.floor((Date.now() - new Date(s.scheduled_for).getTime()) / 60000);
-          const timeStr = mins < 1 ? 'たった今' : mins < 60 ? `${mins}分前` : mins < 1440 ? `${Math.floor(mins/60)}時間前` : `${Math.floor(mins/1440)}日前`;
-          const isSent = s.status === 'sent';
-          activities.push({ type: 'automation', icon: isSent ? 'checkmark.circle.fill' : 'calendar.badge.clock', title: isSent ? '予約送信 — 完了' : '予約メッセージ', detail: s.title || 'タイトルなし', guildName: '', timeAgo: timeStr, isError: false });
         }
       }
 
@@ -2816,75 +2686,6 @@ export default {
       if (!resp.ok) return new Response(await resp.text(), { status: resp.status });
       const rows: any[] = await resp.json();
       return new Response(JSON.stringify(mapAutoResponse(rows[0])), { headers: { 'Content-Type': 'application/json' } });
-    }
-
-    // ── 予約メッセージ CRUD (#9) ────────────────────────────────────
-
-    // GET /bot/scheduled-messages?guild_id=xxx
-    if (url.pathname === '/bot/scheduled-messages' && request.method === 'GET') {
-      const guildId = url.searchParams.get('guild_id');
-      if (!guildId) return new Response('Missing guild_id', { status: 400 });
-      const resp = await sb(`/scheduled_messages?guild_id=eq.${guildId}&order=scheduled_for.asc`);
-      if (!resp.ok) return new Response('Supabase error', { status: 500 });
-      const rows: any[] = await resp.json();
-      return new Response(JSON.stringify(rows.map(mapScheduledMessage)), { headers: { 'Content-Type': 'application/json' } });
-    }
-
-    // POST /bot/scheduled-messages
-    if (url.pathname === '/bot/scheduled-messages' && request.method === 'POST') {
-      const body = await request.json() as any;
-      const data = {
-        guild_id:      body.guildId,
-        channel_id:    body.channelId,
-        embed_id:      body.embedId,
-        title:         body.title ?? '',
-        scheduled_for: body.scheduledFor,
-        repeat_rule:   body.repeatRule ?? 'none',
-        status:        'pending',
-        end_date:      body.endDate ?? null,
-      };
-      const resp = await sb('/scheduled_messages', {
-        method: 'POST',
-        headers: { Prefer: 'return=representation' },
-        body: JSON.stringify(data),
-      });
-      if (!resp.ok) return new Response(await resp.text(), { status: resp.status });
-      const rows: any[] = await resp.json();
-      return new Response(JSON.stringify(mapScheduledMessage(rows[0])), { status: 201, headers: { 'Content-Type': 'application/json' } });
-    }
-
-    // PATCH /bot/scheduled-messages/:id
-    const smPatchMatch = url.pathname.match(/^\/bot\/scheduled-messages\/([^/]+)$/);
-    if (smPatchMatch && request.method === 'PATCH') {
-      const id = smPatchMatch[1];
-      const body = await request.json() as any;
-      const patch: Record<string, any> = {};
-      if (body.channelId    !== undefined) patch.channel_id    = body.channelId;
-      if (body.embedId      !== undefined) patch.embed_id      = body.embedId;
-      if (body.title        !== undefined) patch.title         = body.title;
-      if (body.scheduledFor !== undefined) patch.scheduled_for = body.scheduledFor;
-      if (body.repeatRule   !== undefined) patch.repeat_rule   = body.repeatRule;
-      if (body.endDate      !== undefined) patch.end_date      = body.endDate;
-      const resp = await sb(`/scheduled_messages?id=eq.${id}`, {
-        method: 'PATCH',
-        headers: { Prefer: 'return=representation' },
-        body: JSON.stringify(patch),
-      });
-      if (!resp.ok) return new Response(await resp.text(), { status: resp.status });
-      const rows: any[] = await resp.json();
-      return new Response(JSON.stringify(mapScheduledMessage(rows[0])), { headers: { 'Content-Type': 'application/json' } });
-    }
-
-    // DELETE /bot/scheduled-messages/:id  (キャンセル)
-    const smDeleteMatch = url.pathname.match(/^\/bot\/scheduled-messages\/([^/]+)$/);
-    if (smDeleteMatch && request.method === 'DELETE') {
-      const id = smDeleteMatch[1];
-      const resp = await sb(`/scheduled_messages?id=eq.${id}`, {
-        method: 'PATCH',
-        headers: { Prefer: 'return=representation' },
-        body: JSON.stringify({ status: 'cancelled' }),
-      });
-      return new Response(JSON.stringify({ ok: resp.ok }), { headers: { 'Content-Type': 'application/json' } });
     }
 
     // ── ステータスチャンネル CRUD ────────────────────────────────
@@ -3203,14 +3004,6 @@ export default {
     // 50サブリクエスト/実行の制限を超えないよう、処理を分散させる
     switch (event.cron) {
 
-      // ── 毎分: 予約メッセージ送信（時間厳守） ──────────────────
-      case "* * * * *": {
-        console.log("[Cron] 予約メッセージ処理開始");
-        const result = await processScheduledMessages();
-        console.log(`[Cron] 予約メッセージ: sent=${result.sent} rescheduled=${result.rescheduled} errors=${result.errors}`);
-        break;
-      }
-
       // ── 5分毎: 注文タイムアウト ──────────────────────────────
       case "*/5 * * * *": {
         console.log("[Cron] 注文タイムアウト処理開始");
@@ -3219,8 +3012,8 @@ export default {
         break;
       }
 
-      // ── 10分毎: ステータスチャンネル更新 ────────────────────
-      case "*/10 * * * *": {
+      // ── 毎時: ステータスチャンネル更新 ──────────────────────
+      case "0 * * * *": {
         console.log("[Cron] ステータスチャンネル更新開始");
         await processStatChannels(env);
         console.log("[Cron] ステータスチャンネル更新完了");

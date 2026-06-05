@@ -51,14 +51,14 @@ struct EmbedEditorView: View {
 
     @State private var isSaving = false
     @State private var showColorPicker = false
-    @State private var showSaveModal = false
     @State private var showSendSheet = false
-    @State private var saveName = ""
+    @State private var showPreview = false
+    @State private var showAdvanced = false
     @State private var fieldToDelete: IndexSet? = nil
     @State private var showFieldDeleteConfirm = false
     @State private var errorMessage: String? = nil
     @State private var showCancelConfirm = false
-    @State private var isPreviewExpanded = true
+
     // 画像アップロード
     @State private var thumbnailPhotoItem: PhotosPickerItem? = nil
     @State private var imagePhotoItem: PhotosPickerItem?    = nil
@@ -77,67 +77,25 @@ struct EmbedEditorView: View {
         Color(uiColor: UIColor(hex: vm.embed.colorHex))
     }
 
+    private var canSave: Bool {
+        vm.isValid && !vm.isOverLimit && !vm.embed.hasAnyLimitViolation
+    }
+
     // MARK: - Body
 
     var body: some View {
         NavigationStack {
-            GeometryReader { geo in
-                VStack(spacing: 0) {
-                    // エディター（上半分）
-                    ScrollView {
-                        VStack(alignment: .leading, spacing: .spacing20) {
-                            messageContentSection
-                            contentSection
-                            colorSection
-                            mediaSection
-                            fieldsSection
-                            footerSection
-                        }
-                        .padding()
-                    }
-                    .frame(height: isPreviewExpanded ? geo.size.height * 0.55 : geo.size.height - 44)
-
+            ScrollView {
+                VStack(alignment: .leading, spacing: .spacing24) {
+                    nameSection
                     Divider().background(Color.border)
-
-                    // ライブプレビュー（下半分）
-                    VStack(spacing: 0) {
-                        HStack {
-                            Button {
-                                withAnimation(.spring(duration: 0.3)) {
-                                    isPreviewExpanded.toggle()
-                                }
-                            } label: {
-                                HStack(spacing: .spacing4) {
-                                    Image(systemName: isPreviewExpanded ? "chevron.down" : "chevron.up")
-                                        .font(.captionSmall)
-                                    Text("— PREVIEW —")
-                                        .font(.captionSmall)
-                                        .tracking(1)
-                                }
-                                .foregroundStyle(Color.textTertiary)
-                            }
-                            .buttonStyle(.plain)
-                            .accessibilityLabel(isPreviewExpanded ? "プレビューを折りたたむ" : "プレビューを展開する")
-
-                            Spacer()
-                            Text("\(vm.charCount) / 6,000")
-                                .font(.mono)
-                                .foregroundStyle(vm.isOverLimit ? Color.accentPink : Color.textTertiary)
-                        }
-                        .padding(.horizontal)
-                        .padding(.vertical, .spacing8)
-
-                        if isPreviewExpanded {
-                            ScrollView {
-                                EmbedPreviewCard(embed: .from(vm.embed))
-                                    .padding(.horizontal)
-                                    .padding(.bottom)
-                            }
-                        }
-                    }
-                    .frame(height: isPreviewExpanded ? geo.size.height * 0.45 : 44)
-                    .background(Color.bgElevated)
+                    basicSection
+                    fieldsSection
+                    charCountRow
+                    advancedSection
                 }
+                .padding()
+                .padding(.bottom, .spacing32)
             }
             .background(Color.bgPrimary)
             .navigationTitle(vm.embed.name.isEmpty ? "新規Embed" : vm.embed.name)
@@ -149,12 +107,8 @@ struct EmbedEditorView: View {
             .sheet(isPresented: $showSendSheet) {
                 SendEmbedView(embed: vm.embed, isNewEmbed: vm.isNewEmbed)
             }
-            .alert("テンプレートとして保存", isPresented: $showSaveModal) {
-                TextField("テンプレート名", text: $saveName)
-                Button("保存") { saveEmbed() }
-                Button("キャンセル", role: .cancel) { }
-            } message: {
-                Text("このEmbedをテンプレートとして保存します")
+            .sheet(isPresented: $showPreview) {
+                previewSheet
             }
             .alert("保存エラー", isPresented: .init(
                 get: { errorMessage != nil },
@@ -198,7 +152,16 @@ struct EmbedEditorView: View {
         }
         ToolbarItem(placement: .topBarTrailing) {
             HStack(spacing: .spacing16) {
-                // 送信ボタン
+                // プレビュー
+                Button {
+                    showPreview = true
+                } label: {
+                    Image(systemName: "eye.fill")
+                        .foregroundStyle(Color.textSecondary)
+                }
+                .accessibilityLabel("プレビュー")
+
+                // 送信
                 Button {
                     showSendSheet = true
                 } label: {
@@ -208,29 +171,222 @@ struct EmbedEditorView: View {
                 .disabled(!vm.isValid)
                 .accessibilityLabel("送信")
 
-                // 保存ボタン（Proのみ）
+                // 保存（Pro のみ）
                 if appState.isPro {
                     Button("保存") {
-                        saveName = vm.embed.name
-                        showSaveModal = true
+                        saveEmbed()
                     }
                     .fontWeight(.semibold)
-                    .foregroundStyle(vm.isOverLimit || !vm.isValid || vm.embed.hasAnyLimitViolation ? Color.textTertiary : Color.accentIndigo)
-                    .disabled(vm.isOverLimit || !vm.isValid || vm.embed.hasAnyLimitViolation || isSaving)
+                    .foregroundStyle(canSave && !isSaving ? Color.accentIndigo : Color.textTertiary)
+                    .disabled(!canSave || isSaving)
                 }
             }
         }
     }
 
-    // MARK: - Editor Sections
+    // MARK: - Preview Sheet
+
+    private var previewSheet: some View {
+        NavigationStack {
+            ScrollView {
+                EmbedPreviewCard(embed: .from(vm.embed))
+                    .padding()
+            }
+            .background(Color.bgPrimary)
+            .navigationTitle("プレビュー")
+            .navigationBarTitleDisplayMode(.inline)
+            .toolbar {
+                ToolbarItem(placement: .topBarTrailing) {
+                    Button("閉じる") { showPreview = false }
+                }
+            }
+        }
+    }
+
+    // MARK: - Template Name Section
+
+    private var nameSection: some View {
+        VStack(alignment: .leading, spacing: .spacing6) {
+            Text("テンプレート名")
+                .font(.captionSmall)
+                .fontWeight(.semibold)
+                .foregroundStyle(Color.textTertiary)
+                .textCase(.uppercase)
+                .tracking(0.5)
+
+            TextField("名前なし", text: Binding(
+                get: { vm.embed.name },
+                set: { vm.embed.name = $0; vm.isModified = true }
+            ))
+            .font(.titleLarge)
+            .foregroundStyle(Color.textPrimary)
+        }
+    }
+
+    // MARK: - Basic Section
+
+    private var basicSection: some View {
+        FormSection("コンテンツ", icon: "doc.text", footer: "タイトル・説明・フィールドのいずれかが必須") {
+            VStack(spacing: .spacing12) {
+                FormField.text(
+                    label: "タイトル",
+                    text: Binding(
+                        get: { vm.embed.title ?? "" },
+                        set: { vm.embed.title = $0.isEmpty ? nil : $0; vm.isModified = true }
+                    ),
+                    helper: "\(vm.embed.title?.count ?? 0) / \(EmbedModel.limitTitle)"
+                )
+
+                FormField.text(
+                    label: "説明",
+                    text: Binding(
+                        get: { vm.embed.description ?? "" },
+                        set: { vm.embed.description = $0.isEmpty ? nil : $0; vm.isModified = true }
+                    ),
+                    axis: .vertical,
+                    helper: "\(vm.embed.description?.count ?? 0) / \(EmbedModel.limitDescription)"
+                )
+
+                Button { showColorPicker = true } label: {
+                    HStack(spacing: .spacing12) {
+                        Circle().fill(accentColor).frame(width: 24, height: 24)
+                        Text("カラー").font(.bodyRegular).foregroundStyle(Color.textPrimary)
+                        Spacer()
+                        Text(String(format: "#%06X", vm.embed.colorHex))
+                            .font(.mono).foregroundStyle(Color.textTertiary)
+                        Image(systemName: "chevron.right").font(.captionSmall).foregroundStyle(Color.textTertiary)
+                    }
+                    .inputStyle()
+                }
+                .buttonStyle(.plain)
+            }
+        }
+    }
+
+    // MARK: - Fields Section
 
     @ViewBuilder
-    private var messageContentSection: some View {
-        SectionCard(title: "メッセージ本文") {
+    private var fieldsSection: some View {
+        FormSection(
+            "フィールド",
+            icon: "list.bullet.rectangle",
+            footer: vm.embed.fields.isEmpty ? nil : "\(vm.embed.fields.count) / \(EmbedModel.maxFields) フィールド"
+        ) {
             VStack(alignment: .leading, spacing: .spacing8) {
-                Text("埋め込みの上に表示される通常テキストです。ここに入れたメンション（@everyone・@here・ロール・ユーザー）は実際に通知されます。")
-                    .font(.captionSmall)
-                    .foregroundStyle(Color.textTertiary)
+                if vm.embed.fields.isEmpty {
+                    Text("フィールドなし — 右上の＋で追加")
+                        .font(.captionRegular)
+                        .foregroundStyle(Color.textTertiary)
+                        .frame(maxWidth: .infinity, alignment: .center)
+                        .padding(.vertical, .spacing4)
+                } else {
+                    ForEach($vm.embed.fields) { $field in
+                        EmbedFieldEditorRow(field: $field)
+                            .swipeActions(edge: .trailing, allowsFullSwipe: false) {
+                                Button(role: .destructive) {
+                                    if let idx = vm.embed.fields.firstIndex(where: { $0.id == field.id }) {
+                                        fieldToDelete = IndexSet(integer: idx)
+                                        showFieldDeleteConfirm = true
+                                    }
+                                } label: {
+                                    Label("削除", systemImage: "trash")
+                                }
+                            }
+                    }
+                    .onMove { from, to in vm.moveField(from: from, to: to) }
+                    .onDelete { offsets in
+                        fieldToDelete = offsets
+                        showFieldDeleteConfirm = true
+                    }
+                }
+
+                Button {
+                    if vm.embed.fields.count < EmbedModel.maxFields {
+                        withAnimation { vm.addField() }
+                    }
+                } label: {
+                    Label("フィールドを追加", systemImage: "plus.circle.fill")
+                        .font(.captionRegular)
+                        .fontWeight(.medium)
+                        .foregroundStyle(vm.embed.fields.count < EmbedModel.maxFields ? Color.accentIndigo : Color.textTertiary)
+                }
+                .buttonStyle(.plain)
+                .disabled(vm.embed.fields.count >= EmbedModel.maxFields)
+                .frame(maxWidth: .infinity, alignment: .center)
+            }
+        }
+    }
+
+    // MARK: - Char Count
+
+    private var charCountRow: some View {
+        HStack {
+            Spacer()
+            Text("\(vm.charCount) / 6,000 文字")
+                .font(.mono)
+                .foregroundStyle(vm.isOverLimit ? Color.accentPink : Color.textTertiary)
+        }
+    }
+
+    // MARK: - Advanced Section (collapsible)
+
+    private var advancedSection: some View {
+        VStack(alignment: .leading, spacing: 0) {
+            Button {
+                withAnimation(.spring(duration: 0.25)) {
+                    showAdvanced.toggle()
+                }
+            } label: {
+                HStack(spacing: .spacing8) {
+                    Image(systemName: showAdvanced ? "chevron.down" : "chevron.right")
+                        .font(.captionRegular)
+                        .foregroundStyle(Color.textTertiary)
+                        .animation(.spring(duration: 0.2), value: showAdvanced)
+                    Text("詳細設定")
+                        .font(.captionSmall)
+                        .fontWeight(.semibold)
+                        .foregroundStyle(Color.textTertiary)
+                        .textCase(.uppercase)
+                        .tracking(0.5)
+                    Spacer()
+                    if !showAdvanced {
+                        Text("メッセージ本文・メディア・フッター")
+                            .font(.captionSmall)
+                            .foregroundStyle(Color.textTertiary.opacity(0.6))
+                    }
+                }
+                .padding(.spacing12)
+            }
+            .buttonStyle(.plain)
+
+            if showAdvanced {
+                VStack(alignment: .leading, spacing: .spacing20) {
+                    messageContentSection
+                    mediaSection
+                    footerSection
+                }
+                .padding(.horizontal, .spacing12)
+                .padding(.bottom, .spacing12)
+                .transition(.opacity.combined(with: .move(edge: .top)))
+            }
+        }
+        .background(Color.bgSurface)
+        .clipShape(RoundedRectangle(cornerRadius: .cornerRadiusMedium))
+    }
+
+    // MARK: - Advanced Sub-Sections
+
+    private var messageContentSection: some View {
+        FormSection("メッセージ本文", icon: "text.bubble") {
+            VStack(alignment: .leading, spacing: .spacing8) {
+                HStack(spacing: .spacing6) {
+                    Image(systemName: "info.circle")
+                        .font(.captionSmall)
+                        .foregroundStyle(Color.accentIndigo)
+                    Text("Embedの外側に表示される通常テキスト。@メンションが機能します。")
+                        .font(.captionSmall)
+                        .foregroundStyle(Color.textTertiary)
+                }
 
                 TextField("例: @everyone 新しいお知らせです！", text: Binding(
                     get: { vm.embed.messageContent ?? "" },
@@ -239,7 +395,6 @@ struct EmbedEditorView: View {
                 .lineLimit(2...5)
                 .inputStyle()
 
-                // メンション挿入チップ
                 ScrollView(.horizontal, showsIndicators: false) {
                     HStack(spacing: .spacing6) {
                         Text("挿入:").font(.captionSmall).foregroundStyle(Color.textTertiary)
@@ -259,120 +414,129 @@ struct EmbedEditorView: View {
                             }
                             .buttonStyle(.plain)
                         }
-                        Text("ロール: <@&ロールID>  ユーザー: <@ユーザーID>")
-                            .font(.system(size: 10))
-                            .foregroundStyle(Color.textTertiary)
                     }
                 }
             }
         }
     }
 
-    @ViewBuilder
-    private var contentSection: some View {
-        SectionCard(title: "コンテンツ") {
-            VStack(alignment: .leading, spacing: .spacing4) {
-                HStack {
-                    Text("タイトル").font(.captionSmall).foregroundStyle(Color.textTertiary)
-                    Text("※ タイトル・説明・フィールドのいずれかが必須")
-                        .font(.captionSmall)
-                        .foregroundStyle(Color.accentOrange)
-                }
-                TextField("Embedタイトル", text: Binding(
-                    get: { vm.embed.title ?? "" },
-                    set: { vm.embed.title = $0.isEmpty ? nil : $0; vm.isModified = true }
-                ))
-                .inputStyle()
-                limitLabel(for: \.title, limit: EmbedModel.limitTitle)
-            }
-
-            editorField("タイトルのリンク先URL", placeholder: "https://...", binding: Binding(
-                get: { vm.embed.embedUrl ?? "" },
-                set: { vm.embed.embedUrl = $0.isEmpty ? nil : $0; vm.isModified = true }
-            ), isURL: true)
-
-            VStack(alignment: .leading, spacing: .spacing4) {
-                Text("説明").font(.captionSmall).foregroundStyle(Color.textTertiary)
-                TextField("Embedの説明...", text: Binding(
-                    get: { vm.embed.description ?? "" },
-                    set: { vm.embed.description = $0.isEmpty ? nil : $0; vm.isModified = true }
-                ), axis: .vertical)
-                .lineLimit(3...8)
-                .inputStyle()
-                limitLabel(for: \.description, limit: EmbedModel.limitDescription)
-            }
-        }
-    }
-
-    @ViewBuilder
-    private var colorSection: some View {
-        SectionCard(title: "カラー") {
-            Button { showColorPicker = true } label: {
-                HStack(spacing: .spacing12) {
-                    Circle().fill(accentColor).frame(width: 24, height: 24)
-                    Text("カラーを選択").font(.bodyRegular).foregroundStyle(Color.textPrimary)
-                    Spacer()
-                    Text(String(format: "#%06X", vm.embed.colorHex))
-                        .font(.mono).foregroundStyle(Color.textTertiary)
-                    Image(systemName: "chevron.right").font(.captionSmall).foregroundStyle(Color.textTertiary)
-                }
-                .inputStyle()
-            }
-            .buttonStyle(.plain)
-        }
-    }
-
-    @ViewBuilder
     private var mediaSection: some View {
-        SectionCard(title: "メディア") {
-            // サムネイル
+        FormSection("メディア", icon: "photo") {
             VStack(alignment: .leading, spacing: .spacing8) {
-                HStack(spacing: .spacing8) {
-                    editorField("サムネイルURL（右上の小画像）", placeholder: "https://...", binding: Binding(
-                        get: { vm.embed.thumbnailUrl ?? "" },
-                        set: { vm.embed.thumbnailUrl = $0.isEmpty ? nil : $0; vm.isModified = true }
-                    ), isURL: true)
-                    if isUploadingThumbnail {
-                        ProgressView().scaleEffect(0.8).frame(width: 32)
-                    } else {
-                        PhotosPicker(selection: $thumbnailPhotoItem, matching: .images) {
-                            Image(systemName: "photo.badge.plus")
-                                .font(.system(size: 18))
-                                .foregroundStyle(Color.accentIndigo)
+                FormField(label: "サムネイル（右上の小画像）") {
+                    HStack(spacing: .spacing8) {
+                        TextField("https://...", text: Binding(
+                            get: { vm.embed.thumbnailUrl ?? "" },
+                            set: { vm.embed.thumbnailUrl = $0.isEmpty ? nil : $0; vm.isModified = true }
+                        ))
+                        .inputStyle()
+                        .keyboardType(.URL)
+                        .autocorrectionDisabled()
+                        .textInputAutocapitalization(.never)
+
+                        if isUploadingThumbnail {
+                            ProgressView().scaleEffect(0.8).frame(width: 32)
+                        } else {
+                            PhotosPicker(selection: $thumbnailPhotoItem, matching: .images) {
+                                Image(systemName: "photo.badge.plus")
+                                    .font(.system(size: 18))
+                                    .foregroundStyle(Color.accentIndigo)
+                            }
+                            .frame(width: 32)
                         }
-                        .frame(width: 32)
                     }
                 }
-            }
 
-            // 大きい画像
-            VStack(alignment: .leading, spacing: .spacing8) {
-                HStack(spacing: .spacing8) {
-                    editorField("画像URL（大きい画像）", placeholder: "https://...", binding: Binding(
-                        get: { vm.embed.imageUrl ?? "" },
-                        set: { vm.embed.imageUrl = $0.isEmpty ? nil : $0; vm.isModified = true }
-                    ), isURL: true)
-                    if isUploadingImage {
-                        ProgressView().scaleEffect(0.8).frame(width: 32)
-                    } else {
-                        PhotosPicker(selection: $imagePhotoItem, matching: .images) {
-                            Image(systemName: "photo.badge.plus")
-                                .font(.system(size: 18))
-                                .foregroundStyle(Color.accentIndigo)
+                FormField(label: "画像（大きい画像）") {
+                    HStack(spacing: .spacing8) {
+                        TextField("https://...", text: Binding(
+                            get: { vm.embed.imageUrl ?? "" },
+                            set: { vm.embed.imageUrl = $0.isEmpty ? nil : $0; vm.isModified = true }
+                        ))
+                        .inputStyle()
+                        .keyboardType(.URL)
+                        .autocorrectionDisabled()
+                        .textInputAutocapitalization(.never)
+
+                        if isUploadingImage {
+                            ProgressView().scaleEffect(0.8).frame(width: 32)
+                        } else {
+                            PhotosPicker(selection: $imagePhotoItem, matching: .images) {
+                                Image(systemName: "photo.badge.plus")
+                                    .font(.system(size: 18))
+                                    .foregroundStyle(Color.accentIndigo)
+                            }
+                            .frame(width: 32)
                         }
-                        .frame(width: 32)
                     }
                 }
-            }
 
-            if let err = uploadError {
-                Label(err, systemImage: "exclamationmark.triangle.fill")
-                    .font(.captionSmall).foregroundStyle(Color.accentPink)
+                FormField(label: "タイトルのリンク先URL", helper: "Embedタイトルをタップしたときの遷移先") {
+                    TextField("https://...", text: Binding(
+                        get: { vm.embed.embedUrl ?? "" },
+                        set: { vm.embed.embedUrl = $0.isEmpty ? nil : $0; vm.isModified = true }
+                    ))
+                    .inputStyle()
+                    .keyboardType(.URL)
+                    .autocorrectionDisabled()
+                    .textInputAutocapitalization(.never)
+                }
+
+                if let err = uploadError {
+                    Label(err, systemImage: "exclamationmark.triangle.fill")
+                        .font(.captionSmall).foregroundStyle(Color.accentPink)
+                }
             }
         }
         .onChange(of: thumbnailPhotoItem) { uploadPhoto(item: thumbnailPhotoItem, target: .thumbnail) }
         .onChange(of: imagePhotoItem)     { uploadPhoto(item: imagePhotoItem,     target: .image) }
     }
+
+    private var footerSection: some View {
+        FormSection("フッター", icon: "doc.plaintext") {
+            VStack(alignment: .leading, spacing: .spacing8) {
+                FormField.text(
+                    label: "フッターテキスト",
+                    text: Binding(
+                        get: { vm.embed.footerText ?? "" },
+                        set: { vm.embed.footerText = $0.isEmpty ? nil : $0; vm.isModified = true }
+                    ),
+                    placeholder: "フッターに表示するテキスト"
+                )
+                limitLabel(vm.embed.footerText ?? "", limit: EmbedModel.limitFooter)
+
+                FormField(label: "フッターアイコンURL", helper: "フッター横に表示する小さなアイコン画像") {
+                    TextField("https://...", text: Binding(
+                        get: { vm.embed.footerIconUrl ?? "" },
+                        set: { vm.embed.footerIconUrl = $0.isEmpty ? nil : $0; vm.isModified = true }
+                    ))
+                    .inputStyle()
+                    .keyboardType(.URL)
+                    .autocorrectionDisabled()
+                    .textInputAutocapitalization(.never)
+                }
+
+                FormField.toggle(
+                    label: "タイムスタンプを表示",
+                    isOn: Binding(
+                        get: { vm.embed.showTimestamp },
+                        set: { vm.embed.showTimestamp = $0; vm.isModified = true }
+                    ),
+                    helper: "送信時刻をフッターに追加"
+                )
+            }
+        }
+    }
+
+    // MARK: - Helpers
+
+    private func limitLabel(_ text: String, limit: Int) -> some View {
+        Text("\(text.count) / \(limit)")
+            .font(.captionSmall)
+            .foregroundStyle(text.count > limit ? Color.accentPink : Color.textTertiary)
+    }
+
+    // MARK: - Image Upload
 
     private enum ImageTarget { case thumbnail, image }
 
@@ -400,10 +564,8 @@ struct EmbedEditorView: View {
                 let url = try await uploadImageData(jpeg)
                 await MainActor.run {
                     switch target {
-                    case .thumbnail:
-                        vm.embed.thumbnailUrl = url
-                    case .image:
-                        vm.embed.imageUrl = url
+                    case .thumbnail: vm.embed.thumbnailUrl = url
+                    case .image:     vm.embed.imageUrl = url
                     }
                     vm.isModified = true
                 }
@@ -435,132 +597,22 @@ struct EmbedEditorView: View {
             throw URLError(.badServerResponse)
         }
         struct UploadResponse: Decodable { let url: String }
-        let decoded = try JSONDecoder().decode(UploadResponse.self, from: respData)
-        return decoded.url
-    }
-
-    @ViewBuilder
-    private var fieldsSection: some View {
-        SectionCard(title: "フィールド", trailing: {
-            Button {
-                if vm.embed.fields.count < EmbedModel.maxFields {
-                    withAnimation { vm.addField() }
-                }
-            } label: {
-                Label("追加", systemImage: "plus")
-                    .font(.captionRegular)
-                    .foregroundStyle(vm.embed.fields.count < EmbedModel.maxFields ? Color.accentIndigo : Color.textTertiary)
-            }
-            .disabled(vm.embed.fields.count >= EmbedModel.maxFields)
-        }) {
-            if vm.embed.fields.isEmpty {
-                Text("フィールドなし")
-                    .font(.captionRegular)
-                    .foregroundStyle(Color.textTertiary)
-                    .padding(.vertical, .spacing4)
-            } else {
-                VStack(alignment: .leading, spacing: .spacing4) {
-                    Text("\(vm.embed.fields.count) / \(EmbedModel.maxFields) フィールド")
-                        .font(.captionSmall)
-                        .foregroundStyle(vm.embed.fields.count > EmbedModel.maxFields ? Color.accentPink : Color.textTertiary)
-                    ForEach($vm.embed.fields) { $field in
-                        EmbedFieldEditorRow(field: $field)
-                            .swipeActions(edge: .trailing, allowsFullSwipe: false) {
-                                Button(role: .destructive) {
-                                    if let idx = vm.embed.fields.firstIndex(where: { $0.id == field.id }) {
-                                        fieldToDelete = IndexSet(integer: idx)
-                                        showFieldDeleteConfirm = true
-                                    }
-                                } label: {
-                                    Label("削除", systemImage: "trash")
-                                }
-                            }
-                    }
-                    .onMove { from, to in vm.moveField(from: from, to: to) }
-                    .onDelete { offsets in
-                        fieldToDelete = offsets
-                        showFieldDeleteConfirm = true
-                    }
-                }
-            }
-        }
-    }
-
-    @ViewBuilder
-    private var footerSection: some View {
-        SectionCard(title: "フッター") {
-            editorField("フッターテキスト", placeholder: "フッターに表示するテキスト", binding: Binding(
-                get: { vm.embed.footerText ?? "" },
-                set: { vm.embed.footerText = $0.isEmpty ? nil : $0; vm.isModified = true }
-            ), limit: EmbedModel.limitFooter)
-            editorField("フッターアイコンURL", placeholder: "https://...", binding: Binding(
-                get: { vm.embed.footerIconUrl ?? "" },
-                set: { vm.embed.footerIconUrl = $0.isEmpty ? nil : $0; vm.isModified = true }
-            ), isURL: true)
-            Toggle(isOn: $vm.embed.showTimestamp) {
-                VStack(alignment: .leading, spacing: 2) {
-                    Text("タイムスタンプを表示")
-                        .font(.bodyRegular)
-                        .foregroundStyle(Color.textPrimary)
-                    Text("送信時刻をフッターに追加")
-                        .font(.captionSmall)
-                        .foregroundStyle(Color.textTertiary)
-                }
-            }
-            .tint(Color.accentIndigo)
-            .onChange(of: vm.embed.showTimestamp) { vm.isModified = true }
-        }
-    }
-
-    // MARK: - Helpers
-
-    @ViewBuilder
-    private func editorField(
-        _ label: String,
-        placeholder: String,
-        binding: Binding<String>,
-        isURL: Bool = false,
-        limit: Int? = nil
-    ) -> some View {
-        VStack(alignment: .leading, spacing: .spacing4) {
-            Text(label).font(.captionSmall).foregroundStyle(Color.textTertiary)
-            TextField(placeholder, text: binding)
-                .inputStyle()
-                .keyboardType(isURL ? .URL : .default)
-                .autocorrectionDisabled(isURL)
-                .textInputAutocapitalization(isURL ? .never : .sentences)
-                .onChange(of: binding.wrappedValue) { vm.isModified = true }
-            if let limit = limit {
-                limitLabel(binding.wrappedValue, limit: limit)
-            }
-        }
-    }
-
-    @ViewBuilder
-    private func limitLabel(for path: KeyPath<EmbedModel, String?>, limit: Int) -> some View {
-        let text = vm.embed[keyPath: path] ?? ""
-        let isOver = text.count > limit
-        Text("\(text.count) / \(limit)")
-            .font(.captionSmall)
-            .foregroundStyle(isOver ? Color.accentPink : Color.textTertiary)
-    }
-
-    @ViewBuilder
-    private func limitLabel(_ text: String, limit: Int) -> some View {
-        let isOver = text.count > limit
-        Text("\(text.count) / \(limit)")
-            .font(.captionSmall)
-            .foregroundStyle(isOver ? Color.accentPink : Color.textTertiary)
+        return try JSONDecoder().decode(UploadResponse.self, from: respData).url
     }
 
     // MARK: - Save
 
     private func saveEmbed() {
-        guard !saveName.isEmpty else { return }
+        guard canSave else { return }
         isSaving = true
         Task {
             var updated = vm.embed
-            updated.name = saveName
+            // 名前が空なら自動生成
+            if updated.name.trimmingCharacters(in: .whitespaces).isEmpty {
+                let base = updated.title ?? "Embed"
+                let date = Date.now.formatted(.dateTime.month().day())
+                updated.name = "\(base) \(date)"
+            }
             updated.guildId = appState.selectedGuildId
             updated.updatedAt = .now
 
@@ -583,48 +635,6 @@ struct EmbedEditorView: View {
 }
 
 // MARK: - Supporting Views
-
-struct SectionCard<Content: View, Trailing: View>: View {
-    let title: String
-    @ViewBuilder let content: () -> Content
-    @ViewBuilder let trailing: () -> Trailing
-
-    init(
-        title: String,
-        @ViewBuilder trailing: @escaping () -> Trailing = { EmptyView() },
-        @ViewBuilder content: @escaping () -> Content
-    ) {
-        self.title = title
-        self.trailing = trailing
-        self.content = content
-    }
-
-    var body: some View {
-        VStack(alignment: .leading, spacing: .spacing8) {
-            HStack {
-                Text(title)
-                    .font(.captionSmall)
-                    .fontWeight(.semibold)
-                    .foregroundStyle(Color.textTertiary)
-                    .textCase(.uppercase)
-                    .tracking(0.5)
-                Spacer()
-                trailing()
-            }
-            VStack(alignment: .leading, spacing: .spacing8) {
-                content()
-            }
-        }
-    }
-}
-
-extension SectionCard where Trailing == EmptyView {
-    init(title: String, @ViewBuilder content: @escaping () -> Content) {
-        self.title = title
-        self.trailing = { EmptyView() }
-        self.content = content
-    }
-}
 
 private struct EmbedFieldEditorRow: View {
     @Binding var field: EmbedFieldModel
@@ -656,28 +666,15 @@ private struct EmbedFieldEditorRow: View {
         .clipShape(RoundedRectangle(cornerRadius: .cornerRadiusSmall))
     }
 
-    @ViewBuilder
     private func limitLabel(_ text: String, limit: Int) -> some View {
-        let isOver = text.count > limit
         Text("\(text.count) / \(limit)")
             .font(.captionSmall)
-            .foregroundStyle(isOver ? Color.accentPink : Color.textTertiary)
-    }
-}
-
-// MARK: - TextField スタイル
-
-extension View {
-    func inputStyle() -> some View {
-        self
-            .padding(.spacing10)
-            .background(Color.bgElevated)
-            .clipShape(RoundedRectangle(cornerRadius: .cornerRadiusSmall))
-            .font(.bodySmall)
+            .foregroundStyle(text.count > limit ? Color.accentPink : Color.textTertiary)
     }
 }
 
 #Preview {
     EmbedEditorView(embed: nil) { _ in }
         .environment(\.services, ServiceContainer.live())
+        .environment(AppState())
 }
