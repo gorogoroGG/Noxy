@@ -8,13 +8,13 @@ struct ManageTabView: View {
             List {
                 membersSection
                 rolesSection
-                moderationSection
                 insightsSection
             }
             .listStyle(.insetGrouped)
             .navigationTitle("管理")
             .navigationBarTitleDisplayMode(.large)
         }
+        .id(appState.selectedGuildId)
     }
 
     // MARK: - メンバー
@@ -29,7 +29,7 @@ struct ManageTabView: View {
             }
 
             NavigationLink {
-                RolesListView()
+                RolesListView(guildId: appState.selectedGuildId)
             } label: {
                 ManageRow(icon: "tag.fill", title: "ロール管理",
                           subtitle: "ロールの確認・メンバー割り当て", color: .accentPurple)
@@ -49,37 +49,10 @@ struct ManageTabView: View {
             }
 
             NavigationLink {
-                ModBanListView(guildId: appState.selectedGuildId)
-            } label: {
-                ManageRow(icon: "xmark.circle.fill", title: "BAN一覧",
-                          subtitle: "BANされたメンバーの管理", color: .accentRed)
-            }
-
-            NavigationLink {
                 AuditLogView(guildId: appState.selectedGuildId)
             } label: {
                 ManageRow(icon: "doc.text.magnifyingglass", title: "監査ログ",
                           subtitle: "サーバー内の操作履歴", color: .accentOrange)
-            }
-        }
-    }
-
-    // MARK: - ロールブロック（入退室）
-
-    private var moderationSection: some View {
-        Section("自動化ルール") {
-            NavigationLink {
-                ReactionRolesView()
-            } label: {
-                ManageRow(icon: "heart.fill", title: "リアクションロール",
-                          subtitle: "スタンプでロールを自動付与", color: .accentPink)
-            }
-
-            NavigationLink {
-                WelcomeMessageView()
-            } label: {
-                ManageRow(icon: "hand.wave.fill", title: "入退室メッセージ",
-                          subtitle: "参加・退出時に自動あいさつ", color: .accentGreen)
             }
         }
     }
@@ -100,13 +73,6 @@ struct ManageTabView: View {
             } label: {
                 ManageRow(icon: "waveform", title: "モニター",
                           subtitle: "Botのリアルタイム活動ログ", color: .accentGreen)
-            }
-
-            NavigationLink {
-                SlashCommandsView()
-            } label: {
-                ManageRow(icon: "terminal.fill", title: "スラッシュコマンド",
-                          subtitle: "利用可能なコマンド一覧", color: .accentPurple)
             }
         }
     }

@@ -78,6 +78,16 @@ struct TicketListView: View {
                             .listRowInsets(EdgeInsets(top: 4, leading: 16, bottom: 4, trailing: 16))
                             .listRowBackground(Color(.systemGroupedBackground))
                             .listRowSeparator(.hidden)
+                            .swipeActions(edge: .trailing, allowsFullSwipe: false) {
+                                if ticket.status == .pending {
+                                    Button {
+                                        Task { await closeTicket(ticket) }
+                                    } label: {
+                                        Label("クローズ", systemImage: "lock.fill")
+                                    }
+                                    .tint(Color.accentOrange)
+                                }
+                            }
                     }
                 }
 
@@ -339,6 +349,21 @@ struct TicketListView: View {
             loadError = "サーバーに接続できませんでした。ネットワークを確認してください。"
         }
         isLoading = false
+    }
+
+    private func closeTicket(_ ticket: Ticket) async {
+        do {
+            try await services.tickets.setStatus(id: ticket.id, status: .closed)
+            if let idx = tickets.firstIndex(where: { $0.id == ticket.id }) {
+                var updated = tickets[idx]
+                updated.status = .closed
+                updated.closedAt = .now
+                tickets[idx] = updated
+            }
+            showToast("チケットをクローズしました", type: .success)
+        } catch {
+            showToast("クローズに失敗しました", type: .error)
+        }
     }
 
     private func showToast(_ msg: String, type: ToastType) {

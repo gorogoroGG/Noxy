@@ -7,6 +7,7 @@ struct ModTimeoutView: View {
     @State private var untimeoutTarget: TimedOutMember? = nil
     @State private var toast: String? = nil
     @State private var tick = false
+    @State private var selectedMember: Member? = nil
 
     private let service = ModerationService()
 
@@ -23,6 +24,9 @@ struct ModTimeoutView: View {
         .animation(.spring(duration: 0.3), value: toast != nil)
         .task { await load() }
         .refreshable { await load() }
+        .sheet(item: $selectedMember) { member in
+            MemberDetailView(member: member, guildId: guildId, allRoles: [], onAction: { _ in })
+        }
         .onAppear {
             Timer.scheduledTimer(withTimeInterval: 1, repeats: true) { _ in tick.toggle() }
         }
@@ -70,6 +74,8 @@ struct ModTimeoutView: View {
                 ForEach(members) { member in
                     TimeoutCard(member: member, tick: tick) {
                         untimeoutTarget = member
+                    } onSelectUser: {
+                        selectedMember = memberFromTimeout(member)
                     }
                 }
                 bottomPad
@@ -103,6 +109,16 @@ struct ModTimeoutView: View {
         }
     }
 
+    private func memberFromTimeout(_ t: TimedOutMember) -> Member {
+        Member(id: t.id, guildId: guildId, username: t.username,
+               displayName: t.displayName, discriminator: "0", globalName: nil,
+               nick: nil, avatarUrl: nil, bannerUrl: nil, accentColor: nil,
+               publicFlags: 0, isBot: false, roles: [],
+               joinedAt: .distantPast, createdAt: .distantPast,
+               isBoosting: false, boostSince: nil, isDeaf: false, isMute: false,
+               flags: 0, communicationDisabledUntil: t.timeoutUntil, status: .offline)
+    }
+
     private func showToast(_ msg: String) {
         withAnimation { toast = msg }
         Task {
@@ -118,25 +134,31 @@ private struct TimeoutCard: View {
     let member: TimedOutMember
     let tick: Bool
     let onRemove: () -> Void
+    let onSelectUser: () -> Void
 
     var body: some View {
         HStack(spacing: .spacing12) {
-            // 残り時間リング
-            ZStack {
-                Circle().stroke(member.severityColor.opacity(0.15), lineWidth: 3)
-                Circle()
-                    .trim(from: 0, to: ringProgress)
-                    .stroke(member.severityColor, style: StrokeStyle(lineWidth: 3, lineCap: .round))
-                    .rotationEffect(.degrees(-90))
-                    .animation(.linear(duration: 1), value: tick)
-                Text(String(member.displayName.prefix(1)).uppercased())
-                    .font(.bodySmall).fontWeight(.bold).foregroundStyle(Color.textPrimary)
+            // アバター + 残り時間リング
+            Button(action: onSelectUser) {
+                ZStack {
+                    Circle().stroke(member.severityColor.opacity(0.15), lineWidth: 3)
+                    Circle()
+                        .trim(from: 0, to: ringProgress)
+                        .stroke(member.severityColor, style: StrokeStyle(lineWidth: 3, lineCap: .round))
+                        .rotationEffect(.degrees(-90))
+                        .animation(.linear(duration: 1), value: tick)
+                    Avatar(name: member.displayName, size: 38, accentColor: member.severityColor)
+                }
+                .frame(width: 46, height: 46)
             }
-            .frame(width: 46, height: 46)
+            .buttonStyle(.plain)
 
             VStack(alignment: .leading, spacing: 3) {
-                Text(member.displayName)
-                    .font(.bodySmall).fontWeight(.semibold).foregroundStyle(Color.textPrimary)
+                Button(action: onSelectUser) {
+                    Text(member.displayName)
+                        .font(.bodySmall).fontWeight(.semibold).foregroundStyle(Color.textPrimary)
+                }
+                .buttonStyle(.plain)
                 Text("@\(member.username)")
                     .font(.captionSmall).foregroundStyle(Color.textTertiary)
                 HStack(spacing: 4) {

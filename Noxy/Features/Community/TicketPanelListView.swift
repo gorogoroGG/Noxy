@@ -18,7 +18,7 @@ struct TicketPanelListView: View {
     @State private var toast: ToastMessage? = nil
 
     var body: some View {
-        ZStack(alignment: .bottom) {
+        ZStack(alignment: .bottomTrailing) {
             Group {
                 if isLoading {
                     loadingView
@@ -31,20 +31,22 @@ struct TicketPanelListView: View {
                 }
             }
 
-            // FAB
+            // FAB — 右下の丸い＋ボタン（EmbedListView と同じ）
             if !isLoading {
-                Button { showCreate = true } label: {
-                    HStack(spacing: .spacing8) {
-                        Image(systemName: "plus").font(.system(size: 14, weight: .bold))
-                        Text(panels.isEmpty ? "最初のパネルを作成" : "パネルを作成")
-                            .font(.bodySmall).fontWeight(.semibold)
-                    }
-                    .foregroundStyle(.white)
-                    .padding(.horizontal, .spacing20).padding(.vertical, .spacing12)
-                    .background(Color.accentIndigo).clipShape(Capsule())
-                    .shadow(color: Color.accentIndigo.opacity(0.4), radius: 8, y: 4)
+                Button {
+                    editingPanel = nil
+                    showCreate = true
+                } label: {
+                    Image(systemName: "plus")
+                        .font(.system(size: 22, weight: .semibold))
+                        .foregroundStyle(.white)
+                        .frame(width: 56, height: 56)
+                        .background(Color.accentIndigo)
+                        .clipShape(Circle())
+                        .shadow(color: Color.accentIndigo.opacity(0.4), radius: 12, x: 0, y: 4)
                 }
-                .padding(.bottom, 24)
+                .padding(.trailing, .spacing20)
+                .padding(.bottom, .spacing24)
             }
         }
         .sheet(isPresented: $showCreate) {

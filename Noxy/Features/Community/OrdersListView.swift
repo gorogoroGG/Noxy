@@ -8,13 +8,54 @@ struct OrdersListView: View {
     @Environment(\.services) private var services
     @State private var orders: [Order] = []
     @State private var isLoading = true
-    @State private var selectedStatus: OrderStatus? = nil
+    @State private var selectedGroup: StatusGroup? = nil
     @State private var selectedOrder: Order? = nil
     @State private var searchText = ""
 
+    // ステータスグループ（複数の OrderStatus をまとめてフィルタ）
+    enum StatusGroup: Hashable, CaseIterable {
+        case open, processing, completed, cancelled, disputed
+
+        var label: String {
+            switch self {
+            case .open:       "受付中"
+            case .processing: "処理中"
+            case .completed:  "完了"
+            case .cancelled:  "取消"
+            case .disputed:   "異議"
+            }
+        }
+
+        var statuses: [OrderStatus] {
+            switch self {
+            case .open:       [.open]
+            case .processing: [.paid, .delivered]
+            case .completed:  [.completed]
+            case .cancelled:  [.cancelled]
+            case .disputed:   [.disputed]
+            }
+        }
+
+        var color: Color {
+            switch self {
+            case .open:       .accentOrange
+            case .processing: .accentIndigo
+            case .completed:  .accentGreen
+            case .cancelled:  Color.textTertiary
+            case .disputed:   .red
+            }
+        }
+    }
+
+    private func count(for group: StatusGroup) -> Int {
+        orders.filter { group.statuses.contains($0.status) }.count
+    }
+
     private var filtered: [Order] {
         var base = orders
-        if let status = selectedStatus { base = base.filter { $0.status == status } }
+        if let group = selectedGroup {
+            base = base.filter { group.statuses.contains($0.status) }
+        }
         if !searchText.isEmpty {
             base = base.filter {
                 $0.productName.localizedCaseInsensitiveContains(searchText) ||
@@ -24,22 +65,16 @@ struct OrdersListView: View {
         return base.sorted { $0.createdAt > $1.createdAt }
     }
 
-    private var openCount:    Int { orders.filter { $0.status == .open    }.count }
-    private var paidCount:    Int { orders.filter { $0.status == .paid || $0.status == .delivered }.count }
-    private var completedCount: Int { orders.filter { $0.status == .completed }.count }
-    private var cancelledCount: Int { orders.filter { $0.status == .cancelled }.count }
-    private var disputedCount: Int { orders.filter { $0.status == .disputed }.count }
-
     var body: some View {
         VStack(spacing: 0) {
             statsHeader
-            statusTabBar
 
             List {
                 if isLoading {
                     HStack { Spacer(); ProgressView(); Spacer() }
                         .listRowBackground(Color(.systemGroupedBackground))
-                        .listRowSeparator(.hidden).padding(.top, 40)
+                        .listRowSeparator(.hidden)
+                        .padding(.top, 40)
                 } else if filtered.isEmpty {
                     emptyState
                         .listRowBackground(Color(.systemGroupedBackground))
@@ -47,7 +82,7 @@ struct OrdersListView: View {
                 } else {
                     Text("\(filtered.count)件")
                         .font(.captionSmall).foregroundStyle(Color.textTertiary)
-                        .listRowInsets(EdgeInsets(top: 4, leading: 16, bottom: 0, trailing: 16))
+                        .listRowInsets(EdgeInsets(top: 8, leading: 16, bottom: 2, trailing: 16))
                         .listRowBackground(Color(.systemGroupedBackground))
                         .listRowSeparator(.hidden)
 
@@ -81,69 +116,56 @@ struct OrdersListView: View {
         .task { await load() }
     }
 
+    // MARK: - Stats Header（タップでフィルタ）
+
     private var statsHeader: some View {
         HStack(spacing: 0) {
-            statCell(value: "\(openCount)", label: "受付中", color: .accentOrange)
-            Divider().frame(height: 32)
-            statCell(value: "\(paidCount)", label: "処理中", color: .accentIndigo)
-            Divider().frame(height: 32)
-            statCell(value: "\(completedCount)", label: "完了", color: .accentGreen)
-            Divider().frame(height: 32)
-            statCell(value: "\(cancelledCount)", label: "取消", color: Color.textTertiary)
-            Divider().frame(height: 32)
-            statCell(value: "\(disputedCount)", label: "異議", color: .red)
-        }
-        .padding(.vertical, .spacing12)
-        .background(Color(.secondarySystemGroupedBackground))
-        .overlay(Divider(), alignment: .bottom)
-    }
+            ForEach(StatusGroup.allCases, id: \.self) { group in
+                let isSelected = selectedGroup == group
+                let cnt = count(for: group)
 
-    private func statCell(value: String, label: String, color: Color) -> some View {
-        VStack(spacing: 2) {
-            Text(value).font(.system(size: 20, weight: .bold, design: .rounded)).foregroundStyle(color)
-            Text(label).font(.captionSmall).foregroundStyle(Color.textTertiary)
-        }.frame(maxWidth: .infinity)
-    }
-
-    private var statusTabBar: some View {
-        ScrollView(.horizontal, showsIndicators: false) {
-            HStack(spacing: .spacing8) {
-                statusChip("すべて", icon: "list.bullet", status: nil, color: Color.textSecondary)
-                ForEach(OrderStatus.allCases, id: \.self) { s in
-                    statusChip(s.label, icon: s.icon, status: s, color: s.chipColor)
+                Button {
+                    withAnimation(.easeInOut(duration: 0.18)) {
+                        selectedGroup = isSelected ? nil : group
+                    }
+                } label: {
+                    VStack(spacing: 3) {
+                        Text("\(cnt)")
+                            .font(.system(size: 20, weight: .bold, design: .rounded))
+                            .foregroundStyle(isSelected ? .white : group.color)
+                        Text(group.label)
+                            .font(.system(size: 10, weight: .semibold))
+                            .foregroundStyle(isSelected ? .white.opacity(0.85) : Color.textTertiary)
+                    }
+                    .frame(maxWidth: .infinity)
+                    .padding(.vertical, 10)
+                    .background(
+                        isSelected
+                            ? group.color
+                            : group.color.opacity(cnt > 0 ? 0.08 : 0)
+                    )
+                    .clipShape(RoundedRectangle(cornerRadius: 10))
+                    .padding(4)
                 }
+                .buttonStyle(.plain)
+                .animation(.easeInOut(duration: 0.18), value: selectedGroup)
             }
-            .padding(.horizontal, .spacing12).padding(.vertical, .spacing8)
         }
+        .padding(.horizontal, .spacing8)
+        .padding(.vertical, .spacing4)
         .background(Color(.secondarySystemGroupedBackground))
         .overlay(Divider(), alignment: .bottom)
     }
 
-    private func statusChip(_ label: String, icon: String, status: OrderStatus?, color: Color) -> some View {
-        Button {
-            withAnimation(.easeInOut(duration: 0.18)) { selectedStatus = status }
-        } label: {
-            HStack(spacing: 4) {
-                Image(systemName: icon).font(.system(size: 10))
-                Text(label).font(.captionSmall).fontWeight(.medium)
-            }
-            .foregroundStyle(selectedStatus == status ? .white : color)
-            .padding(.horizontal, 10).padding(.vertical, 5)
-            .background(selectedStatus == status ? color : color.opacity(0.12))
-            .clipShape(Capsule())
-        }
-        .buttonStyle(.plain)
-    }
+    // MARK: - Empty
 
     private var emptyState: some View {
         VStack(spacing: .spacing12) {
-            Image(systemName: "list.bullet.clipboard")
+            Image(systemName: "cart")
                 .font(.system(size: 36)).foregroundStyle(Color.textTertiary)
             Text("注文がありません")
                 .font(.titleMedium).foregroundStyle(Color.textPrimary)
-            Text(selectedStatus == nil
-                 ? "条件に一致する注文はありません"
-                 : "このステータスの注文はありません")
+            Text(selectedGroup == nil ? "まだ注文はありません" : "このステータスの注文はありません")
                 .font(.captionRegular).foregroundStyle(Color.textTertiary)
                 .multilineTextAlignment(.center)
         }
@@ -163,47 +185,70 @@ private struct OrderCard: View {
     let order: Order
 
     var body: some View {
-        VStack(spacing: 0) {
-            HStack(spacing: .spacing12) {
-                ZStack {
-                    Circle().fill(order.status.chipColor.opacity(0.15)).frame(width: 36, height: 36)
-                    Image(systemName: order.status.icon)
-                        .font(.system(size: 14)).foregroundStyle(order.status.chipColor)
+        HStack(spacing: 0) {
+            // ステータスカラーのアクセントバー
+            RoundedRectangle(cornerRadius: 2)
+                .fill(order.status.chipColor)
+                .frame(width: 3)
+                .padding(.vertical, 8)
+                .padding(.leading, 12)
+
+            VStack(alignment: .leading, spacing: 6) {
+                // 1行目: 商品名 ＋ ステータスバッジ
+                HStack(alignment: .center, spacing: .spacing6) {
+                    Text(order.productName)
+                        .font(.bodySmall)
+                        .fontWeight(.semibold)
+                        .foregroundStyle(Color.textPrimary)
+                        .lineLimit(1)
+                    Spacer(minLength: 4)
+                    Text(order.status.label)
+                        .font(.system(size: 10, weight: .bold))
+                        .foregroundStyle(order.status.chipColor)
+                        .padding(.horizontal, 8).padding(.vertical, 3)
+                        .background(order.status.chipColor.opacity(0.12))
+                        .clipShape(Capsule())
                 }
 
-                VStack(alignment: .leading, spacing: 3) {
-                    HStack(spacing: 6) {
-                        Text(order.productName)
-                            .font(.bodySmall).fontWeight(.semibold).foregroundStyle(Color.textPrimary)
-                            .lineLimit(1)
-                        Spacer()
-                        Text(order.status.label)
-                            .font(.system(size: 10, weight: .semibold))
-                            .foregroundStyle(order.status.chipColor)
-                            .padding(.horizontal, 8).padding(.vertical, 3)
-                            .background(order.status.chipColor.opacity(0.12))
-                            .clipShape(Capsule())
+                // 2行目: 購入者 · 価格 · 日時
+                HStack(spacing: 0) {
+                    Image(systemName: "person.fill")
+                        .font(.system(size: 10))
+                        .foregroundStyle(Color.textTertiary)
+                        .padding(.trailing, 4)
+                    Text(order.buyerUsername)
+                        .font(.captionSmall)
+                        .foregroundStyle(Color.textSecondary)
+
+                    Text(" · ")
+                        .font(.captionSmall)
+                        .foregroundStyle(Color.textTertiary)
+
+                    Text(order.productPriceDisplay)
+                        .font(.captionSmall)
+                        .foregroundStyle(Color.textSecondary)
+
+                    if order.paymentUrl != nil {
+                        Text(" · ")
+                            .font(.captionSmall)
+                            .foregroundStyle(Color.textTertiary)
+                        Image(systemName: "link")
+                            .font(.system(size: 9))
+                            .foregroundStyle(Color.accentIndigo)
+                        Text("URL済")
+                            .font(.system(size: 9, weight: .medium))
+                            .foregroundStyle(Color.accentIndigo)
                     }
-                    HStack(spacing: .spacing12) {
-                        Label("@\(order.buyerUsername)", systemImage: "person.fill")
-                            .font(.captionSmall).foregroundStyle(Color.textTertiary)
-                        Label(order.productPriceDisplay, systemImage: "tag.fill")
-                            .font(.captionSmall).foregroundStyle(Color.textTertiary)
-                        if order.paymentUrl != nil {
-                            Label("URL済", systemImage: "link.badge.plus")
-                                .font(.system(size: 9, weight: .medium))
-                                .foregroundStyle(Color.accentIndigo)
-                                .padding(.horizontal, 6).padding(.vertical, 2)
-                                .background(Color.accentIndigo.opacity(0.12))
-                                .clipShape(Capsule())
-                        }
-                        Spacer()
-                        Text(order.createdAt.formatted(.relative(presentation: .named)))
-                            .font(.captionSmall).foregroundStyle(Color.textTertiary)
-                    }
+
+                    Spacer(minLength: 4)
+                    Text(order.createdAt.formatted(.relative(presentation: .named)))
+                        .font(.captionSmall)
+                        .foregroundStyle(Color.textTertiary)
                 }
             }
-            .padding(.spacing12)
+            .padding(.leading, 12)
+            .padding(.trailing, 14)
+            .padding(.vertical, 14)
         }
         .background(Color(.secondarySystemGroupedBackground))
         .clipShape(RoundedRectangle(cornerRadius: 14))

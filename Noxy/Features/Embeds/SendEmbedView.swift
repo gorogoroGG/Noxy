@@ -66,16 +66,18 @@ struct SendEmbedView: View {
     @ViewBuilder
     private var mainContent: some View {
         VStack(spacing: 0) {
-            // Embed プレビュー（コンパクト）
+            // Discord Preview
             VStack(alignment: .leading, spacing: .spacing8) {
                 Text("送信するEmbed")
                     .font(.captionSmall)
+                    .fontWeight(.semibold)
                     .foregroundStyle(Color.textTertiary)
                     .textCase(.uppercase)
+                    .tracking(0.5)
                     .padding(.horizontal)
                     .padding(.top)
 
-                EmbedPreviewCard(embed: .from(embed))
+                DiscordMessagePreview(embed: .from(embed), isCompact: true)
                     .padding(.horizontal)
                     .padding(.bottom)
             }

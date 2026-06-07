@@ -7,6 +7,7 @@ struct ModBanListView: View {
     @State private var unbanTarget: BannedUser? = nil
     @State private var isWorking = false
     @State private var toast: String? = nil
+    @State private var selectedMember: Member? = nil
 
     private let service = ModerationService()
 
@@ -23,6 +24,9 @@ struct ModBanListView: View {
         .animation(.spring(duration: 0.3), value: toast != nil)
         .task { await load() }
         .refreshable { await load() }
+        .sheet(item: $selectedMember) { member in
+            MemberDetailView(member: member, guildId: guildId, allRoles: [], onAction: { _ in })
+        }
         .alert("BANを解除しますか？", isPresented: Binding(
             get: { unbanTarget != nil },
             set: { if !$0 { unbanTarget = nil } }
@@ -51,30 +55,39 @@ struct ModBanListView: View {
                              title: "BANされたユーザーはいません",
                              subtitle: "サーバーは安全に保たれています")
             } else {
-                banList(bans)
+                banList(bans, onSelect: { ban in selectedMember = memberFromBan(ban) })
             }
         }
     }
 
-    private func banList(_ bans: [BannedUser]) -> some View {
+    private func banList(_ bans: [BannedUser], onSelect: @escaping (BannedUser) -> Void) -> some View {
         ScrollView {
             LazyVStack(spacing: .spacing8) {
                 sectionHeader(
                     icon: "hand.raised.slash.fill",
                     color: .accentRed,
                     title: "\(bans.count)人がBANされています",
-                    note: "タップしてBAN解除"
+                    note: "名前をタップで詳細"
                 )
                 ForEach(bans) { ban in
-                    BanCard(ban: ban) {
-                        unbanTarget = ban
-                    }
+                    BanCard(ban: ban, onUnban: { unbanTarget = ban }, onSelectUser: { onSelect(ban) })
                 }
                 bottomPad
             }
             .padding(.horizontal, .spacing16)
             .padding(.top, .spacing12)
         }
+    }
+
+    private func memberFromBan(_ ban: BannedUser) -> Member {
+        Member(id: ban.id, guildId: guildId, username: ban.username,
+               displayName: ban.displayName, discriminator: "0", globalName: nil,
+               nick: nil, avatarUrl: nil, bannerUrl: nil, accentColor: nil,
+               publicFlags: 0, isBot: false, roles: [],
+               joinedAt: ban.bannedAt ?? .distantPast,
+               createdAt: .distantPast, isBoosting: false, boostSince: nil,
+               isDeaf: false, isMute: false, flags: 0,
+               communicationDisabledUntil: nil, status: .offline)
     }
 
     private func performUnban(_ ban: BannedUser) async {
@@ -117,21 +130,21 @@ struct ModBanListView: View {
 private struct BanCard: View {
     let ban: BannedUser
     let onUnban: () -> Void
+    let onSelectUser: () -> Void
 
     var body: some View {
         HStack(spacing: .spacing12) {
-            Circle()
-                .fill(Color.accentRed.opacity(0.12))
-                .frame(width: 44, height: 44)
-                .overlay {
-                    Text(String(ban.displayName.prefix(1)).uppercased())
-                        .font(.titleMedium)
-                        .foregroundStyle(Color.accentRed)
-                }
+            Button(action: onSelectUser) {
+                Avatar(name: ban.displayName, size: 44, accentColor: .accentRed)
+            }
+            .buttonStyle(.plain)
 
             VStack(alignment: .leading, spacing: 3) {
-                Text(ban.displayName)
-                    .font(.bodySmall).fontWeight(.semibold).foregroundStyle(Color.textPrimary)
+                Button(action: onSelectUser) {
+                    Text(ban.displayName)
+                        .font(.bodySmall).fontWeight(.semibold).foregroundStyle(Color.textPrimary)
+                }
+                .buttonStyle(.plain)
                 Text("@\(ban.username)")
                     .font(.captionSmall).foregroundStyle(Color.textTertiary)
                 if let reason = ban.reason, !reason.isEmpty {

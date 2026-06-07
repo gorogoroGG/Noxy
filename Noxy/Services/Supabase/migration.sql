@@ -207,7 +207,52 @@ CREATE TABLE IF NOT EXISTS orders (
     cancelled_at            TIMESTAMPTZ
 );
 
--- 13. temp_channel_settings（一時チャンネル設定）
+-- shops テーブルのフィールド更新（payment_flow/auto_deliver廃止、レビュー機能追加）
+ALTER TABLE shops DROP COLUMN IF EXISTS payment_flow;
+ALTER TABLE shops DROP COLUMN IF EXISTS auto_deliver;
+ALTER TABLE shops ADD COLUMN IF NOT EXISTS review_enabled BOOLEAN NOT NULL DEFAULT FALSE;
+ALTER TABLE shops ADD COLUMN IF NOT EXISTS review_channel_id TEXT;
+-- orders テーブルに payment_url / payment_submitted_at を追加（未追加の場合）
+ALTER TABLE orders ADD COLUMN IF NOT EXISTS payment_url TEXT;
+ALTER TABLE orders ADD COLUMN IF NOT EXISTS payment_submitted_at TIMESTAMPTZ;
+
+-- 13. verify_panels（認証パネル）
+CREATE TABLE IF NOT EXISTS verify_panels (
+    id                TEXT PRIMARY KEY DEFAULT gen_random_uuid()::text,
+    guild_id          TEXT NOT NULL,
+    name              TEXT NOT NULL DEFAULT '認証',
+    description       TEXT NOT NULL DEFAULT '下のボタンを押して認証を完了してください。',
+    channel_id        TEXT NOT NULL DEFAULT '',
+    message_id        TEXT,
+    role_id           TEXT NOT NULL DEFAULT '',
+    color             INTEGER NOT NULL DEFAULT 1095937,  -- 0x10b981
+    footer_text       TEXT NOT NULL DEFAULT '',
+    button_label      TEXT NOT NULL DEFAULT '✅ 認証する',
+    enabled           BOOLEAN NOT NULL DEFAULT TRUE,
+    verify_type       TEXT NOT NULL DEFAULT 'captcha',   -- captcha/reaction/manual/button
+    reaction_emoji    TEXT NOT NULL DEFAULT '✅',
+    manual_channel_id TEXT,
+    created_at        TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
+CREATE INDEX IF NOT EXISTS idx_verify_panels_guild ON verify_panels(guild_id);
+
+-- 14. verify_requests（手動認証申請）
+CREATE TABLE IF NOT EXISTS verify_requests (
+    id           TEXT PRIMARY KEY DEFAULT gen_random_uuid()::text,
+    panel_id     TEXT NOT NULL REFERENCES verify_panels(id) ON DELETE CASCADE,
+    guild_id     TEXT NOT NULL,
+    user_id      TEXT NOT NULL,
+    username     TEXT NOT NULL,
+    avatar_url   TEXT,
+    status       TEXT NOT NULL DEFAULT 'pending',  -- pending/approved/denied
+    created_at   TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    resolved_at  TIMESTAMPTZ
+);
+CREATE INDEX IF NOT EXISTS idx_verify_requests_panel  ON verify_requests(panel_id);
+CREATE INDEX IF NOT EXISTS idx_verify_requests_guild  ON verify_requests(guild_id);
+CREATE INDEX IF NOT EXISTS idx_verify_requests_status ON verify_requests(status);
+
+-- 14. temp_channel_settings（一時チャンネル設定）
 CREATE TABLE IF NOT EXISTS temp_channel_settings (
     id                      TEXT PRIMARY KEY DEFAULT gen_random_uuid()::text,
     guild_id                TEXT NOT NULL UNIQUE,

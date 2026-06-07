@@ -459,55 +459,43 @@ private struct MessageBubble: View {
     let message: TicketMessage
 
     var body: some View {
-        GeometryReader { geometry in
-            HStack(alignment: .bottom, spacing: .spacing8) {
-                if message.isStaff { Spacer(minLength: 8) }
+        HStack(alignment: .bottom, spacing: .spacing8) {
+            if message.isStaff { Spacer(minLength: 40) }
 
-                VStack(alignment: message.isStaff ? .trailing : .leading, spacing: 3) {
-                    // ヘッダー（名前・ロール・時刻）
-                    HStack(spacing: 5) {
-                        if message.isStaff {
-                            Text(message.createdAt.formatted(.dateTime.hour().minute()))
-                                .font(.system(size: 9))
-                                .foregroundStyle(Color.textTertiary)
-                            Label("スタッフ", systemImage: "shield.fill")
-                                .font(.system(size: 9, weight: .semibold))
-                                .foregroundStyle(Color.accentIndigo)
-                        }
-                        Text(message.username)
-                            .font(.system(size: 11, weight: .semibold))
+            VStack(alignment: message.isStaff ? .trailing : .leading, spacing: 3) {
+                // ヘッダー（名前・ロール・時刻）
+                HStack(spacing: 5) {
+                    if message.isStaff {
+                        Text(message.createdAt.formatted(.dateTime.hour().minute()))
+                            .font(.system(size: 9))
                             .foregroundStyle(Color.textTertiary)
-                        if !message.isStaff {
-                            Text(message.createdAt.formatted(.dateTime.hour().minute()))
-                                .font(.system(size: 9))
-                                .foregroundStyle(Color.textTertiary)
-                        }
+                        Label("スタッフ", systemImage: "shield.fill")
+                            .font(.system(size: 9, weight: .semibold))
+                            .foregroundStyle(Color.accentIndigo)
                     }
-
-                    // メッセージ本文
-                    Text(message.content)
-                        .font(.bodySmall)
-                        .foregroundStyle(message.isStaff ? .white : Color.textPrimary)
-                        .padding(.horizontal, .spacing12).padding(.vertical, .spacing8)
-                        .background(message.isStaff ? Color.accentIndigo : Color(.tertiarySystemGroupedBackground))
-                        .clipShape(RoundedRectangle(cornerRadius: 16, style: .continuous))
+                    Text(message.username)
+                        .font(.system(size: 11, weight: .semibold))
+                        .foregroundStyle(Color.textTertiary)
+                    if !message.isStaff {
+                        Text(message.createdAt.formatted(.dateTime.hour().minute()))
+                            .font(.system(size: 9))
+                            .foregroundStyle(Color.textTertiary)
+                    }
                 }
-                .frame(maxWidth: geometry.size.width * 0.72,
-                       alignment: message.isStaff ? .trailing : .leading)
 
-                if !message.isStaff { Spacer(minLength: 8) }
+                // メッセージ本文
+                Text(message.content)
+                    .font(.bodySmall)
+                    .foregroundStyle(message.isStaff ? .white : Color.textPrimary)
+                    .multilineTextAlignment(message.isStaff ? .trailing : .leading)
+                    .padding(.horizontal, .spacing12).padding(.vertical, .spacing8)
+                    .background(message.isStaff ? Color.accentIndigo : Color(.tertiarySystemGroupedBackground))
+                    .clipShape(RoundedRectangle(cornerRadius: 16, style: .continuous))
             }
-        }
-        .frame(height: calculateHeight())
-    }
+            .frame(maxWidth: .infinity, alignment: message.isStaff ? .trailing : .leading)
 
-    private func calculateHeight() -> CGFloat {
-        // 概算の高さ計算。実際のSwiftUIレイアウトではGeometryReader内で動的に決まる
-        let approxLines = max(1, message.content.count / 30)
-        let headerHeight: CGFloat = 18
-        let lineHeight: CGFloat = 18
-        let padding: CGFloat = 16
-        return headerHeight + (CGFloat(approxLines) * lineHeight) + padding + 8 // +8 for spacing
+            if !message.isStaff { Spacer(minLength: 40) }
+        }
     }
 }
 

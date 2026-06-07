@@ -37,8 +37,11 @@ extension View {
 
 struct RolesListView: View {
 
+    var guildId: String = ""
+
     @State private var roles: [DiscordRole] = DiscordRole.mockRoles
         .sorted { $0.position > $1.position }
+    @State private var isLoadingRoles = false
 
     @State private var isReordering      = false
     @State private var editMode: EditMode = .inactive
@@ -83,6 +86,8 @@ struct RolesListView: View {
         .navigationBarBackButtonHidden(isReordering)
         .environment(\.editMode, $editMode)
         .toolbar { toolbarContent }
+        .task { await loadRoles() }
+        .refreshable { await loadRoles() }
         .sheet(isPresented: $showCreateSheet) {
             CreateRoleSheet { role in
                 roles.insert(role, at: max(1, roles.count - 1))
@@ -110,9 +115,9 @@ struct RolesListView: View {
                     .foregroundStyle(Color.accentOrange)
 
                 VStack(alignment: .leading, spacing: 2) {
-                    Text("Noxyの位置が不適切です")
+                    Text("Noxyの権限位置が低すぎます")
                         .font(.bodySmall).fontWeight(.bold).foregroundStyle(Color.textPrimary)
-                    Text("オーナーロールの直下（2番目）に移動してください")
+                    Text("ボットのロールが下位だと一部機能が動作しません")
                         .font(.captionSmall).foregroundStyle(Color.textSecondary)
                 }
 
@@ -128,23 +133,21 @@ struct RolesListView: View {
                 }
             }
 
-            VStack(alignment: .leading, spacing: .spacing6) {
-                Text("正しい位置にないと以下が機能しません：")
-                    .font(.captionSmall).foregroundStyle(Color.textTertiary)
-                HStack(spacing: .spacing8) {
-                    affectedBadge("ロール付与・剥奪", icon: "shield")
-                    affectedBadge("タイムアウト",     icon: "timer")
-                    affectedBadge("キック・BAN",      icon: "person.badge.minus")
-                }
+            HStack(spacing: .spacing8) {
+                affectedBadge("ロール付与・剥奪", icon: "shield")
+                affectedBadge("タイムアウト",     icon: "timer")
+                affectedBadge("キック・BAN",      icon: "person.badge.minus")
             }
 
-            HStack(spacing: .spacing8) {
-                Image(systemName: "arrow.up.circle.fill")
-                    .foregroundStyle(Color.accentIndigo).font(.system(size: 14))
-                Text("「並び替え」ボタンでドラッグして移動してください")
-                    .font(.captionSmall).fontWeight(.medium)
-                    .foregroundStyle(Color.accentIndigo)
+            Button(action: fixNoxyPosition) {
+                Label("今すぐ自動修正する", systemImage: "arrow.up.circle.fill")
+                    .font(.captionRegular).fontWeight(.semibold)
+                    .foregroundStyle(.white)
+                    .frame(maxWidth: .infinity).frame(height: 36)
+                    .background(Color.accentIndigo)
+                    .clipShape(RoundedRectangle(cornerRadius: .cornerRadiusSmall))
             }
+            .buttonStyle(.plain)
         }
         .padding(.spacing16)
         .background(Color.accentOrange.opacity(0.1))
@@ -382,15 +385,37 @@ struct RolesListView: View {
         for i in roles.indices { roles[i].position = roles.count - i }
     }
 
+    private func fixNoxyPosition() {
+        guard let noxyRole else { return }
+        withAnimation(.spring(duration: 0.4)) {
+            roles.removeAll { $0.id == noxyRole.id }
+            roles.insert(noxyRole, at: min(1, roles.count))
+            recalcPositions()
+        }
+        UINotificationFeedbackGenerator().notificationOccurred(.success)
+        saveOrder()
+    }
+
+    private func loadRoles() async {
+        guard !guildId.isEmpty else { return }
+        isLoadingRoles = true
+        if let fetched = try? await DiscordService().fetchRoles(guildId: guildId) {
+            roles = fetched.sorted { $0.position > $1.position }
+        }
+        isLoadingRoles = false
+    }
+
     private func saveOrder() {
         isSavingOrder = true
         recalcPositions()
+        let positions = roles.map { (id: $0.id, position: $0.position) }
         Task {
-            try? await Task.sleep(for: .milliseconds(700))
+            if !guildId.isEmpty {
+                try? await DiscordService().reorderRoles(guildId: guildId, positions: positions)
+            }
             await MainActor.run {
                 isSavingOrder    = false
                 saveOrderSuccess = true
-                // スナップショットを現在の状態に更新 → キャンセルしても変更なし扱いに
                 reorderSnapshot  = roles
                 UINotificationFeedbackGenerator().notificationOccurred(.success)
             }

@@ -27,8 +27,8 @@ struct WorkerShopService: ShopServiceProtocol {
             let timeoutHours: Int?
             let color: Int
             let footerText: String
-            let paymentFlow: String
-            let autoDeliver: Bool
+            let reviewEnabled: Bool
+            let reviewChannelId: String?
             let welcomeImageUrl: String?
             let welcomeThumbnailUrl: String?
             let welcomeFields: [EmbedFieldModel]
@@ -43,7 +43,7 @@ struct WorkerShopService: ShopServiceProtocol {
             orderCategoryId: shop.orderCategoryId, archiveCategoryId: shop.archiveCategoryId,
             supportRoleId: shop.supportRoleId, timeoutHours: shop.timeoutHours,
             color: shop.color, footerText: shop.footerText,
-            paymentFlow: shop.paymentFlow.rawValue, autoDeliver: shop.autoDeliver,
+            reviewEnabled: shop.reviewEnabled, reviewChannelId: shop.reviewChannelId,
             welcomeImageUrl: shop.welcomeImageUrl, welcomeThumbnailUrl: shop.welcomeThumbnailUrl,
             welcomeFields: shop.welcomeFields,
             welcomeFooterText: shop.welcomeFooterText, welcomeFooterIconUrl: shop.welcomeFooterIconUrl,
@@ -69,8 +69,8 @@ struct WorkerShopService: ShopServiceProtocol {
             let timeoutHours: Int?
             let color: Int
             let footerText: String
-            let paymentFlow: String
-            let autoDeliver: Bool
+            let reviewEnabled: Bool
+            let reviewChannelId: String?
             let welcomeImageUrl: String?
             let welcomeThumbnailUrl: String?
             let welcomeFields: [EmbedFieldModel]
@@ -84,7 +84,7 @@ struct WorkerShopService: ShopServiceProtocol {
             channelId: shop.channelId, orderCategoryId: shop.orderCategoryId,
             archiveCategoryId: shop.archiveCategoryId, supportRoleId: shop.supportRoleId,
             timeoutHours: shop.timeoutHours, color: shop.color, footerText: shop.footerText,
-            paymentFlow: shop.paymentFlow.rawValue, autoDeliver: shop.autoDeliver,
+            reviewEnabled: shop.reviewEnabled, reviewChannelId: shop.reviewChannelId,
             welcomeImageUrl: shop.welcomeImageUrl, welcomeThumbnailUrl: shop.welcomeThumbnailUrl,
             welcomeFields: shop.welcomeFields,
             welcomeFooterText: shop.welcomeFooterText, welcomeFooterIconUrl: shop.welcomeFooterIconUrl,

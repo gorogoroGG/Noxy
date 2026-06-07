@@ -263,7 +263,8 @@ actor MockTicketService: TicketServiceProtocol {
         return [
             TicketPanel(id: "p001", guildId: guildId, channelId: "c001", messageId: "m001",
                         title: "一般サポート", description: "不具合報告やご質問はこちら。",
-                        color: 0x6366f1, buttonLabel: "チケットを作成", buttonEmoji: "🎫",
+                        color: 0x6366f1, buttonColor: 0x6366f1,
+                        buttonLabel: "チケットを作成", buttonEmoji: "🎫",
                         supportRoleId: nil, openCategoryId: nil, closedCategoryId: nil,
                         ticketMsgContent: nil, ticketEmbedTitle: "チケット",
                         ticketEmbedColor: 0x6366f1, maxOpenPerUser: 1, createdAt: .now),
@@ -371,28 +372,32 @@ actor MockBotService: BotServiceProtocol {
     func fetchStatus() async throws -> BotStatus {
         let workerURL = await MainActor.run { DiscordConfig.workerURL }
         let apiSecret = await MainActor.run { DiscordConfig.workerAPISecret }
-        var isOnline = false
-        var latency = 0
-        var guildCount = 0
-        if let url = URL(string: "\(workerURL)/bot/guilds") {
+
+        // まず /bot/ping（認証不要・Discord API 不使用）で疎通確認
+        if let pingURL = URL(string: "\(workerURL)/bot/ping") {
             let start = Date()
-            do {
-                var req = URLRequest(url: url, timeoutInterval: 10)
-                req.setValue(apiSecret, forHTTPHeaderField: "X-Bot-Secret")
-                let (data, resp) = try await URLSession.shared.data(for: req)
-                if let http = resp as? HTTPURLResponse, http.statusCode == 200 {
-                    isOnline = true
-                    latency = Int(Date().timeIntervalSince(start) * 1000)
-                    if let guilds = try? JSONDecoder().decode([DiscordGuild].self, from: data) {
-                        guildCount = guilds.count
-                    }
-                }
-            } catch {
-                isOnline = false
+            if let (_, resp) = try? await URLSession.shared.data(from: pingURL),
+               (resp as? HTTPURLResponse)?.statusCode == 200 {
+                let latency = Int(Date().timeIntervalSince(start) * 1000)
+                return BotStatus(isOnline: true, latency: latency, uptime: 0, activeGuilds: 0, totalCommands: 0)
             }
         }
-        return BotStatus(isOnline: isOnline, latency: latency, uptime: 99.9,
-                         activeGuilds: guildCount, totalCommands: 0)
+
+        // /bot/ping が 404 (未デプロイ) の場合は /bot/guilds でフォールバック
+        guard let guildsURL = URL(string: "\(workerURL)/bot/guilds") else {
+            return BotStatus(isOnline: false, latency: 0, uptime: 0, activeGuilds: 0, totalCommands: 0)
+        }
+        var req = URLRequest(url: guildsURL, timeoutInterval: 8)
+        req.setValue(apiSecret, forHTTPHeaderField: "X-Bot-Secret")
+        let start = Date()
+        do {
+            let (_, resp) = try await URLSession.shared.data(for: req)
+            let latency = Int(Date().timeIntervalSince(start) * 1000)
+            let isOnline = (resp as? HTTPURLResponse)?.statusCode == 200
+            return BotStatus(isOnline: isOnline, latency: latency, uptime: 0, activeGuilds: 0, totalCommands: 0)
+        } catch {
+            return BotStatus(isOnline: false, latency: 0, uptime: 0, activeGuilds: 0, totalCommands: 0)
+        }
     }
 
     func restart() async throws {
@@ -540,9 +545,8 @@ actor MockShopService: ShopServiceProtocol {
     func completeOrder(orderId: String, party: String) async throws -> Order {
         try await mockDelay()
         guard let idx = orders.firstIndex(where: { $0.id == orderId }) else { throw ServiceError.notFound }
-        if party == "buyer" { orders[idx].buyerConfirmed = true }
-        if party == "seller" { orders[idx].sellerConfirmed = true }
-        if orders[idx].buyerConfirmed && orders[idx].sellerConfirmed {
+        if party == "buyer" {
+            orders[idx].buyerConfirmed = true
             orders[idx].status = .completed
             orders[idx].completedAt = .now
         }
@@ -550,6 +554,53 @@ actor MockShopService: ShopServiceProtocol {
     }
 }
 
+
+// MARK: - Verify
+
+actor MockVerifyService: VerifyServiceProtocol {
+    nonisolated(unsafe) private var panels: [VerifyPanel] = []
+    nonisolated(unsafe) private var requests: [VerifyRequest] = []
+
+    func fetchPanels(guildId: String) async throws -> [VerifyPanel] {
+        try await mockDelay(); return panels.filter { $0.guildId == guildId }
+    }
+    func createPanel(_ panel: VerifyPanel) async throws -> VerifyPanel {
+        try await mockDelay(); panels.append(panel); return panel
+    }
+    func updatePanel(_ panel: VerifyPanel) async throws -> VerifyPanel {
+        try await mockDelay()
+        guard let idx = panels.firstIndex(where: { $0.id == panel.id }) else { throw ServiceError.notFound }
+        panels[idx] = panel; return panel
+    }
+    func deletePanel(id: String) async throws {
+        try await mockDelay(); panels.removeAll { $0.id == id }
+    }
+    func deployPanel(id: String, channelId: String) async throws -> VerifyPanel {
+        try await mockDelay()
+        guard let idx = panels.firstIndex(where: { $0.id == id }) else { throw ServiceError.notFound }
+        panels[idx].channelId = channelId
+        panels[idx].messageId = "mock-msg-\(UUID().uuidString.prefix(8))"
+        return panels[idx]
+    }
+    func fetchRequests(guildId: String, status: VerifyRequestStatus?) async throws -> [VerifyRequest] {
+        try await mockDelay()
+        var base = requests.filter { $0.guildId == guildId }
+        if let s = status { base = base.filter { $0.status == s } }
+        return base
+    }
+    func approveRequest(id: String) async throws -> VerifyRequest {
+        try await mockDelay()
+        guard let idx = requests.firstIndex(where: { $0.id == id }) else { throw ServiceError.notFound }
+        requests[idx].status = .approved; requests[idx].resolvedAt = .now
+        return requests[idx]
+    }
+    func denyRequest(id: String) async throws -> VerifyRequest {
+        try await mockDelay()
+        guard let idx = requests.firstIndex(where: { $0.id == id }) else { throw ServiceError.notFound }
+        requests[idx].status = .denied; requests[idx].resolvedAt = .now
+        return requests[idx]
+    }
+}
 
 // MARK: - Subscription
 

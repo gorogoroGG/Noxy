@@ -5,12 +5,21 @@ import SwiftUI
 struct ShopEditView: View {
     var existingShop: Shop?
     let guildId: String
+    let initialTab: Int
     let onSave: (Shop) -> Void
 
     @Environment(\.services) private var services
     @Environment(\.dismiss)  private var dismiss
 
-    @State private var selectedTab = 0
+    @State private var selectedTab: Int
+
+    init(existingShop: Shop? = nil, guildId: String, initialTab: Int = 0, onSave: @escaping (Shop) -> Void) {
+        self.existingShop = existingShop
+        self.guildId = guildId
+        self.initialTab = initialTab
+        self.onSave = onSave
+        _selectedTab = State(initialValue: initialTab)
+    }
     @State private var name = "ショップ"
     @State private var description = "商品を選択して購入してください。"
     @State private var enabled = true
@@ -22,8 +31,8 @@ struct ShopEditView: View {
     @State private var timeoutEnabled = false
     @State private var footerText = ""
     @State private var colorHex: UInt32 = 0x6366f1
-    @State private var paymentFlow: PaymentFlow = .manual
-    @State private var autoDeliver = true
+    @State private var reviewEnabled = false
+    @State private var reviewChannelId = ""
 
     // Welcome embed
     @State private var welcomeImageUrl = ""
@@ -40,6 +49,7 @@ struct ShopEditView: View {
 
     @State private var roles: [DiscordRole] = []
     @State private var categories: [(id: String, name: String)] = []
+    @State private var textChannels: [(id: String, name: String)] = []
     @State private var isLoading = true
     @State private var isSaving = false
     @State private var errorMessage: String? = nil
@@ -56,7 +66,8 @@ struct ShopEditView: View {
             supportRoleId != (s.supportRoleId ?? "") || orderCategoryId != (s.orderCategoryId ?? "") ||
             archiveCategoryId != (s.archiveCategoryId ?? "") || timeoutEnabled != (s.timeoutHours != nil) ||
             (timeoutEnabled && timeoutHours != s.timeoutHours) || footerText != s.footerText ||
-            colorHex != UInt32(s.color) || paymentFlow != s.paymentFlow || autoDeliver != s.autoDeliver ||
+            colorHex != UInt32(s.color) || reviewEnabled != s.reviewEnabled ||
+            reviewChannelId != (s.reviewChannelId ?? "") ||
             welcomeImageUrl != (s.welcomeImageUrl ?? "") || welcomeThumbnailUrl != (s.welcomeThumbnailUrl ?? "") ||
             welcomeFields != s.welcomeFields || welcomeFooterText != (s.welcomeFooterText ?? "") ||
             welcomeFooterIconUrl != (s.welcomeFooterIconUrl ?? "") || welcomeShowTimestamp != s.welcomeShowTimestamp
@@ -297,7 +308,7 @@ struct ShopEditView: View {
 
     private var transactionTab: some View {
         Form {
-            paymentFlowSection
+            reviewSection
             welcomeEmbedSection
             welcomePreviewSection
             welcomeFieldsSection
@@ -314,22 +325,20 @@ struct ShopEditView: View {
         .background(Color(.systemGroupedBackground))
     }
 
-    private var paymentFlowSection: some View {
+    private var reviewSection: some View {
         Section {
-            Picker("支払いフロー", selection: $paymentFlow) {
-                ForEach(PaymentFlow.allCases, id: \.self) {
-                    Label($0.label, systemImage: $0.icon).tag($0)
+            Toggle("レビュー機能を有効にする", isOn: $reviewEnabled)
+            if reviewEnabled {
+                Picker("レビュー投稿チャンネル", selection: $reviewChannelId) {
+                    Text("未選択").tag("")
+                    ForEach(textChannels, id: \.id) { Text("#\($0.name)").tag($0.id) }
                 }
             }
-            .pickerStyle(.inline)
-            Text(paymentFlow.description).font(.captionSmall).foregroundStyle(Color.textTertiary)
-
-            Toggle("自動で対価を送信", isOn: $autoDeliver)
-        } header: { Text("支払い・配送") }
+        } header: { Text("レビュー設定") }
           footer: {
-              Text(autoDeliver
-                   ? "支払い確認後、自動で商品（対価）を送信します。"
-                   : "支払い確認後、手動で対価を送信します。")
+              Text(reviewEnabled
+                   ? "取引完了後にレビューボタンが表示されます。評価・コメントは選択したチャンネルに投稿されます。"
+                   : "有効にすると、取引完了後に購入者がレビューを投稿できます。")
           }
     }
 
@@ -533,6 +542,7 @@ struct ShopEditView: View {
             struct RawCh: Decodable { let id: String; let name: String; let type: Int }
             if let chs = try? JSONDecoder().decode([RawCh].self, from: data) {
                 categories = chs.filter { $0.type == 4 }.map { ($0.id, $0.name) }
+                textChannels = chs.filter { $0.type == 0 }.map { ($0.id, $0.name) }
             }
         }
 
@@ -550,8 +560,8 @@ struct ShopEditView: View {
             timeoutEnabled = s.timeoutHours != nil
             footerText = s.footerText
             colorHex = UInt32(s.color)
-            paymentFlow = s.paymentFlow
-            autoDeliver = s.autoDeliver
+            reviewEnabled = s.reviewEnabled
+            reviewChannelId = s.reviewChannelId ?? ""
             welcomeImageUrl = s.welcomeImageUrl ?? ""
             welcomeThumbnailUrl = s.welcomeThumbnailUrl ?? ""
             welcomeFields = s.welcomeFields
@@ -580,8 +590,8 @@ struct ShopEditView: View {
             shop.archiveCategoryId = archiveCategoryId.isEmpty ? nil : archiveCategoryId
             shop.timeoutHours = timeoutEnabled ? (timeoutHours ?? 24) : nil
             shop.footerText = footerText
-            shop.paymentFlow = paymentFlow
-            shop.autoDeliver = autoDeliver
+            shop.reviewEnabled = reviewEnabled
+            shop.reviewChannelId = reviewChannelId.isEmpty ? nil : reviewChannelId
             shop.welcomeImageUrl = welcomeImageUrl.isEmpty ? nil : welcomeImageUrl
             shop.welcomeThumbnailUrl = welcomeThumbnailUrl.isEmpty ? nil : welcomeThumbnailUrl
             shop.welcomeFields = welcomeFields
@@ -590,7 +600,7 @@ struct ShopEditView: View {
             shop.welcomeShowTimestamp = welcomeShowTimestamp
 
             print("[ShopEditView] save: isNew=\(isNew), shop.id=\(shop.id), guildId=\(shop.guildId)")
-            print("[ShopEditView] save: name=\(shop.name), color=\(shop.color), paymentFlow=\(shop.paymentFlow)")
+            print("[ShopEditView] save: name=\(shop.name), color=\(shop.color), reviewEnabled=\(shop.reviewEnabled)")
 
             let saved = isNew
                 ? try await services.shops.createShop(shop)

@@ -17,8 +17,8 @@ struct Shop: Identifiable, Codable, Hashable, Sendable {
     var timeoutHours: Int?
     var color: Int
     var footerText: String
-    var paymentFlow: PaymentFlow
-    var autoDeliver: Bool
+    var reviewEnabled: Bool
+    var reviewChannelId: String?
     var welcomeImageUrl: String?
     var welcomeThumbnailUrl: String?
     var welcomeFields: [EmbedFieldModel]
@@ -45,8 +45,8 @@ struct Shop: Identifiable, Codable, Hashable, Sendable {
             timeoutHours: nil,
             color: 0x6366f1,
             footerText: "",
-            paymentFlow: .manual,
-            autoDeliver: true,
+            reviewEnabled: false,
+            reviewChannelId: nil,
             welcomeImageUrl: nil,
             welcomeThumbnailUrl: nil,
             welcomeFields: [],
@@ -55,34 +55,6 @@ struct Shop: Identifiable, Codable, Hashable, Sendable {
             welcomeShowTimestamp: true,
             createdAt: .now
         )
-    }
-}
-
-// MARK: - PaymentFlow
-
-enum PaymentFlow: String, Codable, CaseIterable {
-    case manual = "manual"
-    case urlInput = "url_input"
-
-    var label: String {
-        switch self {
-        case .manual: return "手動取引"
-        case .urlInput: return "URL入力"
-        }
-    }
-
-    var icon: String {
-        switch self {
-        case .manual: return "hand.tap.fill"
-        case .urlInput: return "link.badge.plus"
-        }
-    }
-
-    var description: String {
-        switch self {
-        case .manual: return "管理者が直接取引を確認し、対応します。"
-        case .urlInput: return "購入者に支払いURLの入力を求め、アプリで確認できます。"
-        }
     }
 }
 
@@ -117,6 +89,7 @@ enum RewardType: String, Codable, CaseIterable {
     case url = "url"
     case role = "role"
     case dm = "dm"
+    case manual = "manual"
 
     var label: String {
         switch self {
@@ -124,6 +97,7 @@ enum RewardType: String, Codable, CaseIterable {
         case .url: return "URL"
         case .role: return "ロール付与"
         case .dm: return "DM送信"
+        case .manual: return "手動配達"
         }
     }
 
@@ -133,6 +107,7 @@ enum RewardType: String, Codable, CaseIterable {
         case .url: return "link"
         case .role: return "shield.fill"
         case .dm: return "message.fill"
+        case .manual: return "hand.raised.fill"
         }
     }
 }

@@ -222,15 +222,6 @@ struct TempVCSourceEditView: View {
                     )
                 }
 
-                FormSection("有効/無効", icon: "power", footer: "無効にすると、トリガーVCは非表示になります。") {
-                    FormField.toggle(
-                        label: "有効にする",
-                        isOn: Binding(
-                            get: { editedSource.enabled },
-                            set: { editedSource.enabled = $0 }
-                        )
-                    )
-                }
             }
             .padding(.spacing16)
             .padding(.bottom, 24)

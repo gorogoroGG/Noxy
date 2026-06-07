@@ -144,49 +144,7 @@ struct GiveawaysView: View {
 
     var body: some View {
         NavigationStack {
-            Group {
-                if !appState.isPro {
-                    GiveawayUpgradeView()
-                } else if filtered.isEmpty {
-                    emptyState
-                } else {
-                    List {
-                        ForEach(filtered) { g in
-                            NavigationLink(destination: GiveawayDetailView(giveaway: giveawayBinding(for: g))) {
-                                GiveawayCard(giveaway: g)
-                            }
-                            .listRowBackground(Color.clear)
-                            .listRowInsets(EdgeInsets(top: 6, leading: 16, bottom: 6, trailing: 16))
-                            .listRowSeparator(.hidden)
-                        }
-                    }
-                    .listStyle(.plain)
-                    .background(Color.bgPrimary)
-                }
-            }
-            .background(Color.bgPrimary)
-            .navigationTitle("ギブアウェイ")
-            .navigationBarTitleDisplayMode(.large)
-            .toolbar {
-                ToolbarItem(placement: .topBarTrailing) {
-                    Button { showCreate = true } label: { Image(systemName: "plus") }
-                }
-            }
-            .safeAreaInset(edge: .top, spacing: 0) {
-                Picker("", selection: $filter.animation()) {
-                    ForEach(Filter.allCases, id: \.self) { Text($0.rawValue).tag($0) }
-                }
-                .pickerStyle(.segmented)
-                .padding(.horizontal)
-                .padding(.vertical, .spacing8)
-                .background(Color.bgPrimary)
-            }
-            .sheet(isPresented: $showCreate) {
-                CreateGiveawaySheet { new in
-                    withAnimation { giveaways.insert(new, at: 0) }
-                    toast = ToastMessage(type: .success, message: "ギブアウェイを作成しました 🎉")
-                }
-            }
+            GiveawayLockedListView(giveaways: sampleGiveaways)
         }
         .toast($toast)
     }
@@ -852,6 +810,60 @@ private struct BonusRoleRow: View {
                 }
             }
         }
+    }
+}
+
+// MARK: - Locked List ─────────────────────────────────────────────────────────
+
+private struct GiveawayLockedListView: View {
+    let giveaways: [Giveaway]
+
+    var body: some View {
+        List {
+            // 準備中バナー
+            Section {
+                HStack(spacing: .spacing12) {
+                    ZStack {
+                        Circle()
+                            .fill(LinearGradient(
+                                colors: [Color.accentOrange.opacity(0.2), Color.accentPink.opacity(0.2)],
+                                startPoint: .topLeading, endPoint: .bottomTrailing))
+                            .frame(width: 40, height: 40)
+                        Image(systemName: "lock.fill")
+                            .font(.system(size: 16))
+                            .foregroundStyle(LinearGradient(
+                                colors: [Color.accentOrange, Color.accentPink],
+                                startPoint: .topLeading, endPoint: .bottomTrailing))
+                    }
+                    VStack(alignment: .leading, spacing: 3) {
+                        Text("まもなく公開")
+                            .font(.bodySmall).fontWeight(.semibold)
+                            .foregroundStyle(Color.textPrimary)
+                        Text("ギブアウェイ機能は現在準備中です")
+                            .font(.captionSmall)
+                            .foregroundStyle(Color.textTertiary)
+                    }
+                }
+                .padding(.vertical, .spacing4)
+                .listRowBackground(Color.bgSurface)
+            }
+
+            // プレビュー（非タップ）
+            Section("プレビュー") {
+                ForEach(giveaways) { g in
+                    GiveawayCard(giveaway: g)
+                        .listRowBackground(Color.clear)
+                        .listRowInsets(EdgeInsets(top: 4, leading: 0, bottom: 4, trailing: 0))
+                        .listRowSeparator(.hidden)
+                        .disabled(true)
+                        .allowsHitTesting(false)
+                }
+            }
+        }
+        .listStyle(.insetGrouped)
+        .background(Color.bgPrimary)
+        .navigationTitle("ギブアウェイ")
+        .navigationBarTitleDisplayMode(.large)
     }
 }
 

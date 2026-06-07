@@ -23,7 +23,7 @@ struct Ticket: Identifiable, Codable, Hashable, Sendable {
     var status: TicketStatus
     var priority: TicketPriority
     var assignedToUserId: String?
-    let panelId: Int?
+    let panelId: String?   // Worker は UUID 文字列を返すため String? に統一
     let openedAt: Date
     var closedAt: Date?
     var lastMessageAt: Date
@@ -31,7 +31,7 @@ struct Ticket: Identifiable, Codable, Hashable, Sendable {
 
     nonisolated init(id: String, guildId: String, channelId: String, openedBy: String,
          subject: String, status: TicketStatus, priority: TicketPriority,
-         assignedToUserId: String? = nil, panelId: Int? = nil,
+         assignedToUserId: String? = nil, panelId: String? = nil,
          openedAt: Date, closedAt: Date? = nil,
          lastMessageAt: Date, messageCount: Int) {
         self.id = id

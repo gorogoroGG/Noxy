@@ -117,6 +117,7 @@ struct TempVCListView: View {
             }
         }
         .task { await loadAll() }
+        .onChange(of: guildId) { _, _ in Task { await loadAll() } }
     }
 
     // MARK: - Source Row
@@ -128,11 +129,11 @@ struct TempVCListView: View {
         } label: {
             VStack(alignment: .leading, spacing: .spacing8) {
                 HStack(spacing: .spacing8) {
-                    Image(systemName: source.enabled ? "mic.fill" : "mic.slash.fill")
+                    Image(systemName: "mic.fill")
                         .font(.system(size: 14))
-                        .foregroundStyle(source.enabled ? Color.accentIndigo : Color.textTertiary)
+                        .foregroundStyle(Color.accentIndigo)
                         .frame(width: 28, height: 28)
-                        .background(source.enabled ? Color.accentIndigo.opacity(0.12) : Color.textTertiary.opacity(0.12))
+                        .background(Color.accentIndigo.opacity(0.12))
                         .clipShape(RoundedRectangle(cornerRadius: 7))
 
                     VStack(alignment: .leading, spacing: 2) {
@@ -229,21 +230,12 @@ struct TempVCListView: View {
             if source.id != nil {
                 saved = try await services.tempVCSource.updateSource(source)
 
-                // 有効/無効の切り替えを処理
                 if let triggerVcId = saved.triggerVcId {
-                    if saved.enabled {
-                        try await services.tempVCSource.showTriggerVc(
-                            id: saved.effectiveId,
-                            guildId: guildId,
-                            triggerVcId: triggerVcId
-                        )
-                    } else {
-                        try await services.tempVCSource.hideTriggerVc(
-                            id: saved.effectiveId,
-                            guildId: guildId,
-                            triggerVcId: triggerVcId
-                        )
-                    }
+                    try await services.tempVCSource.showTriggerVc(
+                        id: saved.effectiveId,
+                        guildId: guildId,
+                        triggerVcId: triggerVcId
+                    )
                 }
 
                 showToast("✅ 保存しました")

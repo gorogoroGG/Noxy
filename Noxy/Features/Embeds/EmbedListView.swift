@@ -52,23 +52,19 @@ struct EmbedListView: View {
                 } else {
                     List {
                         ForEach(filtered) { embed in
-                            EmbedCard(
+                            EmbedRow(
                                 embed: embed,
-                                onSend: { embedToSend = embed },
                                 onEdit: { editingEmbed = embed; showEditor = true },
-                                onDuplicate: { duplicateEmbed(embed) }
+                                onSend: { embedToSend = embed },
+                                onDuplicate: { duplicateEmbed(embed) },
+                                onDelete: {
+                                    deleteTarget = embed
+                                    showDeleteConfirm = true
+                                }
                             )
                             .listRowInsets(EdgeInsets(top: 6, leading: 16, bottom: 6, trailing: 16))
                             .listRowBackground(Color.clear)
                             .listRowSeparator(.hidden)
-                            .swipeActions(edge: .trailing, allowsFullSwipe: false) {
-                                Button(role: .destructive) {
-                                    deleteTarget = embed
-                                    showDeleteConfirm = true
-                                } label: {
-                                    Label("削除", systemImage: "trash")
-                                }
-                            }
                         }
                         // FAB 分の余白
                         Color.clear
@@ -243,30 +239,45 @@ struct EmbedListView: View {
     }
 }
 
-// MARK: - EmbedCard
+// MARK: - EmbedRow (compact list row)
 
-private struct EmbedCard: View {
+private struct EmbedRow: View {
     let embed: EmbedModel
-    let onSend: () -> Void
     let onEdit: () -> Void
+    let onSend: () -> Void
     let onDuplicate: () -> Void
+    let onDelete: () -> Void
 
     private var accentColor: Color {
         Color(uiColor: UIColor(hex: embed.colorHex))
     }
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 0) {
-            // ヘッダー: カラーバー + 名前 + メニュー
-            HStack(spacing: .spacing10) {
+        Button(action: onEdit) {
+            HStack(spacing: .spacing12) {
+                // カラーインジケータ
                 RoundedRectangle(cornerRadius: 2)
                     .fill(accentColor)
-                    .frame(width: 4, height: 20)
+                    .frame(width: 4, height: 36)
 
-                Text(embed.name.isEmpty ? "名前なし" : embed.name)
-                    .font(.titleMedium)
-                    .foregroundStyle(embed.name.isEmpty ? Color.textTertiary : Color.textPrimary)
-                    .lineLimit(1)
+                VStack(alignment: .leading, spacing: .spacing2) {
+                    Text(embed.name.isEmpty ? "名前なし" : embed.name)
+                        .font(.bodySmall)
+                        .fontWeight(.semibold)
+                        .foregroundStyle(Color.textPrimary)
+                        .lineLimit(1)
+
+                    if let title = embed.title, !title.isEmpty {
+                        Text(title)
+                            .font(.captionRegular)
+                            .foregroundStyle(Color.textSecondary)
+                            .lineLimit(1)
+                    }
+
+                    Text(relativeTimeString(from: embed.updatedAt))
+                        .font(.captionSmall)
+                        .foregroundStyle(Color.textTertiary)
+                }
 
                 Spacer()
 
@@ -274,50 +285,37 @@ private struct EmbedCard: View {
                     Button { onEdit() } label: {
                         Label("編集", systemImage: "pencil")
                     }
+                    Button { onSend() } label: {
+                        Label("送信", systemImage: "paperplane")
+                    }
                     Button { onDuplicate() } label: {
                         Label("複製", systemImage: "doc.on.doc")
                     }
+                    Divider()
+                    Button(role: .destructive) { onDelete() } label: {
+                        Label("削除", systemImage: "trash")
+                    }
                 } label: {
-                    Image(systemName: "ellipsis.circle")
-                        .font(.system(size: 20))
+                    Image(systemName: "ellipsis")
+                        .font(.bodyRegular)
                         .foregroundStyle(Color.textTertiary)
+                        .frame(width: 32, height: 32)
+                        .contentShape(Rectangle())
                 }
             }
-            .padding(.horizontal, .spacing12)
-            .padding(.top, .spacing12)
-            .padding(.bottom, .spacing8)
-
-            // プレビュー
-            if embed.title != nil || embed.description != nil || !embed.fields.isEmpty {
-                EmbedPreviewCard(embed: .from(embed))
-                    .padding(.horizontal, .spacing12)
-                    .padding(.bottom, .spacing12)
-            }
-
-            // 送信ボタン
-            Button(action: onSend) {
-                HStack(spacing: .spacing6) {
-                    Image(systemName: "paperplane.fill")
-                        .font(.system(size: 13))
-                    Text("このEmbedを送信")
-                        .font(.bodySmall)
-                        .fontWeight(.semibold)
-                }
-                .foregroundStyle(.white)
-                .frame(maxWidth: .infinity)
-                .frame(height: 40)
-                .background(accentColor)
-                .clipShape(
-                    UnevenRoundedRectangle(
-                        bottomLeadingRadius: .cornerRadiusMedium,
-                        bottomTrailingRadius: .cornerRadiusMedium
-                    )
-                )
-            }
-            .buttonStyle(.plain)
+            .padding(.spacing12)
+            .background(Color.bgSurface)
+            .clipShape(RoundedRectangle(cornerRadius: .cornerRadiusMedium))
         }
-        .background(Color.bgSurface)
-        .clipShape(RoundedRectangle(cornerRadius: .cornerRadiusMedium))
+        .buttonStyle(.plain)
+    }
+
+    private func relativeTimeString(from date: Date) -> String {
+        let diff = Date.now.timeIntervalSince(date)
+        if diff < 60 { return "たった今" }
+        if diff < 3600 { return "\(Int(diff / 60))分前" }
+        if diff < 86400 { return "\(Int(diff / 3600))時間前" }
+        return "\(Int(diff / 86400))日前"
     }
 }
 

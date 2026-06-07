@@ -5,9 +5,10 @@ import SwiftUI
 /// MainTabView で @State として保持し、.environment(appState) で全タブに配布する。
 @Observable
 final class AppState {
-    var selectedGuildId: String {
-        get { UserDefaults.standard.string(forKey: "selected_guild_id") ?? "" }
-        set { UserDefaults.standard.set(newValue, forKey: "selected_guild_id") }
+    /// ストアドプロパティ → @Observable が変更を追跡できる
+    /// didSet で UserDefaults に永続化（アプリ再起動後も最後のサーバーを復元）
+    var selectedGuildId: String = UserDefaults.standard.string(forKey: "selected_guild_id") ?? "" {
+        didSet { UserDefaults.standard.set(selectedGuildId, forKey: "selected_guild_id") }
     }
 
     /// 現在選択中のギルド（nilなら未ロード）
@@ -21,6 +22,12 @@ final class AppState {
 
     /// Pro プランが有効かどうか
     var isPro: Bool { subscriptionStatus.isActive }
+
+    /// Bot のオンライン状態（nil = まだ確認中）
+    var botStatus: BotStatus? = nil
+
+    /// Bot がオフラインかどうか（nil の間は false = 通常 UI を表示）
+    var isBotOffline: Bool { botStatus?.isOnline == false }
 
     /// サーバー切り替え中フラグ（trueのとき全画面ローディングを表示）
     var isSwitchingServer = false

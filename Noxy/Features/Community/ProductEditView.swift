@@ -364,10 +364,13 @@ struct ProductEditView: View {
                     TextEditor(text: $rewardDmContent)
                         .frame(minHeight: 80).scrollContentBackground(.hidden)
                 }
+            case .manual:
+                Text("管理者が手動で対価を送信します。支払い確認後、「対価を送信しました」ボタンが管理者に表示されます。")
+                    .font(.captionSmall).foregroundStyle(Color.textTertiary)
             }
         } header: { Text("対価設定") }
           footer: {
-              Text("支払い確認後に自動的に送信される内容です。")
+              Text(rewardType == .manual ? "手動配達モードでは、管理者が対価を送信した後に購入者へ通知が届きます。" : "支払い確認後に自動的に送信される内容です。")
           }
     }
 
@@ -440,6 +443,15 @@ struct ProductEditView: View {
                     .padding(.spacing12)
                     .frame(maxWidth: .infinity, alignment: .leading)
                     .background(Color(.tertiarySystemGroupedBackground))
+                    .clipShape(RoundedRectangle(cornerRadius: 8))
+                case .manual:
+                    HStack(spacing: 6) {
+                        Image(systemName: "hand.raised.fill").font(.system(size: 12)).foregroundStyle(Color.accentOrange)
+                        Text("管理者が手動で対価を送信します").font(.captionRegular).foregroundStyle(Color.textSecondary)
+                    }
+                    .padding(.spacing12)
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                    .background(Color.accentOrange.opacity(0.08))
                     .clipShape(RoundedRectangle(cornerRadius: 8))
                 }
             }

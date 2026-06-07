@@ -85,9 +85,9 @@ struct ModerationCenterView: View {
     private var tabContent: some View {
         let guildId = appState.selectedGuildId
         switch tab {
-        case .ban:     ModBanListView(guildId: guildId)
-        case .timeout: ModTimeoutView(guildId: guildId)
-        case .warning: ModWarningView(guildId: guildId)
+        case .ban:     ModBanListView(guildId: guildId).id(guildId)
+        case .timeout: ModTimeoutView(guildId: guildId).id(guildId)
+        case .warning: ModWarningView(guildId: guildId).id(guildId)
         case .automod: AutoModSettingsView()
         }
     }

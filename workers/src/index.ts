@@ -56,6 +56,125 @@ function mapTicketMessage(m: TicketMessageRow) {
   };
 }
 
+// ── 認証型定義 ───────────────────────────────────────────────
+
+interface VerifyPanelRow {
+  id: string; guild_id: string; name: string; description: string;
+  channel_id: string; message_id: string | null; role_id: string;
+  color: number; footer_text: string; button_label: string; enabled: boolean;
+  verify_type: string; reaction_emoji: string; manual_channel_id: string | null;
+  created_at: string;
+}
+interface VerifyRequestRow {
+  id: string; panel_id: string; guild_id: string; user_id: string;
+  username: string; avatar_url: string | null; status: string;
+  created_at: string; resolved_at: string | null;
+}
+
+function mapVerifyPanel(r: VerifyPanelRow) {
+  return { id: r.id, guildId: r.guild_id, name: r.name, description: r.description,
+    channelId: r.channel_id, messageId: r.message_id, roleId: r.role_id,
+    color: r.color, footerText: r.footer_text, buttonLabel: r.button_label,
+    enabled: r.enabled, verifyType: r.verify_type, reactionEmoji: r.reaction_emoji,
+    manualChannelId: r.manual_channel_id, createdAt: r.created_at };
+}
+function mapVerifyRequest(r: VerifyRequestRow) {
+  return { id: r.id, panelId: r.panel_id, guildId: r.guild_id, userId: r.user_id,
+    username: r.username, avatarUrl: r.avatar_url, status: r.status,
+    createdAt: r.created_at, resolvedAt: r.resolved_at };
+}
+
+function jsonResponse(body: unknown, status = 200): Response {
+  return new Response(JSON.stringify(body), {
+    status, headers: { 'Content-Type': 'application/json', 'Access-Control-Allow-Origin': '*' },
+  });
+}
+
+async function hmacSign(message: string, secret: string): Promise<string> {
+  const enc = new TextEncoder();
+  const key = await crypto.subtle.importKey(
+    'raw', enc.encode(secret), { name: 'HMAC', hash: 'SHA-256' }, false, ['sign']
+  );
+  const sig = await crypto.subtle.sign('HMAC', key, enc.encode(message));
+  return Array.from(new Uint8Array(sig)).map(b => b.toString(16).padStart(2, '0')).join('');
+}
+
+function verifyHtml(panelId: string, u: string, g: string, exp: string, sig: string, panelName: string, color: number, siteKey: string): string {
+  const hex = '#' + color.toString(16).padStart(6, '0');
+  return `<!DOCTYPE html>
+<html lang="ja">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>${panelName} - 認証</title>
+  <script src="https://challenges.cloudflare.com/turnstile/v0/api.js" async defer></script>
+  <style>
+    *{box-sizing:border-box;margin:0;padding:0}
+    body{font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;background:#1a1b2e;min-height:100vh;display:flex;align-items:center;justify-content:center;padding:16px}
+    .card{background:#2a2b3d;border-radius:16px;padding:32px 28px;max-width:400px;width:100%;box-shadow:0 8px 32px rgba(0,0,0,0.4);border:1px solid rgba(255,255,255,0.06)}
+    .accent{width:100%;height:3px;border-radius:2px;background:${hex};margin-bottom:24px}
+    .icon{width:56px;height:56px;border-radius:14px;background:${hex}22;display:flex;align-items:center;justify-content:center;margin:0 auto 16px;font-size:24px}
+    h1{color:#fff;font-size:20px;font-weight:700;text-align:center;margin-bottom:8px}
+    p{color:#9ca3af;font-size:14px;text-align:center;line-height:1.6;margin-bottom:24px}
+    .turnstile-wrap{display:flex;justify-content:center;margin-bottom:20px}
+    button{width:100%;padding:14px;background:${hex};color:#fff;border:none;border-radius:10px;font-size:15px;font-weight:600;cursor:pointer;transition:opacity 0.2s}
+    button:disabled{opacity:0.5;cursor:not-allowed}
+    .status{margin-top:16px;padding:12px;border-radius:8px;font-size:13px;text-align:center;display:none}
+    .status.success{background:#10b98122;color:#10b981;display:block}
+    .status.error{background:#ef444422;color:#ef4444;display:block}
+  </style>
+</head>
+<body>
+  <div class="card">
+    <div class="accent"></div>
+    <div class="icon">🛡️</div>
+    <h1>${panelName}</h1>
+    <p>下の認証ウィジェットを完了してください。<br>認証が完了するとロールが自動で付与されます。</p>
+    <div class="turnstile-wrap">
+      <div class="cf-turnstile" data-sitekey="${siteKey || '1x00000000000000000000AA'}" data-theme="dark" data-callback="onTurnstileSuccess"></div>
+    </div>
+    <button id="btn" disabled onclick="submitVerify()">認証する</button>
+    <div id="status" class="status"></div>
+  </div>
+  <script>
+    let turnstileToken = '';
+    function onTurnstileSuccess(token) { turnstileToken = token; document.getElementById('btn').disabled = false; }
+    async function submitVerify() {
+      const btn = document.getElementById('btn');
+      const status = document.getElementById('status');
+      btn.disabled = true; btn.textContent = '認証中...'; status.className = 'status';
+      try {
+        const res = await fetch('/verify/${panelId}/complete', {
+          method: 'POST', headers: {'Content-Type':'application/json'},
+          body: JSON.stringify({ u:'${u}', g:'${g}', exp:'${exp}', sig:'${sig}', token: turnstileToken })
+        });
+        const data = await res.json();
+        if (data.ok) {
+          status.className = 'status success'; status.textContent = '✅ 認証完了！ロールが付与されました。このページを閉じてDiscordにお戻りください。';
+          btn.textContent = '認証完了'; btn.style.background = '#10b981';
+        } else {
+          status.className = 'status error'; status.textContent = '❌ ' + (data.error || '認証に失敗しました');
+          btn.disabled = false; btn.textContent = '再試行';
+        }
+      } catch(e) {
+        status.className = 'status error'; status.textContent = '❌ 通信エラーが発生しました。';
+        btn.disabled = false; btn.textContent = '再試行';
+      }
+    }
+  </script>
+</body>
+</html>`;
+}
+
+function verifyErrorPage(message: string): Response {
+  return new Response(`<!DOCTYPE html><html lang="ja"><head><meta charset="UTF-8"><title>エラー</title>
+<style>body{font-family:-apple-system,sans-serif;background:#1a1b2e;min-height:100vh;display:flex;align-items:center;justify-content:center}
+.card{background:#2a2b3d;border-radius:16px;padding:32px;max-width:380px;text-align:center;color:#fff}
+.icon{font-size:40px;margin-bottom:16px}.msg{color:#9ca3af;font-size:14px;line-height:1.6}</style></head>
+<body><div class="card"><div class="icon">⚠️</div><h2>エラー</h2><p class="msg">${message}</p></div></body></html>`,
+    { headers: { 'Content-Type': 'text/html; charset=utf-8' } });
+}
+
 // ── ショップ型定義 ────────────────────────────────────────────
 
 interface ShopRow {
@@ -65,7 +184,7 @@ interface ShopRow {
   order_category_id: string | null; archive_category_id: string | null;
   support_role_id: string | null; timeout_hours: number | null;
   color: number; footer_text: string;
-  payment_flow: string; auto_deliver: boolean;
+  review_enabled: boolean; review_channel_id: string | null;
   welcome_image_url: string | null; welcome_thumbnail_url: string | null;
   welcome_fields: Array<{name: string; value: string; inline: boolean}>;
   welcome_footer_text: string | null; welcome_footer_icon_url: string | null;
@@ -80,7 +199,7 @@ function mapShop(s: ShopRow) {
     orderCategoryId: s.order_category_id, archiveCategoryId: s.archive_category_id,
     supportRoleId: s.support_role_id, timeoutHours: s.timeout_hours,
     color: s.color, footerText: s.footer_text,
-    paymentFlow: s.payment_flow, autoDeliver: s.auto_deliver,
+    reviewEnabled: s.review_enabled ?? false, reviewChannelId: s.review_channel_id ?? null,
     welcomeImageUrl: s.welcome_image_url, welcomeThumbnailUrl: s.welcome_thumbnail_url,
     welcomeFields: s.welcome_fields ?? [],
     welcomeFooterText: s.welcome_footer_text, welcomeFooterIconUrl: s.welcome_footer_icon_url,
@@ -574,36 +693,90 @@ async function sendToDiscord(
 // ── 注文タイムアウト処理 ──────────────────────────────────────
 
 async function processOrderTimeouts(env: Env): Promise<void> {
-  // open 状態の注文を取得（1実行あたり最大10件: 1 + (10 × 4) = 41 fetch() ≤ 50制限）
-  const BATCH_LIMIT = 10;
-  const resp = await supabaseFetch(`/orders?status=eq.open&order=created_at.asc&limit=${BATCH_LIMIT}`);
-  if (!resp.ok) return;
-  const orders: OrderRow[] = await resp.json();
+  const token = env.DISCORD_BOT_TOKEN;
 
-  for (const order of orders) {
-    const shopR  = await supabaseFetch(`/shops?id=eq.${order.shop_id}`);
-    const shopArr: ShopRow[] = await shopR.json();
-    if (!shopArr.length) continue;
-    const shop = shopArr[0];
-    if (!shop.timeout_hours) continue;
+  // ── open タイムアウトキャンセル（最大10件）──────────────────
+  const openResp = await supabaseFetch(`/orders?status=eq.open&order=created_at.asc&limit=10`);
+  if (openResp.ok) {
+    const openOrders: OrderRow[] = await openResp.json();
+    for (const order of openOrders) {
+      const shopR  = await supabaseFetch(`/shops?id=eq.${order.shop_id}`);
+      const shopArr: ShopRow[] = await shopR.json();
+      if (!shopArr.length) continue;
+      const shop = shopArr[0];
+      if (!shop.timeout_hours) continue;
 
-    const createdAt  = new Date(order.created_at);
-    const timeoutAt  = new Date(createdAt.getTime() + shop.timeout_hours * 3600 * 1000);
-    if (new Date() < timeoutAt) continue;
+      const timeoutAt = new Date(new Date(order.created_at).getTime() + shop.timeout_hours * 3600 * 1000);
+      if (new Date() < timeoutAt) continue;
 
-    // タイムアウト: キャンセル
+      await supabaseFetch(`/orders?id=eq.${order.id}`, {
+        method: 'PATCH',
+        body: JSON.stringify({ status: 'cancelled', cancelled_at: new Date().toISOString() }),
+      });
+      if (order.channel_id) {
+        await fetch(`https://discord.com/api/v10/channels/${order.channel_id}/messages`, {
+          method: 'POST', headers: { Authorization: `Bot ${token}`, 'Content-Type': 'application/json' },
+          body: JSON.stringify({ content: `⏰ **注文がタイムアウトしました。** ${shop.timeout_hours}時間以内に支払いが確認されなかったため自動キャンセルされました。` }),
+        });
+        await archiveOrderChannel(order.channel_id, order.buyer_user_id, shop.archive_category_id, env);
+      }
+      console.log(`[Order] タイムアウトキャンセル: ${order.id}`);
+    }
+  }
+
+  // ── delivered 48時間自動完了（最大5件）──────────────────────
+  const deliveredResp = await supabaseFetch(`/orders?status=eq.delivered&order=delivered_at.asc&limit=5`);
+  if (!deliveredResp.ok) return;
+  const deliveredOrders: OrderRow[] = await deliveredResp.json();
+
+  for (const order of deliveredOrders) {
+    if (!order.delivered_at) continue;
+    const autoCompleteAt = new Date(new Date(order.delivered_at).getTime() + 48 * 3600 * 1000);
+    if (new Date() < autoCompleteAt) continue;
+
+    const now = new Date().toISOString();
     await supabaseFetch(`/orders?id=eq.${order.id}`, {
       method: 'PATCH',
-      body: JSON.stringify({ status: 'cancelled', cancelled_at: new Date().toISOString() }),
+      body: JSON.stringify({ status: 'completed', completed_at: now, buyer_confirmed: true }),
     });
-    if (order.channel_id) {
+
+    const shopR = await supabaseFetch(`/shops?id=eq.${order.shop_id}`);
+    const shopArr: ShopRow[] = shopR.ok ? await shopR.json() : [];
+    const shop = shopArr[0] ?? null;
+
+    if (order.channel_id && token) {
+      const components: unknown[] = [{
+        type: 1,
+        components: [
+          { type: 2, style: 2, label: '🔒 チャンネルを閉じる', custom_id: `order_complete_close_${order.id}` },
+          ...(shop?.review_enabled ? [{ type: 2, style: 1, label: '⭐ レビューする', custom_id: `order_review_${order.id}` }] : []),
+        ],
+      }];
       await fetch(`https://discord.com/api/v10/channels/${order.channel_id}/messages`, {
-        method: 'POST', headers: { Authorization: `Bot ${env.DISCORD_BOT_TOKEN}`, 'Content-Type': 'application/json' },
-        body: JSON.stringify({ content: `⏰ **注文がタイムアウトしました。** ${shop.timeout_hours}時間以内に支払いが確認されなかったため自動キャンセルされました。` }),
+        method: 'POST', headers: { Authorization: `Bot ${token}`, 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          embeds: [{ title: '🎉 取引完了（自動）', color: 0x10b981, timestamp: now,
+            description: `⏰ 48時間が経過したため、自動的に取引完了となりました。\n\nチャンネルを閉じる場合は下のボタンを押してください。${shop?.review_enabled ? '\nレビューも受け付けています！' : ''}` }],
+          components,
+        }),
       });
-      await archiveOrderChannel(order.channel_id, order.buyer_user_id, shop.archive_category_id, env);
     }
-    console.log(`[Order] タイムアウトキャンセル: ${order.id}`);
+
+    // 購入者DM
+    if (order.buyer_user_id && token) {
+      const dmR = await fetch('https://discord.com/api/v10/users/@me/channels', {
+        method: 'POST', headers: { Authorization: `Bot ${token}`, 'Content-Type': 'application/json' },
+        body: JSON.stringify({ recipient_id: order.buyer_user_id }),
+      });
+      if (dmR.ok) {
+        const { id: dmId } = await dmR.json() as { id: string };
+        await fetch(`https://discord.com/api/v10/channels/${dmId}/messages`, {
+          method: 'POST', headers: { Authorization: `Bot ${token}`, 'Content-Type': 'application/json' },
+          body: JSON.stringify({ content: `🎉 **${order.product_name}** の取引が自動完了しました（48時間経過）。ありがとうございました！` }),
+        });
+      }
+    }
+    console.log(`[Order] 48h自動完了: ${order.id}`);
   }
 }
 
@@ -627,6 +800,113 @@ export default {
       });
     }
 
+    // Bot 疎通確認（認証不要・Discord API 不使用）
+    if (url.pathname === '/bot/ping') {
+      return new Response(JSON.stringify({ ok: true, timestamp: new Date().toISOString() }), {
+        headers: { 'Content-Type': 'application/json', 'Access-Control-Allow-Origin': '*' },
+      });
+    }
+
+    // ── 認証ページ（Cloudflare Turnstile）──────────────────────
+    // GET /verify/{panelId}?u={userId}&g={guildId}&exp={expiry}&sig={hmac}
+    const verifyPageMatch = url.pathname.match(/^\/verify\/([^/]+)$/);
+    if (verifyPageMatch && request.method === 'GET') {
+      const panelId = verifyPageMatch[1];
+      const u   = url.searchParams.get('u')   ?? '';
+      const g   = url.searchParams.get('g')   ?? '';
+      const exp = url.searchParams.get('exp') ?? '';
+      const sig = url.searchParams.get('sig') ?? '';
+
+      // URL パラメータの基本チェック
+      if (!u || !g || !exp || !sig) {
+        return verifyErrorPage('無効なURLです。Discordのボタンをもう一度押してください。');
+      }
+
+      // 有効期限チェック（署名検証より先に行う）
+      if (Date.now() > parseInt(exp, 10)) {
+        return verifyErrorPage('このURLは有効期限が切れています。Discordのボタンをもう一度押してください。');
+      }
+
+      // HMAC署名検証
+      const validSig = await hmacSign(`${panelId}:${u}:${g}:${exp}`, env.WORKER_API_SECRET);
+      if (validSig !== sig) {
+        return verifyErrorPage('無効なURLです。Discordのボタンをもう一度押してください。');
+      }
+
+      // パネル情報を取得
+      const sbLocal = makeSupabaseFetch(env);
+      const panelResp = await sbLocal(`/verify_panels?id=eq.${panelId}`);
+      const panels: VerifyPanelRow[] = panelResp.ok ? await panelResp.json() : [];
+      if (!panels.length || !panels[0].enabled) {
+        return verifyErrorPage('この認証パネルは現在利用できません。');
+      }
+      const panel = panels[0];
+      const siteKey = (env as any).TURNSTILE_SITE_KEY ?? '';
+
+      return new Response(verifyHtml(panelId, u, g, exp, sig, panel.name, panel.color, siteKey), {
+        headers: { 'Content-Type': 'text/html; charset=utf-8', 'Cache-Control': 'no-store' },
+      });
+    }
+
+    // POST /verify/{panelId}/complete — Turnstile トークン検証 + ロール付与
+    const verifyCompleteMatch = url.pathname.match(/^\/verify\/([^/]+)\/complete$/);
+    if (verifyCompleteMatch && request.method === 'POST') {
+      const panelId = verifyCompleteMatch[1];
+      const body = await request.json() as {
+        u: string; g: string; exp: string; sig: string; token: string;
+      };
+      const { u, g, exp, sig, token } = body;
+
+      if (!u || !g || !exp || !sig || !token) {
+        return jsonResponse({ error: 'パラメータが不足しています' }, 400);
+      }
+      if (Date.now() > parseInt(exp, 10)) {
+        return jsonResponse({ error: 'URLの有効期限が切れています' }, 400);
+      }
+
+      // 署名検証
+      const validSig = await hmacSign(`${panelId}:${u}:${g}:${exp}`, env.WORKER_API_SECRET);
+      if (validSig !== sig) {
+        return jsonResponse({ error: '無効なリクエストです' }, 403);
+      }
+
+      // Turnstile トークン検証
+      const secretKey = (env as any).TURNSTILE_SECRET_KEY ?? '';
+      if (secretKey) {
+        const verifyResp = await fetch('https://challenges.cloudflare.com/turnstile/v0/siteverify', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ secret: secretKey, response: token }),
+        });
+        const result = await verifyResp.json() as { success: boolean };
+        if (!result.success) {
+          return jsonResponse({ error: '認証に失敗しました。もう一度お試しください。' }, 400);
+        }
+      }
+
+      // パネル取得
+      const sbLocal2 = makeSupabaseFetch(env);
+      const panelResp = await sbLocal2(`/verify_panels?id=eq.${panelId}`);
+      const panels: VerifyPanelRow[] = panelResp.ok ? await panelResp.json() : [];
+      if (!panels.length || !panels[0].role_id) {
+        return jsonResponse({ error: '認証パネルが見つかりません' }, 404);
+      }
+      const panel = panels[0];
+
+      // Discord ロール付与
+      const roleResp = await fetch(
+        `https://discord.com/api/v10/guilds/${g}/members/${u}/roles/${panel.role_id}`,
+        { method: 'PUT', headers: { Authorization: `Bot ${env.DISCORD_BOT_TOKEN}` } }
+      );
+      if (!roleResp.ok && roleResp.status !== 204) {
+        const errText = await roleResp.text();
+        console.error('[Verify] ロール付与失敗:', roleResp.status, errText);
+        return jsonResponse({ error: 'ロールの付与に失敗しました' }, 502);
+      }
+
+      return jsonResponse({ ok: true });
+    }
+
     // ── API 認証 (#1) ─────────────────────────────────────────
     if (env.WORKER_API_SECRET) {
       const secret = request.headers.get('X-Bot-Secret');
@@ -639,6 +919,204 @@ export default {
     }
 
     const sb = makeSupabaseFetch(env);
+
+    // ── 認証パネル CRUD ──────────────────────────────────────────
+
+    // GET /bot/verify-panels?guild_id=xxx
+    if (url.pathname === '/bot/verify-panels' && request.method === 'GET') {
+      const guildId = url.searchParams.get('guild_id') ?? '';
+      const r = await sb(`/verify_panels?guild_id=eq.${guildId}&order=created_at.desc`);
+      const rows: VerifyPanelRow[] = r.ok ? await r.json() : [];
+      return jsonResponse(rows.map(mapVerifyPanel));
+    }
+
+    // POST /bot/verify-panels
+    if (url.pathname === '/bot/verify-panels' && request.method === 'POST') {
+      try {
+        const b = await request.json() as Record<string, unknown>;
+        const data = {
+          guild_id: b['guildId'] ?? '', name: b['name'] ?? '認証',
+          description: b['description'] ?? '', channel_id: b['channelId'] ?? '',
+          role_id: b['roleId'] ?? '', color: b['color'] ?? 1095937,
+          footer_text: b['footerText'] ?? '', button_label: b['buttonLabel'] ?? '✅ 認証する',
+          enabled: b['enabled'] ?? true,
+          verify_type: b['verifyType'] ?? 'captcha',
+          reaction_emoji: b['reactionEmoji'] ?? '✅',
+          manual_channel_id: b['manualChannelId'] ?? null,
+        };
+        const r = await sb('/verify_panels', { method: 'POST', body: JSON.stringify(data), headers: { Prefer: 'return=representation' } });
+        if (!r.ok) return new Response(await r.text(), { status: r.status });
+        const rows: VerifyPanelRow[] = await r.json();
+        return jsonResponse(mapVerifyPanel(rows[0]));
+      } catch (e) { return jsonResponse({ error: String(e) }, 500); }
+    }
+
+    // PATCH /bot/verify-panels/:id
+    const verifyPatchMatch = url.pathname.match(/^\/bot\/verify-panels\/([^/]+)$/);
+    if (verifyPatchMatch && request.method === 'PATCH') {
+      const id = verifyPatchMatch[1];
+      try {
+        const b = await request.json() as Record<string, unknown>;
+        const camel: Record<string, string> = {
+          name: 'name', description: 'description', channelId: 'channel_id',
+          roleId: 'role_id', color: 'color', footerText: 'footer_text',
+          buttonLabel: 'button_label', enabled: 'enabled',
+          verifyType: 'verify_type', reactionEmoji: 'reaction_emoji',
+          manualChannelId: 'manual_channel_id',
+        };
+        const data: Record<string, unknown> = {};
+        for (const [k, v] of Object.entries(b)) { data[camel[k] ?? k] = v; }
+        const r = await sb(`/verify_panels?id=eq.${id}`, { method: 'PATCH', body: JSON.stringify(data), headers: { Prefer: 'return=representation' } });
+        if (!r.ok) return new Response(await r.text(), { status: r.status });
+        const rows: VerifyPanelRow[] = await r.json();
+        return jsonResponse(mapVerifyPanel(rows[0]));
+      } catch (e) { return jsonResponse({ error: String(e) }, 500); }
+    }
+
+    // DELETE /bot/verify-panels/:id
+    if (verifyPatchMatch && request.method === 'DELETE') {
+      const id = verifyPatchMatch[1];
+      await sb(`/verify_panels?id=eq.${id}`, { method: 'DELETE' });
+      return jsonResponse({ ok: true });
+    }
+
+    // POST /bot/verify-panels/:id/deploy  body: { channelId }
+    const verifyDeployMatch = url.pathname.match(/^\/bot\/verify-panels\/([^/]+)\/deploy$/);
+    if (verifyDeployMatch && request.method === 'POST') {
+      const id = verifyDeployMatch[1];
+      try {
+        const b = await request.json() as { channelId: string };
+        if (!b.channelId) return jsonResponse({ error: 'channelId required' }, 400);
+
+        const panelResp = await sb(`/verify_panels?id=eq.${id}`);
+        const panels: VerifyPanelRow[] = panelResp.ok ? await panelResp.json() : [];
+        if (!panels.length) return jsonResponse({ error: 'Panel not found' }, 404);
+        const panel = panels[0];
+
+        // Discord にパネルメッセージを投稿
+        const discordBody = {
+          embeds: [{
+            title: panel.name,
+            description: panel.description,
+            color: panel.color,
+            footer: panel.footer_text ? { text: panel.footer_text } : undefined,
+          }],
+          components: [{
+            type: 1,
+            components: [{
+              type: 2, style: 3,
+              label: panel.button_label,
+              custom_id: `verify_start_${id}`,
+            }],
+          }],
+        };
+
+        const postR = await fetch(`https://discord.com/api/v10/channels/${b.channelId}/messages`, {
+          method: 'POST', headers: { Authorization: `Bot ${env.DISCORD_BOT_TOKEN}`, 'Content-Type': 'application/json' },
+          body: JSON.stringify(discordBody),
+        });
+        if (!postR.ok) {
+          const errText = await postR.text();
+          return jsonResponse({ error: errText }, 502);
+        }
+        const posted = await postR.json() as { id: string };
+
+        const updR = await sb(`/verify_panels?id=eq.${id}`, {
+          method: 'PATCH',
+          body: JSON.stringify({ channel_id: b.channelId, message_id: posted.id }),
+          headers: { Prefer: 'return=representation' },
+        });
+        const updRows: VerifyPanelRow[] = await updR.json();
+        return jsonResponse(mapVerifyPanel(updRows[0]));
+      } catch (e) { return jsonResponse({ error: String(e) }, 500); }
+    }
+
+    // ── 手動認証リクエスト ────────────────────────────────────────
+
+    // GET /bot/verify-requests?guild_id=xxx[&status=pending]
+    if (url.pathname === '/bot/verify-requests' && request.method === 'GET') {
+      const guildId = url.searchParams.get('guild_id') ?? '';
+      const status  = url.searchParams.get('status');
+      let query = `/verify_requests?guild_id=eq.${guildId}&order=created_at.desc`;
+      if (status) query += `&status=eq.${status}`;
+      const r = await sb(query);
+      const rows: VerifyRequestRow[] = r.ok ? await r.json() : [];
+      return jsonResponse(rows.map(mapVerifyRequest));
+    }
+
+    // POST /bot/verify-requests/:id/approve
+    const verifyApproveMatch = url.pathname.match(/^\/bot\/verify-requests\/([^/]+)\/approve$/);
+    if (verifyApproveMatch && request.method === 'POST') {
+      const reqId = verifyApproveMatch[1];
+      try {
+        const reqResp = await sb(`/verify_requests?id=eq.${reqId}`);
+        const reqs: VerifyRequestRow[] = reqResp.ok ? await reqResp.json() : [];
+        if (!reqs.length) return jsonResponse({ error: 'Not found' }, 404);
+        const req = reqs[0];
+
+        // パネルからロールIDを取得
+        const panelResp = await sb(`/verify_panels?id=eq.${req.panel_id}`);
+        const panels: VerifyPanelRow[] = panelResp.ok ? await panelResp.json() : [];
+        if (!panels.length) return jsonResponse({ error: 'Panel not found' }, 404);
+        const panel = panels[0];
+
+        // ロール付与
+        await fetch(`https://discord.com/api/v10/guilds/${req.guild_id}/members/${req.user_id}/roles/${panel.role_id}`, {
+          method: 'PUT', headers: { Authorization: `Bot ${env.DISCORD_BOT_TOKEN}` },
+        });
+
+        // ステータス更新
+        await sb(`/verify_requests?id=eq.${reqId}`, {
+          method: 'PATCH', body: JSON.stringify({ status: 'approved', resolved_at: new Date().toISOString() }),
+        });
+
+        // ユーザーにDM通知
+        const dmCh = await fetch('https://discord.com/api/v10/users/@me/channels', {
+          method: 'POST', headers: { Authorization: `Bot ${env.DISCORD_BOT_TOKEN}`, 'Content-Type': 'application/json' },
+          body: JSON.stringify({ recipient_id: req.user_id }),
+        });
+        if (dmCh.ok) {
+          const { id: dmId } = await dmCh.json() as { id: string };
+          await fetch(`https://discord.com/api/v10/channels/${dmId}/messages`, {
+            method: 'POST', headers: { Authorization: `Bot ${env.DISCORD_BOT_TOKEN}`, 'Content-Type': 'application/json' },
+            body: JSON.stringify({ content: '✅ **認証が承認されました！** ロールが付与されました。' }),
+          });
+        }
+
+        return jsonResponse({ ...mapVerifyRequest(req), status: 'approved' });
+      } catch (e) { return jsonResponse({ error: String(e) }, 500); }
+    }
+
+    // POST /bot/verify-requests/:id/deny
+    const verifyDenyMatch = url.pathname.match(/^\/bot\/verify-requests\/([^/]+)\/deny$/);
+    if (verifyDenyMatch && request.method === 'POST') {
+      const reqId = verifyDenyMatch[1];
+      try {
+        const reqResp = await sb(`/verify_requests?id=eq.${reqId}`);
+        const reqs: VerifyRequestRow[] = reqResp.ok ? await reqResp.json() : [];
+        if (!reqs.length) return jsonResponse({ error: 'Not found' }, 404);
+        const req = reqs[0];
+
+        await sb(`/verify_requests?id=eq.${reqId}`, {
+          method: 'PATCH', body: JSON.stringify({ status: 'denied', resolved_at: new Date().toISOString() }),
+        });
+
+        // ユーザーにDM通知
+        const dmCh = await fetch('https://discord.com/api/v10/users/@me/channels', {
+          method: 'POST', headers: { Authorization: `Bot ${env.DISCORD_BOT_TOKEN}`, 'Content-Type': 'application/json' },
+          body: JSON.stringify({ recipient_id: req.user_id }),
+        });
+        if (dmCh.ok) {
+          const { id: dmId } = await dmCh.json() as { id: string };
+          await fetch(`https://discord.com/api/v10/channels/${dmId}/messages`, {
+            method: 'POST', headers: { Authorization: `Bot ${env.DISCORD_BOT_TOKEN}`, 'Content-Type': 'application/json' },
+            body: JSON.stringify({ content: '❌ **認証が拒否されました。** サーバーの管理者にお問い合わせください。' }),
+          });
+        }
+
+        return jsonResponse({ ...mapVerifyRequest(req), status: 'denied' });
+      } catch (e) { return jsonResponse({ error: String(e) }, 500); }
+    }
 
     // Botが参加しているサーバー一覧
     if (url.pathname === "/bot/guilds") {
@@ -1853,8 +2331,8 @@ export default {
           timeout_hours:       body['timeoutHours']      ?? body.timeout_hours       ?? null,
           color:               body['color']   ?? 6579201,
           footer_text:         body['footerText'] ?? body.footer_text ?? '',
-          payment_flow:        body['paymentFlow'] ?? body.payment_flow ?? 'manual',
-          auto_deliver:        body['autoDeliver'] ?? body.auto_deliver ?? true,
+          review_enabled:      body['reviewEnabled'] ?? body.review_enabled ?? false,
+          review_channel_id:   body['reviewChannelId'] ?? body.review_channel_id ?? null,
           welcome_image_url:   body['welcomeImageUrl'] ?? body.welcome_image_url ?? null,
           welcome_thumbnail_url: body['welcomeThumbnailUrl'] ?? body.welcome_thumbnail_url ?? null,
           welcome_fields:      body['welcomeFields'] ?? body.welcome_fields ?? [],
@@ -1885,7 +2363,7 @@ export default {
           channelId: 'channel_id', orderCategoryId: 'order_category_id',
           archiveCategoryId: 'archive_category_id', supportRoleId: 'support_role_id',
           timeoutHours: 'timeout_hours', color: 'color', footerText: 'footer_text',
-          paymentFlow: 'payment_flow', autoDeliver: 'auto_deliver',
+          reviewEnabled: 'review_enabled', reviewChannelId: 'review_channel_id',
           welcomeImageUrl: 'welcome_image_url', welcomeThumbnailUrl: 'welcome_thumbnail_url',
           welcomeFields: 'welcome_fields',
           welcomeFooterText: 'welcome_footer_text', welcomeFooterIconUrl: 'welcome_footer_icon_url',
@@ -2984,6 +3462,76 @@ export default {
       return new Response(JSON.stringify({ ok: true, purchasedSlots }), { headers: { 'Content-Type': 'application/json' } });
     }
 
+    // ── 画像アップロード POST /upload/image ─────────────────────
+    if (url.pathname === '/upload/image' && request.method === 'POST') {
+      try {
+        const formData = await request.formData();
+        const file = formData.get('file') as File | null;
+        if (!file || typeof file === 'string') {
+          return new Response(JSON.stringify({ error: 'No file provided' }), { status: 400, headers: { 'Content-Type': 'application/json' } });
+        }
+
+        const bucket = 'embed-images';
+
+        // 1. バケットが存在するか確認、なければ自動作成
+        await ensureStorageBucket(env, bucket);
+
+        const arrayBuffer = await file.arrayBuffer();
+        const uint8Array = new Uint8Array(arrayBuffer);
+        const fileName = `embeds/${crypto.randomUUID()}.jpg`;
+
+        // 2. ファイルアップロード
+        const uploadResp = await fetch(`${env.SUPABASE_URL}/storage/v1/object/${bucket}/${fileName}`, {
+          method: 'POST',
+          headers: {
+            'Authorization': `Bearer ${env.SUPABASE_SERVICE_KEY}`,
+            'Content-Type': 'image/jpeg',
+            'x-upsert': 'true',
+          },
+          body: uint8Array,
+        });
+
+        if (!uploadResp.ok) {
+          const errText = await uploadResp.text();
+          console.error(`[Upload] Supabase storage error: ${uploadResp.status} ${errText}`);
+          return new Response(JSON.stringify({ error: `Storage upload failed: ${errText}` }), { status: 500, headers: { 'Content-Type': 'application/json' } });
+        }
+
+        const publicUrl = `${env.SUPABASE_URL}/storage/v1/object/public/${bucket}/${fileName}`;
+        return new Response(JSON.stringify({ url: publicUrl }), { headers: { 'Content-Type': 'application/json' } });
+      } catch (e) {
+        console.error(`[Upload] Error: ${String(e)}`);
+        return new Response(JSON.stringify({ error: String(e) }), { status: 500, headers: { 'Content-Type': 'application/json' } });
+      }
+    }
+
+    // ── 画像削除 POST /upload/delete ────────────────────────────
+    if (url.pathname === '/upload/delete' && request.method === 'POST') {
+      try {
+        const body = await request.json() as { urls: string[] };
+        const results: { url: string; ok: boolean }[] = [];
+        for (const imageUrl of body.urls) {
+          // URL から Storage パスを抽出
+          // https://...supabase.co/storage/v1/object/public/embed-images/embeds/xxx.jpg
+          const match = imageUrl.match(/\/embed-images\/(.+)$/);
+          if (match) {
+            const path = match[1];
+            const delResp = await fetch(`${env.SUPABASE_URL}/storage/v1/object/embed-images/${path}`, {
+              method: 'DELETE',
+              headers: { 'Authorization': `Bearer ${env.SUPABASE_SERVICE_KEY}` },
+            });
+            results.push({ url: imageUrl, ok: delResp.ok });
+          } else {
+            results.push({ url: imageUrl, ok: false });
+          }
+        }
+        return new Response(JSON.stringify({ results }), { headers: { 'Content-Type': 'application/json' } });
+      } catch (e) {
+        console.error(`[Upload] Delete error: ${String(e)}`);
+        return new Response(JSON.stringify({ error: String(e) }), { status: 500, headers: { 'Content-Type': 'application/json' } });
+      }
+    }
+
     return new Response(JSON.stringify({ error: 'Not Found' }), {
       status: 404,
       headers: { 'Content-Type': 'application/json', 'Access-Control-Allow-Origin': '*' },
@@ -3035,4 +3583,48 @@ interface Env {
   DISCORD_CLIENT_ID: string;
   WORKER_API_SECRET: string;  // wrangler secret put WORKER_API_SECRET
   SUPABASE_ANON_KEY: string;  // wrangler secret put SUPABASE_ANON_KEY（課金JWT検証用）
+}
+
+// ── Supabase Storage: バケット自動作成 ───────────────────────
+
+async function ensureStorageBucket(env: Env, bucketId: string): Promise<void> {
+  // バケット一覧を取得
+  const listResp = await fetch(`${env.SUPABASE_URL}/storage/v1/bucket`, {
+    headers: { 'Authorization': `Bearer ${env.SUPABASE_SERVICE_KEY}` },
+  });
+
+  if (!listResp.ok) {
+    console.error(`[Upload] Failed to list buckets: ${listResp.status}`);
+    throw new Error('Failed to list storage buckets');
+  }
+
+  const buckets: any[] = await listResp.json();
+  const exists = buckets.some((b: any) => b.id === bucketId || b.name === bucketId);
+
+  if (exists) {
+    console.log(`[Upload] Bucket already exists: ${bucketId}`);
+    return;
+  }
+
+  // バケットを作成（public = true）
+  const createResp = await fetch(`${env.SUPABASE_URL}/storage/v1/bucket`, {
+    method: 'POST',
+    headers: {
+      'Authorization': `Bearer ${env.SUPABASE_SERVICE_KEY}`,
+      'Content-Type': 'application/json',
+    },
+    body: JSON.stringify({
+      id: bucketId,
+      name: bucketId,
+      public: true,
+    }),
+  });
+
+  if (!createResp.ok) {
+    const errText = await createResp.text();
+    console.error(`[Upload] Failed to create bucket: ${createResp.status} ${errText}`);
+    throw new Error(`Failed to create bucket: ${errText}`);
+  }
+
+  console.log(`[Upload] Created bucket: ${bucketId}`);
 }

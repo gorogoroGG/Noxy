@@ -1,6 +1,7 @@
 import SwiftUI
 
 struct MonitorView: View {
+    @Environment(AppState.self) private var appState
     @State private var selectedFilter: FilterType = .all
     @State private var activities: [BotActivityItem] = []
     @State private var isLoading = true
@@ -70,11 +71,10 @@ struct MonitorView: View {
                     liveIndicator
                 }
             }
-            .refreshable {
-                await loadActivities()
-            }
-            .task {
-                await loadActivities()
+            .refreshable { await loadActivities() }
+            .task { await loadActivities() }
+            .onChange(of: appState.selectedGuildId) { _, _ in
+                Task { await loadActivities() }
             }
         }
     }
@@ -117,7 +117,7 @@ struct MonitorView: View {
 
     private func loadActivities() async {
         isLoading = true
-        let guildId = UserDefaults.standard.string(forKey: "selected_guild_id") ?? ""
+        let guildId = appState.selectedGuildId
         guard !guildId.isEmpty else {
             activities = []
             isLoading = false
@@ -128,7 +128,8 @@ struct MonitorView: View {
             isLoading = false
             return
         }
-        if let (data, _) = try? await URLSession.shared.data(from: url),
+        let req = DiscordConfig.makeWorkerRequest(url: url)
+        if let (data, _) = try? await URLSession.shared.data(for: req),
            let items = try? JSONDecoder().decode([BotActivityItem].self, from: data) {
             activities = items
         } else {
@@ -235,6 +236,11 @@ struct BotActivityItem: Identifiable, Codable {
     var guildName: String
     var timeAgo: String
     var isError: Bool = false
+
+    // JSON に id フィールドがないため、デコード対象から除外
+    enum CodingKeys: String, CodingKey {
+        case type, icon, title, detail, guildName, timeAgo, isError
+    }
 }
 
 #Preview {

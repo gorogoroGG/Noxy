@@ -15,6 +15,14 @@ struct DiscordConfig {
     static var userAccessToken: String {
         KeychainHelper.load(forKey: "discord_access_token") ?? ""
     }
+
+    /// Worker への認証付きリクエストを生成する（ビュー層からも使用可）
+    static func makeWorkerRequest(url: URL, method: String = "GET") -> URLRequest {
+        var req = URLRequest(url: url, timeoutInterval: 15)
+        req.httpMethod = method
+        req.setValue(workerAPISecret, forHTTPHeaderField: "X-Bot-Secret")
+        return req
+    }
 }
 
 // MARK: - Discord API モデル
@@ -148,6 +156,23 @@ struct DiscordService: GuildServiceProtocol {
         let url = URL(string: "\(DiscordConfig.workerURL)/bot/roles?guild_id=\(guildId)")!
         let (data, _) = try await session.data(for: workerRequest(url: url))
         return try JSONDecoder().decode([DiscordRole].self, from: data)
+    }
+
+    /// ロール並び順を Discord に保存（Worker 経由）
+    func reorderRoles(guildId: String, positions: [(id: String, position: Int)]) async throws {
+        let url = URL(string: "\(DiscordConfig.workerURL)/bot/roles/reorder")!
+        var req = workerRequest(url: url)
+        req.httpMethod = "PATCH"
+        req.setValue("application/json", forHTTPHeaderField: "Content-Type")
+        let body: [String: Any] = [
+            "guildId": guildId,
+            "positions": positions.map { ["id": $0.id, "position": $0.position] }
+        ]
+        req.httpBody = try? JSONSerialization.data(withJSONObject: body)
+        let (_, response) = try await session.data(for: req)
+        guard let http = response as? HTTPURLResponse, (200..<300).contains(http.statusCode) else {
+            throw URLError(.badServerResponse)
+        }
     }
 
     // MARK: - 内部

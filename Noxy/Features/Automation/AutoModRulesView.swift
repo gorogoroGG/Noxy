@@ -31,7 +31,9 @@ final class AutoModSettings {
     // ── アンチヌーク ──────────────────────────────────────────
     var antiNukeEnabled  = false
     var channelDeleteLimit = 3; var channelDeleteSeconds = 10
+    var roleDeleteEnabled = false
     var roleDeleteLimit  = 3; var roleDeleteSeconds = 10
+    var massBanEnabled   = false
     var massBanLimit     = 5; var massBanSeconds = 30
 
     // ── アクション ────────────────────────────────────────────
@@ -217,7 +219,7 @@ struct AutoModSettingsView: View {
                 s.emojiEnabled, s.capsEnabled, s.keywordEnabled, s.regexEnabled,
                 s.inviteLinkEnabled, s.phishingEnabled, s.linkFilterEnabled,
                 s.nsfwEnabled, s.minAgeEnabled, s.newMemberEnabled, s.raidEnabled,
-                s.antiNukeEnabled, s.logEnabled].filter { $0 }.count
+                s.antiNukeEnabled, s.roleDeleteEnabled, s.massBanEnabled, s.logEnabled].filter { $0 }.count
     }
 
     // MARK: - Save Bar
@@ -577,7 +579,7 @@ struct AutoModSettingsView: View {
             RuleRow(
                 title: "ロール大量削除保護",
                 description: "\(settings.roleDeleteSeconds)秒以内に\(settings.roleDeleteLimit)件以上の削除で検知",
-                isOn: Binding(get: { settings.antiNukeEnabled }, set: { _ in })
+                isOn: Binding(get: { settings.roleDeleteEnabled }, set: { settings.roleDeleteEnabled = $0; hasChanges = true })
             ) {
                 VStack(spacing: .spacing12) {
                     StepperRow(label: "削除閾値", value: Binding(get: { settings.roleDeleteLimit }, set: { settings.roleDeleteLimit = $0; hasChanges = true }), range: 2...10, unit: "件")
@@ -588,7 +590,7 @@ struct AutoModSettingsView: View {
             RuleRow(
                 title: "大量BAN保護",
                 description: "\(settings.massBanSeconds)秒以内に\(settings.massBanLimit)人以上のBANで検知",
-                isOn: Binding(get: { settings.antiNukeEnabled }, set: { _ in })
+                isOn: Binding(get: { settings.massBanEnabled }, set: { settings.massBanEnabled = $0; hasChanges = true })
             ) {
                 VStack(spacing: .spacing12) {
                     StepperRow(label: "BAN閾値", value: Binding(get: { settings.massBanLimit }, set: { settings.massBanLimit = $0; hasChanges = true }), range: 3...20, unit: "人")

@@ -68,6 +68,23 @@ extension View {
             .background(Color.bgElevated)
             .clipShape(RoundedRectangle(cornerRadius: .cornerRadiusSmall, style: .continuous))
     }
+
+    /// Embed エディタ専用：薄い点線で入力エリアを囲う。テキストに合わせて動的にサイズ変化。
+    func embedDashedBorder(radius: CGFloat = 5, focused: Bool = false) -> some View {
+        self.overlay(
+            RoundedRectangle(cornerRadius: radius)
+                .stroke(
+                    style: StrokeStyle(lineWidth: focused ? 1.2 : 0.8,
+                                       dash: focused ? [1, 0] : [4, 3])
+                )
+                .foregroundStyle(
+                    focused
+                        ? Color.accentIndigo.opacity(0.55)
+                        : Color.accentIndigo.opacity(0.28)
+                )
+        )
+        .padding(2)
+    }
 }
 
 // MARK: - Presets

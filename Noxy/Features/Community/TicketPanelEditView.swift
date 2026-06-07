@@ -11,18 +11,28 @@ struct TicketPanelEditView: View {
     @Environment(\.dismiss)     private var dismiss
     @Environment(AppState.self) private var appState
 
-    // ── フィールド ──
+    // ── タブ ──
+    enum EditTab: String, CaseIterable {
+        case panel  = "パネルの設定"
+        case ticket = "チケットの設定"
+    }
+    @State private var selectedTab: EditTab = .panel
+
+    // ── パネルフィールド ──
     @State private var title             = "サポートチケット"
     @State private var description       = "ボタンをクリックしてチケットを開きます。\nスタッフが迅速に対応します。"
     @State private var buttonLabel       = "チケットを作成"
     @State private var buttonEmoji       = "🎫"
+    @State private var embedColorHex: UInt32  = 0x6366f1
+    @State private var buttonColorHex: UInt32 = 0x6366f1
+
+    // ── チケットフィールド ──
     @State private var supportRoleId     = ""
     @State private var openCategoryId    = ""
     @State private var closedCategoryId  = ""
     @State private var ticketEmbedTitle  = "チケット"
     @State private var ticketMsgContent  = "{user.mention} さん、チケットを作成しました。\nスタッフが確認次第、対応いたします。\n\n**件名：** {subject}"
     @State private var maxOpenPerUser    = 1
-    @State private var colorHex: UInt32  = 0x6366f1
 
     // ── データ ──
     @State private var roles: [DiscordRole] = []
@@ -31,24 +41,57 @@ struct TicketPanelEditView: View {
     @State private var isSaving   = false
     @State private var errorMessage: String? = nil
 
+    // ── キーボード高さ ──
+    @State private var keyboardHeight: CGFloat = 0
+
+    // ── カラーピッカー ──
+    @State private var showEmbedColorPicker  = false
+    @State private var showButtonColorPicker = false
+
+    // ── Focus ──
+    @FocusState private var focusedField: FieldFocus?
+
     private var isNew: Bool { existingPanel == nil }
 
-    // ── プレビュー色 ──
-    private var previewColor: Color { Color(uiColor: UIColor(hex: colorHex)) }
+    private var embedColor:  Color { Color(uiColor: UIColor(hex: embedColorHex)) }
+    private var buttonColor: Color { Color(uiColor: UIColor(hex: buttonColorHex)) }
 
-    // ── プリセットカラー ──
-    private let colorPresets: [UInt32] = [0x6366f1, 0x10b981, 0xf59e0b, 0xef4444, 0x8b5cf6, 0x3b82f6]
+    enum FieldFocus: Hashable {
+        case title, description, buttonLabel, buttonEmoji
+        case ticketMsg
+        case ticketEmbedTitle
+    }
+
+    // ── 変数チップ ──
+    private let variableChips: [(label: String, value: String)] = [
+        ("{user.mention}", "{user.mention}"),
+        ("{user.name}",    "{user.name}"),
+        ("{guild.name}",   "{guild.name}"),
+        ("{subject}",      "{subject}"),
+        ("{ticket.id}",    "{ticket.id}"),
+        ("{channel.name}", "{channel.name}"),
+        ("{ticket.number}","{ticket.number}"),
+    ]
+
+    // MARK: - Body
 
     var body: some View {
         NavigationStack {
-            ScrollView {
+            ScrollView(.vertical, showsIndicators: false) {
                 VStack(spacing: .spacing16) {
-                    panelAppearanceSection
-                    panelPreviewSection
-                    ticketSettingsSection
-                    welcomeMessageSection
-                    welcomeMessagePreviewSection
-                    ticketEmbedSection
+                    Picker("", selection: $selectedTab) {
+                        ForEach(EditTab.allCases, id: \.self) { tab in
+                            Text(tab.rawValue).tag(tab)
+                        }
+                    }
+                    .pickerStyle(.segmented)
+                    .padding(.horizontal, .spacing16)
+
+                    if selectedTab == .panel {
+                        panelPreviewEditor
+                    } else {
+                        ticketSettingsForm
+                    }
 
                     if let err = errorMessage {
                         Card {
@@ -59,8 +102,9 @@ struct TicketPanelEditView: View {
                     }
                 }
                 .padding(.spacing16)
-                .padding(.bottom, 24)
+                .padding(.bottom, 16)
             }
+            .scrollDismissesKeyboard(.never)
             .background(Color.bgPrimary)
             .navigationTitle(isNew ? "パネルを作成" : "パネルを編集")
             .navigationBarTitleDisplayMode(.inline)
@@ -75,275 +119,327 @@ struct TicketPanelEditView: View {
                         .disabled(title.isEmpty || isSaving)
                 }
             }
+            .safeAreaInset(edge: .bottom, spacing: 0) {
+                if focusedField != nil {
+                    chipBar
+                }
+            }
             .task { await loadData() }
+            .onReceive(NotificationCenter.default.publisher(for: UIResponder.keyboardWillShowNotification)) { n in
+                if let rect = n.userInfo?[UIResponder.keyboardFrameEndUserInfoKey] as? CGRect {
+                    withAnimation(.easeOut(duration: 0.25)) { keyboardHeight = rect.height }
+                }
+            }
+            .onReceive(NotificationCenter.default.publisher(for: UIResponder.keyboardWillHideNotification)) { _ in
+                withAnimation(.easeOut(duration: 0.25)) { keyboardHeight = 0 }
+            }
+            .sheet(isPresented: $showEmbedColorPicker) {
+                ColorPickerSheet(selectedHex: $embedColorHex)
+            }
+            .sheet(isPresented: $showButtonColorPicker) {
+                ColorPickerSheet(selectedHex: $buttonColorHex)
+            }
         }
     }
 
-    // MARK: - Sections
+    // MARK: - Chip Bar（safeAreaInset で表示）
+    // UIKit ベースの HorizontalChipBar を使用。SwiftUI の ScrollView(.horizontal) では
+    // sheet+NavigationStack コンテキストで縦ジェスチャーが伝播する問題を完全回避。
 
-    // ── パネルの見た目 ──
-    private var panelAppearanceSection: some View {
-        FormSection("パネルの見た目", icon: "doc.text",
-                    footer: appState.isPro ? nil : "タイトル以外の変更はProプランで利用できます。") {
-            VStack(spacing: .spacing12) {
-                FormField.text(label: "タイトル", text: $title, placeholder: "サポートチケット", isRequired: true)
+    private var chipBar: some View {
+        HorizontalChipBar(
+            chips: variableChips,
+            accentColor: Color.accentIndigo,
+            doneTitle: "完了",
+            onChipTap: { insertVariable($0) },
+            onDone:    { focusedField = nil }
+        )
+        .frame(height: 46)
+        .background(.regularMaterial)
+        .overlay(Divider(), alignment: .top)
+    }
 
-                FormField(label: "説明") {
-                    TextEditor(text: $description)
-                        .font(.bodySmall)
-                        .scrollContentBackground(.hidden)
-                        .inputStyle(height: 80)
-                        .disabled(!appState.isPro)
-                        .foregroundStyle(appState.isPro ? Color.textPrimary : Color.textTertiary)
+    private func insertVariable(_ v: String) {
+        switch focusedField {
+        case .title:       title            += v
+        case .description: description      += v
+        case .buttonLabel: buttonLabel      += v
+        case .ticketMsg:   ticketMsgContent += v
+        default: break
+        }
+    }
+
+    // MARK: - Panel Preview Editor
+
+    private var panelPreviewEditor: some View {
+        VStack(spacing: .spacing12) {
+            // Discord スタイルのプレビュー
+            HStack(alignment: .top, spacing: .spacing12) {
+                // Bot アバター
+                ZStack {
+                    Circle()
+                        .fill(
+                            LinearGradient(
+                                colors: [Color.accentIndigo, Color.accentPink],
+                                startPoint: .topLeading,
+                                endPoint: .bottomTrailing
+                            )
+                        )
+                        .frame(width: 40, height: 40)
+                    Image(systemName: "bubble.left.and.bubble.right.fill")
+                        .font(.system(size: 16, weight: .semibold))
+                        .foregroundStyle(.white)
                 }
-                .opacity(appState.isPro ? 1 : 0.6)
 
-                FormField(label: "ボタンラベル") {
-                    HStack {
+                VStack(alignment: .leading, spacing: .spacing4) {
+                    HStack(spacing: .spacing6) {
+                        Text("Noxy")
+                            .font(.system(size: 14, weight: .semibold))
+                            .foregroundStyle(Color.accentIndigo)
+                        Text("BOT")
+                            .font(.system(size: 9, weight: .bold))
+                            .foregroundStyle(.white)
+                            .padding(.horizontal, 4).padding(.vertical, 1)
+                            .background(Color.accentIndigo)
+                            .clipShape(RoundedRectangle(cornerRadius: 3))
+                        (Text("今日 ") + Text(Date(), style: .time))
+                            .font(.captionSmall)
+                            .foregroundStyle(Color.textTertiary)
                         Spacer()
-                        TextField("チケットを作成", text: $buttonLabel)
-                            .multilineTextAlignment(.trailing)
-                            .font(.bodySmall)
-                            .disabled(!appState.isPro)
-                            .foregroundStyle(appState.isPro ? Color.textPrimary : Color.textTertiary)
                     }
-                    .inputStyle(height: 44)
-                }
-                .opacity(appState.isPro ? 1 : 0.6)
 
-                FormField(label: "ボタン絵文字") {
-                    HStack {
+                    // Embed ブロック
+                    HStack(alignment: .top, spacing: 0) {
+                        // 左カラーバー（タップでEmbedカラー変更）
+                        RoundedRectangle(cornerRadius: 2)
+                            .fill(embedColor)
+                            .frame(width: 4)
+                            .onTapGesture { showEmbedColorPicker = true }
+
+                        VStack(alignment: .leading, spacing: .spacing8) {
+                            // タイトル
+                            TextField("タイトル", text: $title)
+                                .font(.system(size: 15, weight: .semibold))
+                                .foregroundStyle(embedColor)
+                                .textFieldStyle(.plain)
+                                .background(.clear)
+                                .focused($focusedField, equals: .title)
+                                .padding(.horizontal, 6).padding(.vertical, 4)
+                                .embedDashedBorder(focused: focusedField == .title)
+
+                            // 説明
+                            ZStack(alignment: .topLeading) {
+                                if description.isEmpty {
+                                    Text("説明")
+                                        .font(.system(size: 14))
+                                        .foregroundStyle(Color.textTertiary)
+                                        .padding(.top, 8).padding(.leading, 4)
+                                        .allowsHitTesting(false)
+                                }
+                                TextEditor(text: $description)
+                                    .font(.system(size: 14))
+                                    .foregroundStyle(Color.textSecondary)
+                                    .scrollContentBackground(.hidden)
+                                    .background(.clear)
+                                    .frame(minHeight: 60, maxHeight: 120)
+                                    .focused($focusedField, equals: .description)
+                            }
+                            .padding(2)
+                            .embedDashedBorder(focused: focusedField == .description)
+
+                            // ボタン（絵文字 + ラベル）
+                            HStack(spacing: .spacing6) {
+                                TextField("🎫", text: $buttonEmoji)
+                                    .font(.system(size: 14))
+                                    .foregroundStyle(.white)
+                                    .textFieldStyle(.plain)
+                                    .background(.clear)
+                                    .frame(width: 30)
+                                    .multilineTextAlignment(.center)
+                                    .focused($focusedField, equals: .buttonEmoji)
+
+                                TextField("チケットを作成", text: $buttonLabel)
+                                    .font(.system(size: 14, weight: .semibold))
+                                    .foregroundStyle(.white)
+                                    .textFieldStyle(.plain)
+                                    .background(.clear)
+                                    .focused($focusedField, equals: .buttonLabel)
+                            }
+                            .padding(.horizontal, 12).padding(.vertical, 8)
+                            .background(buttonColor)
+                            .clipShape(RoundedRectangle(cornerRadius: 6))
+                        }
+                        .padding(.spacing10)
+                    }
+                    .background(Color.bgSurface)
+                    .clipShape(RoundedRectangle(cornerRadius: 4))
+                }
+            }
+
+            // カラー設定行
+            HStack(spacing: .spacing20) {
+                ColorSwatch(label: "Embedカラー", color: embedColor) {
+                    showEmbedColorPicker = true
+                }
+                ColorSwatch(label: "ボタンカラー", color: buttonColor) {
+                    showButtonColorPicker = true
+                }
+                Spacer()
+            }
+            .padding(.horizontal, .spacing4)
+        }
+        .padding(.spacing12)
+        .background(Color.bgSurface)
+        .clipShape(RoundedRectangle(cornerRadius: 4))
+    }
+
+    // MARK: - Ticket Settings Form
+
+    private var ticketSettingsForm: some View {
+        VStack(spacing: .spacing16) {
+            // ── チケット内メッセージ ──
+            HStack(alignment: .top, spacing: .spacing10) {
+                ZStack {
+                    Circle().fill(embedColor).frame(width: 36, height: 36)
+                    Text("🤖").font(.system(size: 16))
+                }
+                VStack(alignment: .leading, spacing: .spacing4) {
+                    HStack(spacing: .spacing6) {
+                        Text("Noxy")
+                            .font(.system(size: 13, weight: .semibold))
+                            .foregroundStyle(embedColor)
+                        Text("BOT")
+                            .font(.system(size: 9, weight: .bold))
+                            .foregroundStyle(.white)
+                            .padding(.horizontal, 4).padding(.vertical, 1)
+                            .background(Color.accentIndigo)
+                            .clipShape(RoundedRectangle(cornerRadius: 3))
+                        (Text("今日 ") + Text(Date(), style: .time))
+                            .font(.captionSmall)
+                            .foregroundStyle(Color.textTertiary)
                         Spacer()
-                        TextField("🎫", text: $buttonEmoji)
-                            .multilineTextAlignment(.trailing)
+                    }
+                    ZStack(alignment: .topLeading) {
+                        if ticketMsgContent.isEmpty {
+                            Text("チケット内メッセージを入力...")
+                                .font(.system(size: 14))
+                                .foregroundStyle(Color.textTertiary)
+                                .padding(.top, 8).padding(.leading, 4)
+                                .allowsHitTesting(false)
+                        }
+                        TextEditor(text: $ticketMsgContent)
+                            .font(.system(size: 14))
+                            .foregroundStyle(Color.textPrimary)
+                            .scrollContentBackground(.hidden)
+                            .background(.clear)
+                            .frame(minHeight: 60, maxHeight: 120)
+                            .focused($focusedField, equals: .ticketMsg)
+                    }
+                }
+            }
+            .padding(.spacing12)
+            .background(Color.bgSurface)
+            .clipShape(RoundedRectangle(cornerRadius: 4))
+
+            // ── チケット設定 ──
+            Card {
+                VStack(spacing: 0) {
+                    settingRow(label: "接頭辞", icon: "textformat.prefix", detail: ticketEmbedTitle.isEmpty ? "ticket" : ticketEmbedTitle) {
+                        TextField("ticket", text: $ticketEmbedTitle)
                             .font(.bodySmall)
-                            .disabled(!appState.isPro)
-                            .foregroundStyle(appState.isPro ? Color.textPrimary : Color.textTertiary)
+                            .multilineTextAlignment(.trailing)
+                            .foregroundStyle(Color.textSecondary)
                     }
-                    .inputStyle(height: 44)
-                }
-                .opacity(appState.isPro ? 1 : 0.6)
 
-                // カラー
-                HStack {
-                    Text("カラー")
-                        .font(.captionSmall)
-                        .fontWeight(.semibold)
-                        .foregroundStyle(Color.textTertiary)
-                        .textCase(.uppercase)
-                    if !appState.isPro { Badge(text: "Pro", color: .accentOrange) }
-                    Spacer()
-                    HStack(spacing: 8) {
-                        ForEach(colorPresets, id: \.self) { hex in
-                            ZStack {
-                                Circle().fill(Color(uiColor: UIColor(hex: hex))).frame(width: 26, height: 26)
-                                    .opacity(appState.isPro ? 1 : 0.4)
-                                if colorHex == hex {
-                                    Image(systemName: "checkmark").font(.system(size: 10, weight: .bold)).foregroundStyle(.white)
-                                }
-                            }
-                            .onTapGesture {
-                                guard appState.isPro else { return }
-                                withAnimation(.easeInOut(duration: 0.15)) { colorHex = hex }
+                    Divider().padding(.leading, 44)
+
+                    if isLoading {
+                        HStack { Spacer(); ProgressView().scaleEffect(0.8).padding(.vertical, .spacing12); Spacer() }
+                    } else {
+                        pickerRow(label: "サポートロール", icon: "person.badge.shield.checkmark", selection: $supportRoleId) {
+                            Text("なし").tag("")
+                            ForEach(roles.filter { !$0.managed && $0.name != "@everyone" }) {
+                                Text("@\($0.name)").tag($0.id)
                             }
                         }
-                    }
-                }
-            }
-        }
-    }
 
-    // ── パネルプレビュー ──
-    private var panelPreviewSection: some View {
-        FormSection("パネルのプレビュー", icon: "eye.fill",
-                    footer: "Discordに投稿されるパネルのイメージです。") {
-            VStack(alignment: .leading, spacing: .spacing12) {
-                // Discord 風 embed プレビュー
-                HStack(alignment: .top, spacing: 0) {
-                    RoundedRectangle(cornerRadius: 2).fill(previewColor).frame(width: 4)
-                    VStack(alignment: .leading, spacing: 6) {
-                        if !title.isEmpty {
-                            Text(title).font(.bodySmall).fontWeight(.bold).foregroundStyle(Color.textPrimary)
-                        }
-                        if !description.isEmpty {
-                            Text(description).font(.captionRegular).foregroundStyle(Color.textSecondary)
-                        }
-                    }
-                    .padding(.leading, 10).padding(.vertical, 10).padding(.trailing, 10)
-                }
-                .background(Color(.tertiarySystemGroupedBackground))
-                .clipShape(RoundedRectangle(cornerRadius: 8))
+                        Divider().padding(.leading, 44)
 
-                // ボタンプレビュー
-                HStack(spacing: 6) {
-                    Text("\(buttonEmoji) \(buttonLabel.isEmpty ? "ボタンラベル" : buttonLabel)")
-                        .font(.captionRegular).fontWeight(.semibold).foregroundStyle(.white)
-                        .padding(.horizontal, 14).padding(.vertical, 8)
-                        .background(previewColor)
-                        .clipShape(RoundedRectangle(cornerRadius: 6))
-                    Spacer()
-                }
-            }
-        }
-    }
-
-    // ── チケット設定 ──
-    private var ticketSettingsSection: some View {
-        FormSection("チケット設定", icon: "gear",
-                    footer: "サポートロール：チケットチャンネルに追加されるロール。\nオープン/クローズカテゴリ：チケット作成/クローズ時にチャンネルを移動するDiscordカテゴリ。") {
-            VStack(spacing: .spacing12) {
-                if isLoading {
-                    HStack { Spacer(); ProgressView().scaleEffect(0.8); Spacer() }
-                } else {
-                    FormField.picker(label: "サポートロール", selection: $supportRoleId) {
-                        Text("なし").tag("")
-                        ForEach(roles.filter { !$0.managed && $0.name != "@everyone" }) {
-                            Text("@\($0.name)").tag($0.id)
-                        }
-                    }
-
-                    FormField.picker(label: "オープンカテゴリ", selection: $openCategoryId) {
-                        Text("なし（デフォルト）").tag("")
-                        ForEach(categories, id: \.id) { Text($0.name).tag($0.id) }
-                    }
-
-                    FormField.picker(label: "クローズカテゴリ", selection: $closedCategoryId) {
-                        Text("なし（そのまま）").tag("")
-                        ForEach(categories, id: \.id) { Text($0.name).tag($0.id) }
-                    }
-                }
-
-                FormField.stepper(label: "同時オープン上限", value: $maxOpenPerUser, range: 1...10, helper: "\(maxOpenPerUser)件")
-            }
-        }
-    }
-
-    // ── ウェルカムメッセージ ──
-    private var welcomeMessageSection: some View {
-        FormSection("チケット内ウェルカムメッセージ", icon: "message",
-                    footer: "チケットが作成されたとき、チャンネル内に表示されるメッセージ。変数を使うと実際の値に置き換えられます。") {
-            VStack(alignment: .leading, spacing: .spacing8) {
-                FormField(label: "メッセージ") {
-                    TextEditor(text: $ticketMsgContent)
-                        .font(.bodySmall)
-                        .scrollContentBackground(.hidden)
-                        .inputStyle(height: 100)
-                }
-
-                // 変数チップ
-                ScrollView(.horizontal, showsIndicators: false) {
-                    HStack(spacing: 6) {
-                        ForEach(["{user.mention}", "{user.name}", "{subject}", "{ticket_id}"], id: \.self) { v in
-                            Button { ticketMsgContent += v } label: {
-                                Text(v).font(.system(size: 11, weight: .semibold))
-                                    .foregroundStyle(Color.accentIndigo)
-                                    .padding(.horizontal, 8).padding(.vertical, 4)
-                                    .background(Color.accentIndigo.opacity(0.1)).clipShape(Capsule())
-                            }.buttonStyle(.plain)
-                        }
-                    }
-                }
-            }
-        }
-    }
-
-    // ── ウェルカムメッセージ プレビュー（Discord風） ──
-    private var welcomeMessagePreviewSection: some View {
-        let msgPreview = ticketMsgContent
-            .replacingOccurrences(of: "{user.mention}", with: "@SampleUser")
-            .replacingOccurrences(of: "{user.name}",    with: "SampleUser")
-            .replacingOccurrences(of: "{subject}",      with: "お問い合わせ内容")
-            .replacingOccurrences(of: "{ticket_id}",    with: "abc123")
-        let embedTitle = ticketEmbedTitle.isEmpty ? "チケット" : ticketEmbedTitle
-
-        return FormSection("チケット内のプレビュー", icon: "eye.fill",
-                             footer: "チケット作成時にチャンネル内に投稿されるメッセージのイメージです。変数はサンプル値で表示しています。") {
-            // Discord のチャット背景を模した暗めのコンテナ
-            VStack(alignment: .leading, spacing: 0) {
-                // チャンネルヘッダー
-                HStack(spacing: 6) {
-                    Image(systemName: "lock.fill")
-                        .font(.system(size: 10)).foregroundStyle(Color.textTertiary)
-                    Text("ticket-abc123")
-                        .font(.captionSmall).fontWeight(.semibold).foregroundStyle(Color.textTertiary)
-                }
-                .padding(.horizontal, 12).padding(.top, 10).padding(.bottom, 6)
-
-                Divider().opacity(0.3)
-
-                // Bot メッセージ行
-                HStack(alignment: .top, spacing: 10) {
-                    // アバター
-                    ZStack {
-                        Circle().fill(previewColor).frame(width: 36, height: 36)
-                        Text("🤖").font(.system(size: 16))
-                    }
-
-                    VStack(alignment: .leading, spacing: 4) {
-                        // ユーザー名 + 時刻
-                        HStack(spacing: 6) {
-                            Text("Noxy").font(.system(size: 13, weight: .semibold)).foregroundStyle(previewColor)
-                            Text("BOT").font(.system(size: 9, weight: .bold)).foregroundStyle(.white)
-                                .padding(.horizontal, 4).padding(.vertical, 1)
-                                .background(Color.accentIndigo).clipShape(RoundedRectangle(cornerRadius: 3))
-                            Text("今日 12:00").font(.captionSmall).foregroundStyle(Color.textTertiary)
+                        pickerRow(label: "オープンカテゴリ", icon: "folder.badge.plus", selection: $openCategoryId) {
+                            Text("なし").tag("")
+                            ForEach(categories, id: \.id) { Text($0.name).tag($0.id) }
                         }
 
-                        // メッセージ本文
-                        if !msgPreview.isEmpty {
-                            Text(msgPreview)
-                                .font(.captionRegular).foregroundStyle(Color.textPrimary)
+                        Divider().padding(.leading, 44)
+
+                        pickerRow(label: "クローズカテゴリ", icon: "folder.badge.minus", selection: $closedCategoryId) {
+                            Text("なし").tag("")
+                            ForEach(categories, id: \.id) { Text($0.name).tag($0.id) }
                         }
 
-                        // Embed カード
-                        HStack(alignment: .top, spacing: 0) {
-                            RoundedRectangle(cornerRadius: 2).fill(previewColor).frame(width: 3)
-                            VStack(alignment: .leading, spacing: 6) {
-                                Text("🎫 \(embedTitle) #abc123")
-                                    .font(.system(size: 12, weight: .bold)).foregroundStyle(Color.textPrimary)
-                                // フィールド
-                                HStack(spacing: 16) {
-                                    VStack(alignment: .leading, spacing: 2) {
-                                        Text("件名").font(.system(size: 9, weight: .bold)).foregroundStyle(Color.textTertiary)
-                                        Text("お問い合わせ内容").font(.captionSmall).foregroundStyle(Color.textPrimary)
-                                    }
-                                    VStack(alignment: .leading, spacing: 2) {
-                                        Text("優先度").font(.system(size: 9, weight: .bold)).foregroundStyle(Color.textTertiary)
-                                        Text("medium").font(.captionSmall).foregroundStyle(Color.textPrimary)
-                                    }
-                                }
-                            }
-                            .padding(10)
-                        }
-                        .background(Color.bgElevated)
-                        .clipShape(RoundedRectangle(cornerRadius: 4))
-                        .overlay(RoundedRectangle(cornerRadius: 4).strokeBorder(Color.border, lineWidth: 0.5))
+                        Divider().padding(.leading, 44)
 
-                        // ボタン
-                        HStack(spacing: 6) {
-                            Text("🔒 チケットを閉じる")
-                                .font(.captionSmall).fontWeight(.semibold).foregroundStyle(Color.textSecondary)
-                                .padding(.horizontal, 12).padding(.vertical, 6)
-                                .background(Color.bgElevated)
-                                .clipShape(RoundedRectangle(cornerRadius: 5))
-                                .overlay(RoundedRectangle(cornerRadius: 5).strokeBorder(Color.border, lineWidth: 0.5))
+                        HStack(spacing: .spacing12) {
+                            Image(systemName: "number.circle")
+                                .font(.system(size: 16))
+                                .foregroundStyle(Color.accentIndigo)
+                                .frame(width: 28)
+                            Text("同時オープン上限")
+                                .font(.bodySmall)
+                                .foregroundStyle(Color.textPrimary)
                             Spacer()
+                            Stepper("\(maxOpenPerUser)件", value: $maxOpenPerUser, in: 1...10)
+                                .font(.bodySmall)
+                                .foregroundStyle(Color.textSecondary)
                         }
+                        .padding(.horizontal, .spacing12)
+                        .padding(.vertical, .spacing10)
                     }
                 }
-                .padding(.horizontal, 12).padding(.vertical, 10)
             }
-            .background(Color(.secondarySystemGroupedBackground))
-            .clipShape(RoundedRectangle(cornerRadius: 8))
         }
     }
 
-    // ── チケット内埋め込み設定 ──
-    private var ticketEmbedSection: some View {
-        FormSection("チケット内埋め込みのタイトル", icon: "doc.plaintext",
-                    footer: "チケットチャンネルに投稿される埋め込みのタイトル接頭辞です。\n例：「チケット」→ 🎫 チケット #abc123") {
-            FormField.text(label: "タイトル", text: $ticketEmbedTitle, placeholder: "チケット")
+    private func settingRow<Content: View>(label: String, icon: String, detail: String, @ViewBuilder content: () -> Content) -> some View {
+        HStack(spacing: .spacing12) {
+            Image(systemName: icon)
+                .font(.system(size: 16))
+                .foregroundStyle(Color.accentIndigo)
+                .frame(width: 28)
+            Text(label)
+                .font(.bodySmall)
+                .foregroundStyle(Color.textPrimary)
+            Spacer()
+            content()
         }
+        .padding(.horizontal, .spacing12)
+        .padding(.vertical, .spacing10)
+    }
+
+    private func pickerRow<SelectionValue: Hashable, Content: View>(
+        label: String,
+        icon: String,
+        selection: Binding<SelectionValue>,
+        @ViewBuilder content: () -> Content
+    ) -> some View where Content: View {
+        HStack(spacing: .spacing12) {
+            Image(systemName: icon)
+                .font(.system(size: 16))
+                .foregroundStyle(Color.accentIndigo)
+                .frame(width: 28)
+            Text(label)
+                .font(.bodySmall)
+                .foregroundStyle(Color.textPrimary)
+            Spacer()
+            Picker("", selection: selection) {
+                content()
+            }
+            .font(.captionRegular)
+            .pickerStyle(.menu)
+            .tint(Color.textSecondary)
+        }
+        .padding(.horizontal, .spacing12)
+        .padding(.vertical, .spacing10)
     }
 
     // MARK: - Load
@@ -351,7 +447,6 @@ struct TicketPanelEditView: View {
     private func loadData() async {
         isLoading = true
 
-        // カテゴリを含む全チャンネルを取得（Discord チャンネルタイプ 4 = カテゴリ）
         if let url = URL(string: "\(DiscordConfig.workerURL)/bot/channels?guild_id=\(guildId)"),
            let (data, _) = try? await URLSession.shared.data(from: url) {
             struct RawCh: Decodable { let id: String; let name: String; let type: Int }
@@ -363,19 +458,19 @@ struct TicketPanelEditView: View {
         roles = (try? await DiscordService().fetchRoles(guildId: guildId)) ?? []
         isLoading = false
 
-        // 既存パネルの値をフォームに反映
         if let p = existingPanel {
             title            = p.title
             description      = p.description
             buttonLabel      = p.buttonLabel
             buttonEmoji      = p.buttonEmoji
-            supportRoleId    = p.supportRoleId   ?? ""
-            openCategoryId   = p.openCategoryId  ?? ""
+            supportRoleId    = p.supportRoleId    ?? ""
+            openCategoryId   = p.openCategoryId   ?? ""
             closedCategoryId = p.closedCategoryId ?? ""
             ticketMsgContent = p.ticketMsgContent ?? ""
             ticketEmbedTitle = p.ticketEmbedTitle
             maxOpenPerUser   = p.maxOpenPerUser
-            colorHex         = UInt32(p.color)
+            embedColorHex    = UInt32(p.color)
+            buttonColorHex   = UInt32(p.buttonColor)
         }
     }
 
@@ -389,13 +484,14 @@ struct TicketPanelEditView: View {
             panel.description      = description
             panel.buttonLabel      = buttonLabel
             panel.buttonEmoji      = buttonEmoji
-            panel.color            = Int(colorHex)
+            panel.color            = Int(embedColorHex)
+            panel.buttonColor      = Int(buttonColorHex)
+            panel.ticketEmbedColor = Int(embedColorHex)
             panel.supportRoleId    = supportRoleId.isEmpty    ? nil : supportRoleId
             panel.openCategoryId   = openCategoryId.isEmpty   ? nil : openCategoryId
             panel.closedCategoryId = closedCategoryId.isEmpty ? nil : closedCategoryId
             panel.ticketMsgContent = ticketMsgContent.isEmpty ? nil : ticketMsgContent
             panel.ticketEmbedTitle = ticketEmbedTitle
-            panel.ticketEmbedColor = Int(colorHex)
             panel.maxOpenPerUser   = maxOpenPerUser
 
             let saved = isNew
@@ -408,5 +504,34 @@ struct TicketPanelEditView: View {
             errorMessage = "保存に失敗しました"
         }
         isSaving = false
+    }
+}
+
+// MARK: - ColorSwatch
+
+private struct ColorSwatch: View {
+    let label: String
+    let color: Color
+    let action: () -> Void
+
+    var body: some View {
+        Button(action: action) {
+            HStack(spacing: .spacing6) {
+                Circle()
+                    .fill(color)
+                    .frame(width: 14, height: 14)
+                    .overlay(Circle().stroke(Color.border, lineWidth: 1))
+                Text(label)
+                    .font(.system(size: 11))
+                    .foregroundStyle(Color.textSecondary)
+                Image(systemName: "chevron.right")
+                    .font(.system(size: 9, weight: .semibold))
+                    .foregroundStyle(Color.textTertiary)
+            }
+            .padding(.horizontal, .spacing8).padding(.vertical, .spacing6)
+            .background(Color.bgElevated)
+            .clipShape(RoundedRectangle(cornerRadius: 8))
+        }
+        .buttonStyle(.plain)
     }
 }

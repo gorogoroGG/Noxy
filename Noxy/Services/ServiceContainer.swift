@@ -22,6 +22,7 @@ final class ServiceContainer {
     let shops:              any ShopServiceProtocol
     let statChannels:       any StatChannelServiceProtocol
     let subscription:       any SubscriptionServiceProtocol
+    let verify:             any VerifyServiceProtocol
 
     private init(
         embeds:            any EmbedServiceProtocol,
@@ -40,7 +41,8 @@ final class ServiceContainer {
         tempVCSource:      any TempVCSourceServiceProtocol,
         shops:             any ShopServiceProtocol,
         statChannels:      any StatChannelServiceProtocol,
-        subscription:      any SubscriptionServiceProtocol
+        subscription:      any SubscriptionServiceProtocol,
+        verify:            any VerifyServiceProtocol
     ) {
         self.embeds = embeds
         self.guilds = guilds
@@ -59,6 +61,7 @@ final class ServiceContainer {
         self.shops = shops
         self.statChannels = statChannels
         self.subscription = subscription
+        self.verify = verify
     }
 
     /// モック用（プレビュー・テスト）
@@ -80,7 +83,8 @@ final class ServiceContainer {
             tempVCSource:      MockTempVCSourceService(),
             shops:             MockShopService(),
             statChannels:      WorkerStatChannelService(),
-            subscription:      MockSubscriptionService()
+            subscription:      MockSubscriptionService(),
+            verify:            MockVerifyService()
         )
     }
 
@@ -103,7 +107,8 @@ final class ServiceContainer {
             tempVCSource:      WorkerTempVCSourceService(),
             shops:             WorkerShopService(),
             statChannels:      WorkerStatChannelService(),
-            subscription:      WorkerSubscriptionService()
+            subscription:      WorkerSubscriptionService(),
+            verify:            WorkerVerifyService()
         )
     }
 }

@@ -59,12 +59,7 @@ struct TicketsCoordinatorView: View {
         }
         .background(Color(.systemGroupedBackground))
         .task { await loadInitialData() }
-        .onChange(of: panels.count) { _, newCount in
-            // パネルが増えたら自動的に対応タブに切り替え（初回のみ）
-            if newCount > 0 && selectedTab == .setup && hasOpenTickets {
-                withAnimation { selectedTab = .respond }
-            }
-        }
+        .onChange(of: guildId) { _, _ in Task { await loadInitialData() } }
     }
 
     private func loadInitialData() async {
@@ -85,14 +80,7 @@ struct TicketsCoordinatorView: View {
             tickets = []
         }
 
-        // スマートデフォルトタブ
-        if panels.isEmpty {
-            selectedTab = .setup
-        } else if tickets.contains(where: { $0.status == .open || $0.status == .pending }) {
-            selectedTab = .respond
-        } else {
-            selectedTab = .setup
-        }
+        selectedTab = .setup
     }
 }
 

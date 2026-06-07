@@ -45,6 +45,38 @@ client.on(
       try { await reaction.fetch(); } catch { return; }
     }
 
+    // ── リアクション認証チェック（最優先）──────────────────────
+    {
+      const guild = reaction.message.guild;
+      if (guild) {
+        const { data: panels } = await supabase
+          .from('verify_panels')
+          .select('id, role_id, reaction_emoji')
+          .eq('guild_id', guild.id)
+          .eq('verify_type', 'reaction')
+          .eq('message_id', reaction.message.id)
+          .eq('enabled', true);
+
+        if (panels && panels.length > 0) {
+          const panel = panels[0] as { id: string; role_id: string; reaction_emoji: string };
+          const emojiKey = toEmojiKey(reaction);
+          const target   = panel.reaction_emoji.replace(/️/g, '');
+
+          if (emojiKey === target || reaction.emoji.name === target) {
+            try {
+              const member = await guild.members.fetch(user.id);
+              if (!member.roles.cache.has(panel.role_id)) {
+                await member.roles.add(panel.role_id);
+                console.log(`[Verify] ✅ リアクション認証: user=${user.id}`);
+              }
+              await reaction.users.remove(user.id).catch(() => {});
+            } catch (e) { console.error('[Verify] リアクション認証 失敗:', e); }
+            return; // リアクションロール処理へ進まない
+          }
+        }
+      }
+    }
+
     const guild = reaction.message.guild;
     if (!guild) { console.log('[ReactionRole] guild なし（DM？）'); return; }
 

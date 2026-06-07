@@ -48,6 +48,17 @@ struct FeaturesTabView: View {
             }
 
             NavigationLink {
+                VerifyPanelListView(guildId: appState.selectedGuildId)
+            } label: {
+                FeatureRow(
+                    icon: "checkmark.shield.fill",
+                    title: "認証",
+                    subtitle: "CAPTCHA認証でロールを自動付与",
+                    accentColor: .accentGreen
+                )
+            }
+
+            NavigationLink {
                 TicketsCoordinatorView(guildId: appState.selectedGuildId)
             } label: {
                 FeatureRow(
@@ -83,17 +94,14 @@ struct FeaturesTabView: View {
             )
             .disabled(true)
 
-            NavigationLink {
-                GiveawaysView()
-            } label: {
-                FeatureRow(
-                    icon: "gift.fill",
-                    title: "ギブアウェイ",
-                    subtitle: "景品プレゼント抽選",
-                    accentColor: .accentPink,
-                    badge: "Pro"
-                )
-            }
+            FeatureRow(
+                icon: "gift.fill",
+                title: "ギブアウェイ",
+                subtitle: "景品プレゼント抽選",
+                accentColor: .accentPink,
+                isComingSoon: true
+            )
+            .disabled(true)
 
             FeatureRow(
                 icon: "star.fill",

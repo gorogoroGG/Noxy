@@ -18,6 +18,8 @@ struct ActionsTabView: View {
             .navigationTitle("アクション")
             .navigationBarTitleDisplayMode(.large)
         }
+        // ギルド切り替え時にNavigationStackごと作り直し → 全sub-viewが新しいguildIdで再ロード
+        .id(appState.selectedGuildId)
     }
 
     // MARK: - 送る・作る
@@ -43,10 +45,8 @@ struct ActionsTabView: View {
                     description: "入室すると自動でVCを作成", color: .accentIndigo) {
                 TempVCListView(guildId: appState.selectedGuildId)
             }
-            navCard(icon: "gift.fill", title: "ギブアウェイ",
-                    description: "景品プレゼント抽選", color: .accentPink) {
-                GiveawaysView()
-            }
+            comingSoonCard(icon: "gift.fill", title: "ギブアウェイ",
+                           description: "景品プレゼント抽選", color: .accentPink)
             comingSoonCard(icon: "checkmark.circle.fill", title: "投票",
                            description: "アンケートと投票", color: .accentGreen)
             comingSoonCard(icon: "star.fill", title: "スターボード",

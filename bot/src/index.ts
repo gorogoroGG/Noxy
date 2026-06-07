@@ -11,6 +11,7 @@ import './events/guildMemberAdd';
 import './events/guildMemberRemove';
 import './events/ticketInteraction';
 import './events/shopInteraction';
+import './events/verifyInteraction';
 import './events/voiceState';
 import './events/guildCreate';
 

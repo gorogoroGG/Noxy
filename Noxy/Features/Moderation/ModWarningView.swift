@@ -7,6 +7,7 @@ struct ModWarningView: View {
     @State private var showAddSheet = false
     @State private var showRevoked = false
     @State private var toast: String? = nil
+    @State private var selectedMember: Member? = nil
 
     private let service = ModerationService()
 
@@ -38,6 +39,9 @@ struct ModWarningView: View {
         .animation(.spring(duration: 0.3), value: toast != nil)
         .task { await load() }
         .refreshable { await load() }
+        .sheet(item: $selectedMember) { member in
+            MemberDetailView(member: member, guildId: guildId, allRoles: [], onAction: { _ in })
+        }
         .toolbar {
             ToolbarItem(placement: .navigationBarTrailing) {
                 Button {
@@ -82,9 +86,16 @@ struct ModWarningView: View {
                                  title: "警告はありません").padding(.top, .spacing32)
                 } else {
                     ForEach(groups, id: \.userId) { g in
-                        UserWarningCard(displayName: g.displayName, warnings: g.warnings) { id in
-                            revokeWarning(id)
-                        }
+                        UserWarningCard(
+                            userId: g.userId, displayName: g.displayName,
+                            warnings: g.warnings,
+                            onRevoke: { id in revokeWarning(id) },
+                            onSelectUser: {
+                                selectedMember = memberFromWarning(userId: g.userId,
+                                    username: g.warnings.first?.username ?? g.userId,
+                                    displayName: g.displayName)
+                            }
+                        )
                     }
                 }
                 bottomPad
@@ -152,6 +163,16 @@ struct ModWarningView: View {
         }
     }
 
+    private func memberFromWarning(userId: String, username: String, displayName: String) -> Member {
+        Member(id: userId, guildId: guildId, username: username,
+               displayName: displayName, discriminator: "0", globalName: nil,
+               nick: nil, avatarUrl: nil, bannerUrl: nil, accentColor: nil,
+               publicFlags: 0, isBot: false, roles: [],
+               joinedAt: .distantPast, createdAt: .distantPast,
+               isBoosting: false, boostSince: nil, isDeaf: false, isMute: false,
+               flags: 0, communicationDisabledUntil: nil, status: .offline)
+    }
+
     private func showToast(_ msg: String) {
         withAnimation { toast = msg }
         Task {
@@ -164,9 +185,11 @@ struct ModWarningView: View {
 // MARK: - UserWarningCard
 
 private struct UserWarningCard: View {
+    let userId: String
     let displayName: String
     let warnings: [ModWarning]
     let onRevoke: (String) -> Void
+    let onSelectUser: () -> Void
     @State private var isExpanded = true
 
     private var activeCount: Int { warnings.filter { !$0.isRevoked }.count }
@@ -185,17 +208,18 @@ private struct UserWarningCard: View {
             } label: {
                 HStack(spacing: .spacing12) {
                     ZStack(alignment: .topTrailing) {
-                        Circle().fill(accentColor.opacity(0.12)).frame(width: 40, height: 40)
-                        Text(String(displayName.prefix(1)).uppercased())
-                            .font(.bodyRegular).fontWeight(.bold).foregroundStyle(accentColor)
+                        Avatar(name: displayName, size: 40, accentColor: accentColor)
                         Text("\(activeCount)")
                             .font(.system(size: 10, weight: .bold)).foregroundStyle(.white)
                             .padding(4).background(accentColor).clipShape(Circle())
                             .offset(x: 4, y: -4)
                     }
                     VStack(alignment: .leading, spacing: 2) {
-                        Text(displayName)
-                            .font(.bodySmall).fontWeight(.semibold).foregroundStyle(Color.textPrimary)
+                        Button(action: onSelectUser) {
+                            Text(displayName)
+                                .font(.bodySmall).fontWeight(.semibold).foregroundStyle(Color.textPrimary)
+                        }
+                        .buttonStyle(.plain)
                         if let rule = nextRule {
                             Label("次: \(rule.label)", systemImage: "arrow.right.circle.fill")
                                 .font(.captionSmall).foregroundStyle(rule.action.color)

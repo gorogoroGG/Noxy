@@ -69,7 +69,7 @@ struct ComponentsCatalogView: View {
 
                     // Embed Preview
                     SectionHeader(title: "Embed Preview")
-                    EmbedPreviewCard(embed: EmbedData(
+                    DiscordMessagePreview(embed: EmbedData(
                         color: .accentPurple,
                         title: "Welcome to the Server!",
                         description: "We're glad you're here. Please read the rules.",
@@ -77,7 +77,7 @@ struct ComponentsCatalogView: View {
                             EmbedField(name: "Rules", value: "#rules", inline: true),
                             EmbedField(name: "Support", value: "#help", inline: true)
                         ],
-                        footerText: "BotForge"
+                        footerText: "Noxy"
                     ))
                     .padding(.horizontal)
 

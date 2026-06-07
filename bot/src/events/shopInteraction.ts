@@ -12,7 +12,7 @@ import { supabase } from '../db.js';
 
 interface ShopRow { id: string; guild_id: string; name: string; description: string; color: number; footer_text: string;
   order_category_id: string|null; archive_category_id: string|null; support_role_id: string|null;
-  payment_flow: string; auto_deliver: boolean; disabled_message: string|null;
+  review_enabled: boolean; review_channel_id: string|null; disabled_message: string|null;
   welcome_image_url: string|null; welcome_thumbnail_url: string|null;
   welcome_fields: Array<{name: string; value: string; inline: boolean}>;
   welcome_footer_text: string|null; welcome_footer_icon_url: string|null;
@@ -113,6 +113,8 @@ async function handleProductSelect(interaction: StringSelectMenuInteraction, sho
     await interaction.editReply('❌ この商品は現在売り切れです。'); return;
   }
 
+  const rewardLabels: Record<string, string> = { text: 'テキスト', url: 'URL', role: 'ロール付与', dm: 'DM送信', manual: '手動配達' };
+
   const confirmBtn = new ButtonBuilder().setCustomId(`shop_buy_${shopId}_${productId}`)
     .setLabel('✅ 購入する').setStyle(ButtonStyle.Success);
   const cancelBtn  = new ButtonBuilder().setCustomId('shop_cancel')
@@ -127,51 +129,67 @@ async function handleProductSelect(interaction: StringSelectMenuInteraction, sho
       fields: [
         { name: '価格',     value: p.price_display, inline: true },
         { name: '在庫',     value: p.stock === null ? '無制限' : `残り ${p.stock} 個`, inline: true },
-        { name: '対価タイプ', value: { text: 'テキスト', url: 'URL', role: 'ロール付与', dm: 'DM送信' }[p.reward_type] ?? p.reward_type, inline: true },
+        { name: '対価タイプ', value: rewardLabels[p.reward_type] ?? p.reward_type, inline: true },
       ],
     }],
     components: [row],
   });
 }
 
-// ── Step2: 購入確定ボタン → 注文チャンネル作成 ────────────────
+// ── Step2: 購入ボタン → モーダルを表示 ─────────────────────────
 
-async function handleConfirmPurchase(interaction: ButtonInteraction, shopId: string, productId: string): Promise<void> {
-  await interaction.deferUpdate();
+async function handleBuyButton(interaction: ButtonInteraction, shopId: string, productId: string): Promise<void> {
+  const modal = new ModalBuilder()
+    .setCustomId(`order_buy_modal_${shopId}_${productId}`)
+    .setTitle('購入の確認');
+  modal.addComponents(new ActionRowBuilder<TextInputBuilder>().addComponents(
+    new TextInputBuilder()
+      .setCustomId('payment_url')
+      .setLabel('支払いURL（任意）')
+      .setPlaceholder('https://... 省略可能')
+      .setStyle(TextInputStyle.Short)
+      .setRequired(false)
+      .setMaxLength(500),
+  ));
+  await interaction.showModal(modal);
+}
+
+// ── Step3: 購入モーダル送信 → 注文チャンネル作成 ──────────────
+
+async function handleBuyModalSubmit(interaction: import('discord.js').ModalSubmitInteraction, shopId: string, productId: string): Promise<void> {
+  const paymentUrl = interaction.fields.getTextInputValue('payment_url').trim();
+  await interaction.deferReply({ ephemeral: true });
   const guild  = interaction.guild!;
   const buyer  = interaction.member as GuildMember;
 
   const { data: shopData }    = await supabase.from('shops').select('*').eq('id', shopId).single();
   const { data: productData } = await supabase.from('products').select('*').eq('id', productId).single();
   if (!shopData || !productData) {
-    await interaction.editReply({ content: '❌ データが見つかりません。', embeds: [], components: [] });
-    return;
+    await interaction.editReply('❌ データが見つかりません。'); return;
   }
   const shop    = shopData    as ShopRow;
   const product = productData as ProductRow;
 
-  // 在庫チェック（二重確認）
   if (product.stock !== null && product.stock <= 0) {
-    await interaction.editReply({ content: '❌ 購入手続き中に売り切れとなりました。', embeds: [], components: [] });
-    return;
+    await interaction.editReply('❌ 購入手続き中に売り切れとなりました。'); return;
   }
-  // 在庫を 1 減らす
   if (product.stock !== null) {
     await supabase.from('products').update({ stock: product.stock - 1 }).eq('id', productId);
   }
 
-  // 注文を Supabase に記録
-  const { data: order } = await supabase.from('orders').insert({
+  const insertData: Record<string, unknown> = {
     shop_id: shopId, product_id: productId, guild_id: guild.id,
     buyer_user_id: buyer.user.id, buyer_username: buyer.user.username,
     product_name: product.name, product_price_display: product.price_display,
-  }).select().single();
-  if (!order) { await interaction.editReply({ content: '❌ 注文の作成に失敗しました。', embeds: [], components: [] }); return; }
+  };
+  if (paymentUrl) { insertData['payment_url'] = paymentUrl; insertData['payment_submitted_at'] = new Date().toISOString(); }
+
+  const { data: order } = await supabase.from('orders').insert(insertData).select().single();
+  if (!order) { await interaction.editReply('❌ 注文の作成に失敗しました。'); return; }
 
   const orderId = (order as OrderRow).id;
   const vars = buildOrderVars(buyer, product, shop, orderId);
 
-  // Discord チャンネルを作成
   const overwrites = [
     { id: guild.id,        deny:  [PermissionFlagsBits.ViewChannel] },
     { id: buyer.id,        allow: [PermissionFlagsBits.ViewChannel, PermissionFlagsBits.SendMessages, PermissionFlagsBits.ReadMessageHistory, PermissionFlagsBits.AttachFiles] },
@@ -189,19 +207,13 @@ async function handleConfirmPurchase(interaction: ButtonInteraction, shopId: str
       permissionOverwrites: overwrites,
     }) as TextChannel;
   } catch {
-    await interaction.editReply({ content: '❌ チャンネルの作成に失敗しました。', embeds: [], components: [] });
-    return;
+    await interaction.editReply('❌ チャンネルの作成に失敗しました。'); return;
   }
   await supabase.from('orders').update({ channel_id: channel.id }).eq('id', orderId);
 
-  // ウェルカムメッセージ（カスタマイズ可能）
   const welcomeFooter = shop.welcome_footer_text ?? shop.footer_text;
   const welcomeFields = (shop.welcome_fields && shop.welcome_fields.length > 0)
-    ? shop.welcome_fields.map(f => ({
-        name: expandVariables(f.name, vars),
-        value: expandVariables(f.value, vars),
-        inline: f.inline,
-      }))
+    ? shop.welcome_fields.map(f => ({ name: expandVariables(f.name, vars), value: expandVariables(f.value, vars), inline: f.inline }))
     : [
         { name: '商品', value: expandVariables(product.name, vars), inline: true },
         { name: '価格', value: expandVariables(product.price_display, vars), inline: true },
@@ -224,88 +236,32 @@ async function handleConfirmPurchase(interaction: ButtonInteraction, shopId: str
   const closeRow = new ActionRowBuilder<ButtonBuilder>().addComponents(closeBtn);
   const supportMention = shop.support_role_id ? `<@&${shop.support_role_id}> ` : '';
 
-  // 管理者宛てメッセージ
+  // 支払いURLが提供された場合はウェルカムメッセージに追記
+  if (paymentUrl) {
+    (welcomeEmbed['fields'] as unknown[]).push({ name: '💳 支払いURL', value: paymentUrl, inline: false });
+  }
+
   await channel.send({
     content: expandVariables(`${supportMention}${buyer.toString()}`, vars),
     embeds: [welcomeEmbed],
     components: [closeRow],
   });
 
-  // 支払いフローに応じたアクション
-  if (shop.payment_flow === 'url_input') {
-    // 購入者宛てURL入力案内
-    const urlInputBtn = new ButtonBuilder().setCustomId(`order_url_input_${orderId}`)
-      .setLabel('💳 支払いURLを入力').setStyle(ButtonStyle.Primary);
-    const urlRow = new ActionRowBuilder<ButtonBuilder>().addComponents(urlInputBtn);
-    await channel.send({
-      content: expandVariables(`{buyer.mention} 支払いURLの入力をお願いします。`, vars),
-      embeds: [{ title: '💳 支払いURLの入力', description: '下のボタンから支払いURLを入力して、管理者の確認を待ってください。', color: 0x6366f1 }],
-      components: [urlRow],
-    });
-  } else {
-    // 管理者宛て支払い確認案内
-    const payBtn = new ButtonBuilder().setCustomId(`order_pay_${orderId}`)
-      .setLabel('✅ 支払いを確認しました').setStyle(ButtonStyle.Success);
-    const payRow = new ActionRowBuilder<ButtonBuilder>().addComponents(payBtn);
-    await channel.send({
-      content: `${supportMention}`,
-      embeds: [{ title: '📋 管理者アクション', description: '支払いを確認したら下のボタンを押してください。', color: 0x6366f1 }],
-      components: [payRow],
-    });
-  }
+  // 管理者宛て支払い確認ボタン
+  const payBtn = new ButtonBuilder().setCustomId(`order_pay_${orderId}`)
+    .setLabel('✅ 支払いを確認しました').setStyle(ButtonStyle.Success);
+  const payRow = new ActionRowBuilder<ButtonBuilder>().addComponents(payBtn);
+  const payDesc = paymentUrl
+    ? `支払いURLを確認後、下のボタンを押してください。\n> \`${paymentUrl}\``
+    : '支払いを確認したら下のボタンを押してください。';
+  await channel.send({
+    content: `${supportMention}`,
+    embeds: [{ title: '📋 管理者アクション', description: payDesc, color: 0x6366f1 }],
+    components: [payRow],
+  });
 
-  await interaction.editReply({ content: `✅ 注文チャンネルを作成しました → <#${channel.id}>`, embeds: [], components: [] });
+  await interaction.editReply(`✅ 注文チャンネルを作成しました → <#${channel.id}>`);
   console.log(`[Shop] 注文作成: ${orderId} (${product.name} by ${buyer.user.username})`);
-}
-
-// ── 支払いURL入力（購入者）────────────────────────────────────
-
-async function handleUrlInput(interaction: ButtonInteraction, orderId: string): Promise<void> {
-  const modal = new ModalBuilder().setCustomId(`order_url_modal_${orderId}`).setTitle('支払いURLを入力');
-  modal.addComponents(new ActionRowBuilder<TextInputBuilder>().addComponents(
-    new TextInputBuilder().setCustomId('payment_url').setLabel('支払いURL')
-      .setPlaceholder('https://...')
-      .setStyle(TextInputStyle.Short).setRequired(true).setMaxLength(500),
-  ));
-  await interaction.showModal(modal);
-}
-
-async function handleUrlModalSubmit(interaction: import('discord.js').ModalSubmitInteraction, orderId: string): Promise<void> {
-  const paymentUrl = interaction.fields.getTextInputValue('payment_url');
-  await interaction.deferReply({ ephemeral: true });
-
-  const { data: orderData } = await supabase.from('orders').select('*').eq('id', orderId).single();
-  if (!orderData) { await interaction.editReply('❌ 注文が見つかりません。'); return; }
-  const order = orderData as OrderRow;
-
-  if (interaction.user.id !== order.buyer_user_id) {
-    await interaction.editReply('❌ 購入者のみ入力できます。'); return;
-  }
-
-  const now = new Date().toISOString();
-  await supabase.from('orders').update({ payment_url: paymentUrl, payment_submitted_at: now }).eq('id', orderId);
-
-  const channel = interaction.channel as TextChannel|undefined;
-  if (channel) {
-    const { data: shopData } = await supabase.from('shops').select('*').eq('id', order.shop_id).single();
-    const shop = shopData as ShopRow|null;
-    const supportMention = shop?.support_role_id ? `<@&${shop.support_role_id}>` : '';
-
-    // 管理者宛て通知
-    const payBtn = new ButtonBuilder().setCustomId(`order_pay_${orderId}`)
-      .setLabel('✅ 支払いを確認しました').setStyle(ButtonStyle.Success);
-    const payRow = new ActionRowBuilder<ButtonBuilder>().addComponents(payBtn);
-    await channel.send({
-      content: `${supportMention}`,
-      embeds: [{ title: '💳 支払いURLが送信されました',
-        description: `購入者から支払いURLが送信されました。\n\`${paymentUrl}\`\n\n確認後、「支払いを確認しました」ボタンを押してください。`,
-        color: 0x6366f1, timestamp: now }],
-      components: [payRow],
-    });
-  }
-
-  await interaction.editReply('✅ 支払いURLを送信しました。管理者の確認を待ってください。');
-  console.log(`[Shop] 支払いURL送信: ${orderId}`);
 }
 
 // ── 支払い確認（管理者）→ 対価を送信 ─────────────────────────
@@ -315,7 +271,7 @@ async function handleConfirmPayment(interaction: ButtonInteraction, orderId: str
   const guild  = interaction.guild!;
   const member = interaction.member as GuildMember;
 
-  const { data: orderData }   = await supabase.from('orders').select('*').eq('id', orderId).single();
+  const { data: orderData } = await supabase.from('orders').select('*').eq('id', orderId).single();
   if (!orderData) { await interaction.followUp({ content: '❌ 注文が見つかりません。', ephemeral: true }); return; }
   const order = orderData as OrderRow;
 
@@ -328,53 +284,65 @@ async function handleConfirmPayment(interaction: ButtonInteraction, orderId: str
   }
 
   const { data: productData } = await supabase.from('products').select('*').eq('id', order.product_id).single();
+  const product = productData as ProductRow;
   const channel = guild.channels.cache.get(order.channel_id) as TextChannel | undefined;
+  const buyer   = await guild.members.fetch(order.buyer_user_id).catch(() => null);
+  const vars    = buyer ? buildOrderVars(buyer, product, shopData as ShopRow, orderId) : {};
+  const shop    = shopData as ShopRow;
+  const now     = new Date().toISOString();
+  const buyerMention  = buyer?.toString() ?? '<購入者>';
+  const supportMention = shop.support_role_id ? `<@&${shop.support_role_id}>` : '';
 
-  // 変数展開用のvarsを構築
-  const buyer = await guild.members.fetch(order.buyer_user_id).catch(() => null);
-  const vars = buyer ? buildOrderVars(buyer, productData as ProductRow, shopData as ShopRow, orderId) : {};
-
-  // auto_deliver の場合のみ対価を送信
-  const shop = shopData as ShopRow;
-  if (channel && productData && shop.auto_deliver) {
-    await deliverRewardBot(guild, channel, order, productData as ProductRow, shop, vars);
+  if (product.reward_type === 'manual') {
+    // 手動配達: paid状態に移行し、管理者に配送ボタンを表示
+    await supabase.from('orders').update({ status: 'paid', paid_at: now }).eq('id', orderId);
+    if (channel) {
+      const manualDeliveredBtn = new ButtonBuilder()
+        .setCustomId(`order_manual_delivered_${orderId}`)
+        .setLabel('📦 対価を送信しました').setStyle(ButtonStyle.Primary);
+      const cancelReqBtn = new ButtonBuilder().setCustomId(`order_cancel_req_${orderId}`)
+        .setLabel('⚠️ キャンセルを申し出る').setStyle(ButtonStyle.Secondary);
+      const row = new ActionRowBuilder<ButtonBuilder>().addComponents(manualDeliveredBtn, cancelReqBtn);
+      await channel.send({
+        content: `${buyerMention} ${supportMention}`,
+        embeds: [{ title: '💳 支払い確認済', color: 0x6366f1, timestamp: now,
+          description: `${buyerMention} 支払いが確認されました。管理者が対価を準備しています。しばらくお待ちください。` }],
+        components: [row],
+      });
+    }
+    await buyer?.send(`💳 **${order.product_name}** の支払いが確認されました。管理者が対価を準備中です。今しばらくお待ちください。`).catch(() => {});
+  } else {
+    // 自動配達: 対価を即送信して delivered に移行
+    if (channel && productData) {
+      await deliverRewardBot(guild, channel, order, product, shop, vars);
+    }
+    await supabase.from('orders').update({ status: 'delivered', paid_at: now, delivered_at: now }).eq('id', orderId);
+    if (channel) {
+      await sendDeliveredMessage(channel, orderId, buyerMention, supportMention, now, shop.review_enabled);
+    }
+    await buyer?.send(`✅ **${order.product_name}** の商品をお届けしました。受け取り確認をお願いします。\n注文チャンネルで「✅ 取引完了」ボタンを押してください。`).catch(() => {});
   }
-
-  // ステータス更新
-  const now = new Date().toISOString();
-  await supabase.from('orders').update({ status: 'delivered', paid_at: now, delivered_at: now }).eq('id', orderId);
-
-  // 完了確認ボタンを送信（購入者・管理者双方用）
-  if (channel) {
-    const buyerDoneBtn  = new ButtonBuilder().setCustomId(`order_done_buyer_${orderId}`)
-      .setLabel('✅ 取引完了（購入者）').setStyle(ButtonStyle.Success);
-    const sellerDoneBtn = new ButtonBuilder().setCustomId(`order_done_seller_${orderId}`)
-      .setLabel('✅ 取引完了（管理者）').setStyle(ButtonStyle.Success);
-    const cancelReqBtn  = new ButtonBuilder().setCustomId(`order_cancel_req_${orderId}`)
-      .setLabel('⚠️ キャンセルを申し出る').setStyle(ButtonStyle.Secondary);
-    const doneRow = new ActionRowBuilder<ButtonBuilder>().addComponents(buyerDoneBtn, sellerDoneBtn, cancelReqBtn);
-
-    const buyerMention = buyer?.toString() ?? '<購入者>';
-    const supportMention = shop.support_role_id ? `<@&${shop.support_role_id}>` : '';
-
-    const desc = shop.auto_deliver
-      ? `${buyerMention} 商品をお届けしました。受け取ったら「取引完了（購入者）」を押してください。\n双方が押すとチャンネルがアーカイブされます。`
-      : `${buyerMention} 支払いが確認されました。対価の引き渡し後、「取引完了（購入者）」を押してください。\n双方が押すとチャンネルがアーカイブされます。`;
-
-    await channel.send({
-      content: `${buyerMention} ${supportMention}`,
-      embeds: [{ title: '✅ 支払い確認済', description: desc, color: 0x10b981, timestamp: now }],
-      components: [doneRow],
-    });
-    // 購入者に DM 通知
-    await buyer?.send(`✅ **${order.product_name}** の支払いが確認されました。注文チャンネルで「取引完了（購入者）」ボタンを押してください。`).catch(() => {});
-  }
-  console.log(`[Shop] 支払確認: ${orderId}`);
+  console.log(`[Shop] 支払確認: ${orderId} (reward_type=${product.reward_type})`);
 }
 
-// ── 取引完了ボタン ───────────────────────────────────────────
+// 配送後の完了案内メッセージを送信（共通化）
+async function sendDeliveredMessage(channel: TextChannel, orderId: string, buyerMention: string, supportMention: string, timestamp: string, _reviewEnabled: boolean): Promise<void> {
+  const buyerDoneBtn = new ButtonBuilder().setCustomId(`order_done_buyer_${orderId}`)
+    .setLabel('✅ 取引完了').setStyle(ButtonStyle.Success);
+  const cancelReqBtn = new ButtonBuilder().setCustomId(`order_cancel_req_${orderId}`)
+    .setLabel('⚠️ キャンセルを申し出る').setStyle(ButtonStyle.Secondary);
+  const doneRow = new ActionRowBuilder<ButtonBuilder>().addComponents(buyerDoneBtn, cancelReqBtn);
+  await channel.send({
+    content: `${buyerMention} ${supportMention}`,
+    embeds: [{ title: '📦 商品をお届けしました', color: 0x10b981, timestamp,
+      description: `${buyerMention} 商品をお届けしました。受け取り確認ができたら「✅ 取引完了」を押してください。\n\n⏰ **48時間後に自動的に取引完了となります。**` }],
+    components: [doneRow],
+  });
+}
 
-async function handleOrderDone(interaction: ButtonInteraction, party: 'buyer'|'seller', orderId: string): Promise<void> {
+// ── 手動配達完了（管理者）────────────────────────────────────
+
+async function handleManualDelivered(interaction: ButtonInteraction, orderId: string): Promise<void> {
   await interaction.deferUpdate();
   const guild  = interaction.guild!;
   const member = interaction.member as GuildMember;
@@ -383,39 +351,83 @@ async function handleOrderDone(interaction: ButtonInteraction, party: 'buyer'|'s
   if (!orderData) { await interaction.followUp({ content: '❌ 注文が見つかりません。', ephemeral: true }); return; }
   const order = orderData as OrderRow;
 
-  // 権限チェック: 購入者と管理者のみ
   const { data: shopData } = await supabase.from('shops').select('*').eq('id', order.shop_id).single();
-  const isStaff  = hasStaffPermission(member, (shopData as ShopRow|null)?.support_role_id ?? null);
-  const isBuyer  = member.user.id === order.buyer_user_id;
-  if (party === 'buyer' && !isBuyer)  { await interaction.followUp({ content: '❌ 購入者のみ押せます。', ephemeral: true }); return; }
-  if (party === 'seller' && !isStaff) { await interaction.followUp({ content: '❌ 管理者のみ押せます。', ephemeral: true }); return; }
-
-  const update: Record<string, boolean> = {};
-  if (party === 'buyer')  update['buyer_confirmed']  = true;
-  if (party === 'seller') update['seller_confirmed'] = true;
-  await supabase.from('orders').update(update).eq('id', orderId);
-
-  const { data: updated } = await supabase.from('orders').select('*').eq('id', orderId).single();
-  const u = updated as OrderRow;
-
-  await interaction.followUp({ content: `✅ ${party === 'buyer' ? '購入者' : '管理者'}が取引完了を確認しました。`, ephemeral: true });
-
-  if (u.buyer_confirmed && u.seller_confirmed) {
-    const now = new Date().toISOString();
-    await supabase.from('orders').update({ status: 'completed', completed_at: now }).eq('id', orderId);
-    const channel = guild.channels.cache.get(order.channel_id) as TextChannel|undefined;
-    if (channel) {
-      await channel.send({ embeds: [{ title: '🎉 取引完了', description: '双方が取引完了を確認しました。チャンネルをアーカイブします。', color: 0x10b981, timestamp: now }] });
-    }
-    await archiveChannel(guild, order.channel_id, order.buyer_user_id, (shopData as ShopRow|null)?.archive_category_id ?? null);
-    // 購入者に DM 通知
-    const buyer = await guild.members.fetch(order.buyer_user_id).catch(() => null);
-    await buyer?.send(`🎉 **${order.product_name}** の取引が完了しました。ありがとうございました！`).catch(() => {});
-    console.log(`[Shop] 取引完了: ${orderId}`);
+  if (!hasStaffPermission(member, (shopData as ShopRow|null)?.support_role_id ?? null)) {
+    await interaction.followUp({ content: '❌ 管理者のみ押せます。', ephemeral: true }); return;
   }
+  if (order.status !== 'paid') {
+    await interaction.followUp({ content: `この注文は ${order.status} 状態です。`, ephemeral: true }); return;
+  }
+
+  const now = new Date().toISOString();
+  await supabase.from('orders').update({ status: 'delivered', delivered_at: now }).eq('id', orderId);
+
+  const shop    = shopData as ShopRow;
+  const channel = guild.channels.cache.get(order.channel_id) as TextChannel | undefined;
+  const buyer   = await guild.members.fetch(order.buyer_user_id).catch(() => null);
+  const buyerMention   = buyer?.toString() ?? '<購入者>';
+  const supportMention = shop.support_role_id ? `<@&${shop.support_role_id}>` : '';
+
+  if (channel) {
+    await sendDeliveredMessage(channel, orderId, buyerMention, supportMention, now, shop.review_enabled);
+  }
+  await buyer?.send(`📦 **${order.product_name}** の対価が送信されました。受け取り確認をお願いします。`).catch(() => {});
+  console.log(`[Shop] 手動配達完了: ${orderId}`);
 }
 
-// ── クローズ（管理者がいつでも使える）─────────────────────────
+// ── 取引完了ボタン（購入者のみ）───────────────────────────────
+
+async function handleOrderDone(interaction: ButtonInteraction, orderId: string): Promise<void> {
+  await interaction.deferUpdate();
+  const guild  = interaction.guild!;
+  const member = interaction.member as GuildMember;
+
+  const { data: orderData } = await supabase.from('orders').select('*').eq('id', orderId).single();
+  if (!orderData) { await interaction.followUp({ content: '❌ 注文が見つかりません。', ephemeral: true }); return; }
+  const order = orderData as OrderRow;
+
+  if (member.user.id !== order.buyer_user_id) {
+    await interaction.followUp({ content: '❌ 購入者のみ押せます。', ephemeral: true }); return;
+  }
+  if (order.status !== 'delivered') {
+    await interaction.followUp({ content: `この注文は ${order.status} 状態です。`, ephemeral: true }); return;
+  }
+
+  const now = new Date().toISOString();
+  await supabase.from('orders').update({ status: 'completed', completed_at: now, buyer_confirmed: true }).eq('id', orderId);
+
+  const { data: shopData } = await supabase.from('shops').select('*').eq('id', order.shop_id).single();
+  const shop = shopData as ShopRow|null;
+  const channel = guild.channels.cache.get(order.channel_id) as TextChannel|undefined;
+
+  if (channel) {
+    await sendCompletedMessage(channel, orderId, now, shop);
+  }
+
+  const buyer = await guild.members.fetch(order.buyer_user_id).catch(() => null);
+  await buyer?.send(`🎉 **${order.product_name}** の取引が完了しました。ありがとうございました！`).catch(() => {});
+  console.log(`[Shop] 取引完了: ${orderId}`);
+}
+
+// 取引完了メッセージ（閉じる・レビューボタン付き）
+async function sendCompletedMessage(channel: TextChannel, orderId: string, timestamp: string, shop: ShopRow|null): Promise<void> {
+  const closeBtn = new ButtonBuilder().setCustomId(`order_complete_close_${orderId}`)
+    .setLabel('🔒 チャンネルを閉じる').setStyle(ButtonStyle.Secondary);
+  const btns = [closeBtn];
+  if (shop?.review_enabled && shop?.review_channel_id) {
+    btns.push(new ButtonBuilder().setCustomId(`order_review_${orderId}`)
+      .setLabel('⭐ レビューする').setStyle(ButtonStyle.Primary));
+  }
+  const row = new ActionRowBuilder<ButtonBuilder>().addComponents(btns);
+  await channel.send({
+    embeds: [{ title: '🎉 取引完了', color: 0x10b981, timestamp,
+      description: '取引が完了しました。チャンネルを閉じる場合は下のボタンを押してください。' +
+        (shop?.review_enabled ? '\nレビューもぜひお願いします！' : '') }],
+    components: [row],
+  });
+}
+
+// ── クローズ（管理者が進行中の注文をキャンセル）───────────────
 
 async function handleOrderClose(interaction: ButtonInteraction, orderId: string): Promise<void> {
   await interaction.deferUpdate();
@@ -431,13 +443,111 @@ async function handleOrderClose(interaction: ButtonInteraction, orderId: string)
     await interaction.followUp({ content: '❌ 管理者のみクローズできます。', ephemeral: true }); return;
   }
 
-  await supabase.from('orders').update({ status: 'cancelled', cancelled_at: new Date().toISOString() }).eq('id', orderId);
+  if (order.status !== 'completed') {
+    await supabase.from('orders').update({ status: 'cancelled', cancelled_at: new Date().toISOString() }).eq('id', orderId);
+  }
   const channel = guild.channels.cache.get(order.channel_id) as TextChannel|undefined;
   if (channel) {
     await channel.send({ embeds: [{ title: '🔒 チャンネルをクローズします', color: 0xef4444, timestamp: new Date().toISOString() }] });
   }
   await archiveChannel(guild, order.channel_id, order.buyer_user_id, (shopData as ShopRow|null)?.archive_category_id ?? null);
   console.log(`[Shop] クローズ: ${orderId}`);
+}
+
+// ── 取引完了後のチャンネルを閉じる（購入者・管理者どちらでも）─
+
+async function handleCompletionClose(interaction: ButtonInteraction, orderId: string): Promise<void> {
+  await interaction.deferUpdate();
+  const guild  = interaction.guild!;
+  const member = interaction.member as GuildMember;
+
+  const { data: orderData } = await supabase.from('orders').select('*').eq('id', orderId).single();
+  if (!orderData) { await interaction.followUp({ content: '❌ 注文が見つかりません。', ephemeral: true }); return; }
+  const order = orderData as OrderRow;
+
+  const { data: shopData } = await supabase.from('shops').select('*').eq('id', order.shop_id).single();
+  const isStaff = hasStaffPermission(member, (shopData as ShopRow|null)?.support_role_id ?? null);
+  const isBuyer = member.user.id === order.buyer_user_id;
+  if (!isStaff && !isBuyer) {
+    await interaction.followUp({ content: '❌ 購入者または管理者のみ閉じられます。', ephemeral: true }); return;
+  }
+
+  const channel = guild.channels.cache.get(order.channel_id) as TextChannel|undefined;
+  if (channel) {
+    await channel.send({ embeds: [{ title: '🔒 チャンネルを閉じます', color: 0x6b7280, timestamp: new Date().toISOString() }] });
+  }
+  await archiveChannel(guild, order.channel_id, order.buyer_user_id, (shopData as ShopRow|null)?.archive_category_id ?? null);
+  console.log(`[Shop] 完了後クローズ: ${orderId}`);
+}
+
+// ── レビューボタン → モーダル表示 ─────────────────────────────
+
+async function handleReviewButton(interaction: ButtonInteraction, orderId: string): Promise<void> {
+  const modal = new ModalBuilder()
+    .setCustomId(`order_review_modal_${orderId}`)
+    .setTitle('レビューを投稿する');
+  modal.addComponents(
+    new ActionRowBuilder<TextInputBuilder>().addComponents(
+      new TextInputBuilder().setCustomId('rating').setLabel('⭐ 評価（1〜5の数字）')
+        .setPlaceholder('5').setStyle(TextInputStyle.Short).setRequired(true).setMaxLength(1),
+    ),
+    new ActionRowBuilder<TextInputBuilder>().addComponents(
+      new TextInputBuilder().setCustomId('comment').setLabel('💬 コメント（任意）')
+        .setPlaceholder('取引の感想をご記入ください。')
+        .setStyle(TextInputStyle.Paragraph).setRequired(false).setMaxLength(500),
+    ),
+  );
+  await interaction.showModal(modal);
+}
+
+// ── レビューモーダル送信 ──────────────────────────────────────
+
+async function handleReviewModalSubmit(interaction: import('discord.js').ModalSubmitInteraction, orderId: string): Promise<void> {
+  const ratingStr = interaction.fields.getTextInputValue('rating').trim();
+  const comment   = interaction.fields.getTextInputValue('comment').trim();
+  await interaction.deferReply({ ephemeral: true });
+
+  const rating = parseInt(ratingStr, 10);
+  if (isNaN(rating) || rating < 1 || rating > 5) {
+    await interaction.editReply('❌ 評価は1〜5の数字で入力してください。'); return;
+  }
+
+  const { data: orderData } = await supabase.from('orders').select('*').eq('id', orderId).single();
+  if (!orderData) { await interaction.editReply('❌ 注文が見つかりません。'); return; }
+  const order = orderData as OrderRow;
+
+  if (interaction.user.id !== order.buyer_user_id) {
+    await interaction.editReply('❌ 購入者のみレビューできます。'); return;
+  }
+
+  const { data: shopData } = await supabase.from('shops').select('*').eq('id', order.shop_id).single();
+  const shop = shopData as ShopRow|null;
+  if (!shop?.review_channel_id) {
+    await interaction.editReply('❌ レビュー投稿先チャンネルが設定されていません。'); return;
+  }
+
+  const stars = '⭐'.repeat(rating) + '☆'.repeat(5 - rating);
+  const reviewChannel = interaction.guild?.channels.cache.get(shop.review_channel_id) as TextChannel|undefined;
+  if (!reviewChannel) {
+    await interaction.editReply('❌ レビューチャンネルが見つかりません。'); return;
+  }
+
+  await reviewChannel.send({
+    embeds: [{
+      title: '⭐ 新しいレビュー',
+      color: 0xf59e0b,
+      fields: [
+        { name: '評価', value: `${stars} (${rating}/5)`, inline: true },
+        { name: '商品', value: order.product_name, inline: true },
+        { name: '購入者', value: `<@${order.buyer_user_id}> (${order.buyer_username})`, inline: true },
+        ...(comment ? [{ name: 'コメント', value: comment, inline: false }] : []),
+      ],
+      timestamp: new Date().toISOString(),
+    }],
+  });
+
+  await interaction.editReply('✅ レビューを投稿しました。ありがとうございました！');
+  console.log(`[Shop] レビュー投稿: ${orderId} 評価=${rating}`);
 }
 
 // ── 購入者のキャンセル申請 ─────────────────────────────────────
@@ -553,23 +663,27 @@ client.on(Events.InteractionCreate, async (interaction: Interaction) => {
       const id = interaction.customId;
       if (id === 'shop_cancel') { await interaction.update({ content: 'キャンセルしました。', embeds: [], components: [] }); return; }
 
-      const buyMatch    = id.match(/^shop_buy_([^_]+)_(.+)$/);
-      if (buyMatch) { await handleConfirmPurchase(interaction, buyMatch[1], buyMatch[2]); return; }
+      const buyMatch = id.match(/^shop_buy_([^_]+)_(.+)$/);
+      if (buyMatch) { await handleBuyButton(interaction, buyMatch[1], buyMatch[2]); return; }
 
-      if (id.startsWith('order_url_input_'))    { await handleUrlInput(interaction, id.replace('order_url_input_', '')); return; }
-      if (id.startsWith('order_pay_'))          { await handleConfirmPayment(interaction, id.replace('order_pay_', '')); return; }
-      if (id.startsWith('order_done_buyer_'))   { await handleOrderDone(interaction, 'buyer',  id.replace('order_done_buyer_', '')); return; }
-      if (id.startsWith('order_done_seller_'))  { await handleOrderDone(interaction, 'seller', id.replace('order_done_seller_', '')); return; }
-      if (id.startsWith('order_close_'))        { await handleOrderClose(interaction, id.replace('order_close_', '')); return; }
-      if (id.startsWith('order_cancel_req_'))   { await handleCancelRequest(interaction, id.replace('order_cancel_req_', '')); return; }
-      if (id.startsWith('order_cancel_ok_'))    { await handleCancelConfirm(interaction, id.replace('order_cancel_ok_', '')); return; }
-      if (id.startsWith('shop_dispute_'))       { await handleDisputeButton(interaction, id.replace('shop_dispute_', '')); return; }
+      if (id.startsWith('order_pay_'))              { await handleConfirmPayment(interaction, id.replace('order_pay_', '')); return; }
+      if (id.startsWith('order_manual_delivered_')) { await handleManualDelivered(interaction, id.replace('order_manual_delivered_', '')); return; }
+      if (id.startsWith('order_done_buyer_'))       { await handleOrderDone(interaction, id.replace('order_done_buyer_', '')); return; }
+      if (id.startsWith('order_complete_close_'))   { await handleCompletionClose(interaction, id.replace('order_complete_close_', '')); return; }
+      if (id.startsWith('order_review_'))           { await handleReviewButton(interaction, id.replace('order_review_', '')); return; }
+      if (id.startsWith('order_close_'))            { await handleOrderClose(interaction, id.replace('order_close_', '')); return; }
+      if (id.startsWith('order_cancel_req_'))       { await handleCancelRequest(interaction, id.replace('order_cancel_req_', '')); return; }
+      if (id.startsWith('order_cancel_ok_'))        { await handleCancelConfirm(interaction, id.replace('order_cancel_ok_', '')); return; }
+      if (id.startsWith('shop_dispute_'))           { await handleDisputeButton(interaction, id.replace('shop_dispute_', '')); return; }
     }
 
     // モーダル送信
     if (interaction.isModalSubmit()) {
-      const urlModalMatch = interaction.customId.match(/^order_url_modal_(.+)$/);
-      if (urlModalMatch) { await handleUrlModalSubmit(interaction, urlModalMatch[1]); return; }
+      const buyModalMatch = interaction.customId.match(/^order_buy_modal_([^_]+)_(.+)$/);
+      if (buyModalMatch) { await handleBuyModalSubmit(interaction, buyModalMatch[1], buyModalMatch[2]); return; }
+
+      const reviewModalMatch = interaction.customId.match(/^order_review_modal_(.+)$/);
+      if (reviewModalMatch) { await handleReviewModalSubmit(interaction, reviewModalMatch[1]); return; }
 
       const disputeModalMatch = interaction.customId.match(/^shop_dispute_modal_(.+)$/);
       if (disputeModalMatch) { await handleDisputeModalSubmit(interaction, disputeModalMatch[1]); return; }

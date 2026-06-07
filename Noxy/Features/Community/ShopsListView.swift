@@ -11,17 +11,15 @@ struct ShopsListView: View {
     var body: some View {
         VStack(spacing: 0) {
             HStack(spacing: 0) {
-                tabButton(title: "ショップ", icon: "cart.fill", tab: .shops)
-                tabButton(title: "注文", icon: "list.bullet.clipboard", tab: .orders)
+                tabButton(title: "ショップ", icon: "cart.fill",              tab: .shops)
+                tabButton(title: "注文",     icon: "list.bullet.clipboard",  tab: .orders)
             }
             .background(Color(.secondarySystemGroupedBackground))
             .overlay(Divider(), alignment: .bottom)
 
             switch selectedTab {
-            case .shops:
-                ShopPanelListView(guildId: guildId)
-            case .orders:
-                OrdersListView(guildId: guildId)
+            case .shops:  ShopPanelListView(guildId: guildId)
+            case .orders: OrdersListView(guildId: guildId)
             }
         }
         .background(Color(.systemGroupedBackground))
@@ -57,8 +55,11 @@ private struct ShopPanelListView: View {
     @State private var isLoading = true
     @State private var showCreate = false
     @State private var editingShop: Shop? = nil
+    @State private var editingShopInitialTab: Int = 0
     @State private var deployingId: String? = nil
     @State private var deployTargetShop: Shop? = nil
+    @State private var pendingRedeployShop: Shop? = nil
+    @State private var showRedeployConfirm = false
     @State private var toast: String? = nil
 
     var body: some View {
@@ -74,13 +75,31 @@ private struct ShopPanelListView: View {
                         .listRowSeparator(.hidden)
                 } else {
                     ForEach(shops) { shop in
-                        let hasProducts = (productCounts[shop.id] ?? 0) > 0
+                        let count = productCounts[shop.id] ?? 0
                         ShopCard(
                             shop: shop,
+                            productCount: count,
                             isDeploying: deployingId == shop.id,
-                            hasProducts: hasProducts,
-                            onEdit: { editingShop = shop },
-                            onDeploy: { deployTargetShop = shop }
+                            onTap: {
+                                editingShopInitialTab = count > 0 ? 0 : 2
+                                editingShop = shop
+                            },
+                            onSettings: {
+                                editingShopInitialTab = 0
+                                editingShop = shop
+                            },
+                            onManageProducts: {
+                                editingShopInitialTab = 2
+                                editingShop = shop
+                            },
+                            onDeploy: {
+                                if shop.isDeployed {
+                                    pendingRedeployShop = shop
+                                    showRedeployConfirm = true
+                                } else {
+                                    deployTargetShop = shop
+                                }
+                            }
                         )
                         .listRowInsets(EdgeInsets(top: 4, leading: 16, bottom: 4, trailing: 16))
                         .listRowBackground(Color(.systemGroupedBackground))
@@ -126,8 +145,9 @@ private struct ShopPanelListView: View {
             ShopEditView(existingShop: nil, guildId: guildId) { shops.insert($0, at: 0) }
         }
         .sheet(item: $editingShop) { shop in
-            ShopEditView(existingShop: shop, guildId: guildId) { updated in
+            ShopEditView(existingShop: shop, guildId: guildId, initialTab: editingShopInitialTab) { updated in
                 if let idx = shops.firstIndex(where: { $0.id == updated.id }) { shops[idx] = updated }
+                Task { await loadProductCounts() }
             }
         }
         .sheet(item: $deployTargetShop) { shop in
@@ -135,7 +155,23 @@ private struct ShopPanelListView: View {
                 Task { await deploy(shop, channelId: channelId) }
             }
         }
+        .confirmationDialog(
+            "ショップを再送信しますか？",
+            isPresented: $showRedeployConfirm,
+            titleVisibility: .visible
+        ) {
+            Button("再送信する") {
+                if let shop = pendingRedeployShop {
+                    deployTargetShop = shop
+                }
+                pendingRedeployShop = nil
+            }
+            Button("キャンセル", role: .cancel) { pendingRedeployShop = nil }
+        } message: {
+            Text("新しいメッセージとしてDiscordに投稿されます。既存のパネルは更新されません。")
+        }
         .task { await load() }
+        .onChange(of: guildId) { _, _ in Task { await load() } }
     }
 
     private var emptyState: some View {
@@ -154,7 +190,11 @@ private struct ShopPanelListView: View {
     private func load() async {
         isLoading = true
         shops = (try? await services.shops.fetchShops(guildId: guildId)) ?? []
-        // 各ショップの商品数を並列取得
+        await loadProductCounts()
+        isLoading = false
+    }
+
+    private func loadProductCounts() async {
         var counts: [String: Int] = [:]
         await withTaskGroup(of: (String, Int).self) { group in
             for shop in shops {
@@ -164,12 +204,9 @@ private struct ShopPanelListView: View {
                     return (shopId, products.count)
                 }
             }
-            for await (shopId, count) in group {
-                counts[shopId] = count
-            }
+            for await (shopId, count) in group { counts[shopId] = count }
         }
         productCounts = counts
-        isLoading = false
     }
 
     private func deploy(_ shop: Shop, channelId: String) async {
@@ -204,11 +241,9 @@ private struct ShopDeployChannelPickerSheet: View {
     @State private var channels: [(id: String, name: String)] = []
     @State private var isLoading = true
 
-    /// ショップ内容を EmbedData に変換してプレビュー用に使う
     private var shopEmbedPreview: EmbedData {
-        let accentColor = Color(uiColor: UIColor(hex: UInt32(shop.color)))
-        return EmbedData(
-            color: accentColor,
+        EmbedData(
+            color: Color(uiColor: UIColor(hex: UInt32(shop.color))),
             botName: "Noxy",
             messageContent: nil,
             title: "🛒 \(shop.name)",
@@ -221,9 +256,8 @@ private struct ShopDeployChannelPickerSheet: View {
     var body: some View {
         NavigationStack {
             List {
-                // ─── Embed プレビュー ───
                 Section {
-                    EmbedPreviewCard(embed: shopEmbedPreview)
+                    DiscordMessagePreview(embed: shopEmbedPreview, isCompact: true)
                         .listRowInsets(EdgeInsets(top: 8, leading: 16, bottom: 8, trailing: 16))
                 } header: {
                     HStack(spacing: 4) {
@@ -248,11 +282,19 @@ private struct ShopDeployChannelPickerSheet: View {
                                 dismiss()
                             } label: {
                                 HStack(spacing: .spacing12) {
-                                    Image(systemName: "number").font(.system(size: 14)).foregroundStyle(Color.textTertiary)
-                                    Text(ch.name).font(.bodySmall).foregroundStyle(Color.textPrimary)
+                                    Image(systemName: "number")
+                                        .font(.system(size: 14))
+                                        .foregroundStyle(Color.textTertiary)
+                                    Text(ch.name)
+                                        .font(.bodySmall).foregroundStyle(Color.textPrimary)
                                     Spacer()
                                     if shop.channelId == ch.id {
-                                        Image(systemName: "checkmark.circle.fill").foregroundStyle(Color.accentIndigo)
+                                        Text("現在設定中")
+                                            .font(.system(size: 10, weight: .semibold))
+                                            .foregroundStyle(Color.accentOrange)
+                                            .padding(.horizontal, 8).padding(.vertical, 3)
+                                            .background(Color.accentOrange.opacity(0.1))
+                                            .clipShape(Capsule())
                                     }
                                 }
                             }
@@ -261,7 +303,7 @@ private struct ShopDeployChannelPickerSheet: View {
                     } header: {
                         Text("「\(shop.name)」の送信先チャンネル")
                     } footer: {
-                        Text("選択したチャンネルにショップパネルが投稿されます。")
+                        Text("選択したチャンネルに新しいショップパネルが投稿されます。")
                     }
                 }
             }
@@ -295,112 +337,173 @@ private struct ShopDeployChannelPickerSheet: View {
 
 private struct ShopCard: View {
     let shop: Shop
+    let productCount: Int
     let isDeploying: Bool
-    let hasProducts: Bool
-    let onEdit: () -> Void
+    let onTap: () -> Void
+    let onSettings: () -> Void
+    let onManageProducts: () -> Void
     let onDeploy: () -> Void
+
+    private var accentColor: Color {
+        shop.enabled
+            ? Color(uiColor: UIColor(hex: UInt32(shop.color)))
+            : Color.gray.opacity(0.6)
+    }
+    private var hasProducts: Bool { productCount > 0 }
 
     var body: some View {
         VStack(spacing: 0) {
-            HStack(spacing: .spacing12) {
-                ZStack {
-                    RoundedRectangle(cornerRadius: 10)
-                        .fill(shop.enabled ? Color(uiColor: UIColor(hex: UInt32(shop.color))) : Color.gray.opacity(0.45))
-                        .frame(width: 42, height: 42)
-                    Image(systemName: shop.enabled ? "cart.fill" : "cart.badge.xmark")
-                        .font(.system(size: 18)).foregroundStyle(.white)
-                }
-                .opacity(shop.enabled ? 1 : 0.6)
+            // ── ヘッダー（タップで開く） ──
+            Button(action: onTap) {
+                HStack(spacing: .spacing12) {
+                    ZStack {
+                        RoundedRectangle(cornerRadius: 10)
+                            .fill(accentColor)
+                            .frame(width: 44, height: 44)
+                        Image(systemName: shop.enabled ? "cart.fill" : "cart.badge.xmark")
+                            .font(.system(size: 18)).foregroundStyle(.white)
+                    }
+                    .opacity(shop.enabled ? 1 : 0.7)
 
-                VStack(alignment: .leading, spacing: 3) {
-                    HStack(spacing: 6) {
-                        Text(shop.name)
-                            .font(.bodySmall).fontWeight(.semibold)
-                            .foregroundStyle(shop.enabled ? Color.textPrimary : Color.textTertiary)
-                        if !shop.enabled {
-                            Text("無効").font(.system(size: 9, weight: .semibold))
+                    VStack(alignment: .leading, spacing: 4) {
+                        HStack(spacing: .spacing6) {
+                            Text(shop.name)
+                                .font(.bodySmall).fontWeight(.semibold)
+                                .foregroundStyle(shop.enabled ? Color.textPrimary : Color.textTertiary)
+                            if !shop.enabled {
+                                Text("無効")
+                                    .font(.system(size: 9, weight: .semibold))
+                                    .foregroundStyle(Color.textTertiary)
+                                    .padding(.horizontal, 6).padding(.vertical, 2)
+                                    .background(Color(.tertiarySystemGroupedBackground))
+                                    .clipShape(Capsule())
+                            }
+                        }
+                        HStack(spacing: .spacing8) {
+                            if !shop.description.isEmpty {
+                                Text(shop.description)
+                                    .font(.captionSmall).foregroundStyle(Color.textTertiary)
+                                    .lineLimit(1)
+                            }
+                            if shop.reviewEnabled {
+                                Label("レビュー有効", systemImage: "star.fill")
+                                    .font(.system(size: 9))
+                                    .foregroundStyle(Color.accentIndigo)
+                            }
+                        }
+                    }
+
+                    Spacer()
+
+                    VStack(alignment: .trailing, spacing: 4) {
+                        if shop.isDeployed {
+                            Label("設置済み", systemImage: "checkmark.circle.fill")
+                                .font(.system(size: 10, weight: .semibold))
+                                .foregroundStyle(Color.accentGreen)
+                                .padding(.horizontal, 8).padding(.vertical, 3)
+                                .background(Color.accentGreen.opacity(0.1))
+                                .clipShape(Capsule())
+                        } else {
+                            Text("未設置")
+                                .font(.system(size: 10, weight: .semibold))
                                 .foregroundStyle(Color.textTertiary)
-                                .padding(.horizontal, 6).padding(.vertical, 2)
+                                .padding(.horizontal, 8).padding(.vertical, 3)
                                 .background(Color(.tertiarySystemGroupedBackground))
                                 .clipShape(Capsule())
                         }
-                    }
-                    HStack(spacing: 4) {
-                        Text(shop.description)
-                            .font(.captionSmall).foregroundStyle(Color.textTertiary).lineLimit(1)
-                        Text("・").foregroundStyle(Color.textTertiary)
-                        Label(shop.paymentFlow.label, systemImage: shop.paymentFlow.icon)
-                            .font(.system(size: 9))
-                            .foregroundStyle(Color.accentIndigo)
-                    }
-                }
 
-                Spacer()
-
-                if shop.isDeployed {
-                    Label("デプロイ済", systemImage: "checkmark.circle.fill")
-                        .font(.system(size: 10, weight: .semibold))
-                        .foregroundStyle(Color.accentGreen)
-                        .padding(.horizontal, 8).padding(.vertical, 4)
-                        .background(Color.accentGreen.opacity(0.12))
+                        // 商品数バッジ
+                        HStack(spacing: 3) {
+                            Image(systemName: "archivebox.fill").font(.system(size: 8))
+                            Text(hasProducts ? "\(productCount)商品" : "商品なし")
+                                .font(.system(size: 9, weight: .medium))
+                        }
+                        .foregroundStyle(hasProducts ? Color.accentPurple : Color.accentOrange)
+                        .padding(.horizontal, 6).padding(.vertical, 2)
+                        .background(
+                            (hasProducts ? Color.accentPurple : Color.accentOrange).opacity(0.1)
+                        )
                         .clipShape(Capsule())
-                } else {
-                    Text("未デプロイ")
-                        .font(.system(size: 10, weight: .semibold))
+                    }
+
+                    Image(systemName: "chevron.right")
+                        .font(.system(size: 11, weight: .semibold))
                         .foregroundStyle(Color.textTertiary)
-                        .padding(.horizontal, 8).padding(.vertical, 4)
-                        .background(Color(.tertiarySystemGroupedBackground))
-                        .clipShape(Capsule())
                 }
+                .padding(.spacing12)
             }
-            .padding(.spacing12)
-            .opacity(shop.enabled ? 1 : 0.7)
+            .buttonStyle(.plain)
+            .opacity(shop.enabled ? 1 : 0.8)
 
             Divider().padding(.horizontal, .spacing12)
 
-            HStack(spacing: 0) {
-                Button(action: onEdit) {
-                    Label("編集", systemImage: "pencil")
-                        .font(.captionRegular).fontWeight(.medium)
-                        .foregroundStyle(Color.accentIndigo)
-                        .frame(maxWidth: .infinity).padding(.vertical, .spacing10)
-                }
-                .buttonStyle(.plain)
-
-                Divider().frame(height: 20)
-
-                Button(action: onDeploy) {
-                    if isDeploying {
-                        HStack(spacing: 5) {
-                            ProgressView().scaleEffect(0.7)
-                            Text("送信中").font(.captionRegular).foregroundStyle(Color.textTertiary)
-                        }
-                        .frame(maxWidth: .infinity).padding(.vertical, .spacing10)
-                    } else {
-                        Label(shop.isDeployed ? "再送信" : "送信", systemImage: "paperplane.fill")
-                            .font(.captionRegular).fontWeight(.medium)
-                            .foregroundStyle(shop.isDeployed ? Color.accentOrange : Color.accentGreen)
-                            .frame(maxWidth: .infinity).padding(.vertical, .spacing10)
-                    }
-                }
-                .buttonStyle(.plain)
-                .disabled(isDeploying || !hasProducts)
-            }
-            .background(Color(.tertiarySystemGroupedBackground))
-
+            // ── アクション行 ──
             if !hasProducts {
-                HStack(spacing: 4) {
-                    Image(systemName: "info.circle").font(.system(size: 9))
-                    Text("送信するには商品を追加してください")
-                        .font(.system(size: 9, weight: .medium))
+                // 商品なし → 追加CTA（全幅）
+                Button(action: onManageProducts) {
+                    HStack(spacing: .spacing6) {
+                        Image(systemName: "plus.circle.fill")
+                            .font(.system(size: 13))
+                        Text("商品を追加して設置を有効にする")
+                            .font(.captionRegular).fontWeight(.semibold)
+                    }
+                    .foregroundStyle(Color.accentIndigo)
+                    .frame(maxWidth: .infinity)
+                    .padding(.vertical, .spacing10)
                 }
-                .foregroundStyle(Color.textTertiary)
-                .padding(.vertical, 6)
-                .frame(maxWidth: .infinity)
+                .buttonStyle(.plain)
+                .background(Color.accentIndigo.opacity(0.04))
+            } else {
+                HStack(spacing: 0) {
+                    // 設定
+                    Button(action: onSettings) {
+                        Label("設定", systemImage: "gearshape")
+                            .font(.captionRegular).fontWeight(.medium)
+                            .foregroundStyle(Color.textSecondary)
+                            .frame(maxWidth: .infinity)
+                            .padding(.vertical, .spacing10)
+                    }
+                    .buttonStyle(.plain)
+
+                    Divider().frame(height: 20)
+
+                    // 商品管理
+                    Button(action: onManageProducts) {
+                        Label("商品", systemImage: "archivebox.fill")
+                            .font(.captionRegular).fontWeight(.medium)
+                            .foregroundStyle(Color.accentPurple)
+                            .frame(maxWidth: .infinity)
+                            .padding(.vertical, .spacing10)
+                    }
+                    .buttonStyle(.plain)
+
+                    Divider().frame(height: 20)
+
+                    // 送信
+                    Button(action: onDeploy) {
+                        if isDeploying {
+                            HStack(spacing: 5) {
+                                ProgressView().scaleEffect(0.7)
+                                Text("送信中").font(.captionRegular).foregroundStyle(Color.textTertiary)
+                            }
+                            .frame(maxWidth: .infinity).padding(.vertical, .spacing10)
+                        } else {
+                            Label(shop.isDeployed ? "再設置" : "設置する", systemImage: "paperplane.fill")
+                                .font(.captionRegular).fontWeight(.semibold)
+                                .foregroundStyle(shop.isDeployed ? Color.accentOrange : Color.accentGreen)
+                                .frame(maxWidth: .infinity)
+                                .padding(.vertical, .spacing10)
+                        }
+                    }
+                    .buttonStyle(.plain)
+                    .disabled(isDeploying)
+                }
                 .background(Color(.tertiarySystemGroupedBackground))
             }
         }
-        .background(shop.enabled ? Color(.secondarySystemGroupedBackground) : Color(.tertiarySystemGroupedBackground))
+        .background(shop.enabled
+            ? Color(.secondarySystemGroupedBackground)
+            : Color(.tertiarySystemGroupedBackground))
         .clipShape(RoundedRectangle(cornerRadius: 14))
     }
 }

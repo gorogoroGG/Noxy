@@ -1,44 +1,89 @@
 import SwiftUI
 
 struct MainTabView: View {
-    @Environment(AuthManager.self)  private var authManager
-    @Environment(\.services)        private var services
+    @Environment(AuthManager.self)   private var authManager
+    @Environment(\.services)         private var services
+    @Environment(\.scenePhase)       private var scenePhase
     @State private var appState = AppState()
 
     var body: some View {
-        ZStack {
-            TabView {
-                DashboardView()
-                    .tabItem { Label("ホーム", systemImage: "house.fill") }
+        Group {
+            if appState.isBotOffline {
+                BotOfflineView {
+                    await refreshBotStatus()
+                }
+                .transition(.opacity)
+            } else {
+                ZStack {
+                    TabView {
+                        DashboardView()
+                            .tabItem { Label("ホーム", systemImage: "house.fill") }
 
-                ActionsTabView()
-                    .tabItem { Label("アクション", systemImage: "bolt.fill") }
+                        ActionsTabView()
+                            .tabItem { Label("アクション", systemImage: "bolt.fill") }
 
-                ManageTabView()
-                    .tabItem { Label("管理", systemImage: "person.3.fill") }
+                        ManageTabView()
+                            .tabItem { Label("管理", systemImage: "person.3.fill") }
 
-                MoreTabView()
-                    .tabItem { Label("設定", systemImage: "gearshape.fill") }
-            }
-            .tint(Color.accentIndigo)
-            .mockBanner()
-            .environment(appState)
+                        MoreTabView()
+                            .tabItem { Label("設定", systemImage: "gearshape.fill") }
+                    }
+                    .tint(Color.accentIndigo)
+                    .mockBanner()
+                    .environment(appState)
 
-            // サーバー切り替え時の全画面ローディング
-            if appState.isSwitchingServer {
-                ServerSwitchingOverlay(guildName: appState.switchingToName)
-                    .transition(.opacity)
-                    .zIndex(999)
+                    // サーバー切り替え時の全画面ローディング
+                    if appState.isSwitchingServer {
+                        ServerSwitchingOverlay(guildName: appState.switchingToName)
+                            .transition(.opacity)
+                            .zIndex(999)
+                    }
+                }
+                .animation(.easeInOut(duration: 0.25), value: appState.isSwitchingServer)
+                .transition(.opacity)
             }
         }
-        .animation(.easeInOut(duration: 0.25), value: appState.isSwitchingServer)
+        .animation(.easeInOut(duration: 0.3), value: appState.isBotOffline)
         .task { await loadSubscription() }
+        .task { await startBotPolling() }
+        .onChange(of: scenePhase) { _, phase in
+            guard phase == .active else { return }
+            if appState.selectedGuild == nil, !appState.selectedGuildId.isEmpty {
+                Task { await restoreSelectedGuild() }
+            }
+            // フォアグラウンド復帰時に即時再確認
+            Task { await refreshBotStatus() }
+        }
+    }
+
+    /// selectedGuild を DiscordAPI から取得して復元する
+    private func restoreSelectedGuild() async {
+        guard let guilds = try? await services.guilds.fetchAll(),
+              let match = guilds.first(where: { $0.id == appState.selectedGuildId }) else { return }
+        appState.guilds       = guilds
+        appState.selectedGuild = match
     }
 
     private func loadSubscription() async {
         let userId = KeychainHelper.load(forKey: "discord_user_id") ?? ""
         let status = (try? await services.subscription.fetchStatus(discordUserId: userId)) ?? .inactive
         withAnimation { appState.subscriptionStatus = status }
+    }
+
+    private func startBotPolling() async {
+        await refreshBotStatus()
+        while true {
+            try? await Task.sleep(for: .seconds(60))
+            guard !Task.isCancelled else { return }
+            await refreshBotStatus()
+        }
+    }
+
+    @MainActor
+    private func refreshBotStatus() async {
+        let status = (try? await services.bot.fetchStatus())
+            ?? BotStatus(isOnline: false, latency: 0, uptime: 0, activeGuilds: 0, totalCommands: 0)
+        withAnimation { appState.botStatus = status }
     }
 }
 
