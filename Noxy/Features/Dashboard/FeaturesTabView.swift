@@ -48,33 +48,75 @@ struct FeaturesTabView: View {
             }
 
             NavigationLink {
-                VerifyPanelListView(guildId: appState.selectedGuildId)
+                if appState.isPro {
+                    VerifyPanelListView(guildId: appState.selectedGuildId)
+                } else {
+                    ProUpgradeView(
+                        featureIcon: "checkmark.shield.fill",
+                        featureTitle: "認証パネル",
+                        description: "CAPTCHA認証でBOT・荒らしをブロック。安全なコミュニティを維持できます。",
+                        proFeatures: [
+                            ("🛡", "CAPTCHA認証でロール自動付与"),
+                            ("🎨", "カスタムメッセージ・デザイン"),
+                            ("📊", "認証ログ・統計"),
+                        ]
+                    )
+                }
             } label: {
                 FeatureRow(
                     icon: "checkmark.shield.fill",
                     title: "認証",
                     subtitle: "CAPTCHA認証でロールを自動付与",
-                    accentColor: .accentGreen
+                    accentColor: .accentGreen,
+                    badge: appState.isPro ? nil : "Pro"
                 )
             }
 
             NavigationLink {
-                TicketsCoordinatorView(guildId: appState.selectedGuildId)
+                if appState.isPro {
+                    TicketsCoordinatorView(guildId: appState.selectedGuildId)
+                } else {
+                    ProUpgradeView(
+                        featureIcon: "ticket.fill",
+                        featureTitle: "チケット",
+                        description: "サポートチケットシステムを導入。メンバーの問い合わせを効率的に管理。",
+                        proFeatures: [
+                            ("🎫", "チケットの作成・クローズ"),
+                            ("👥", "担当者アサイン"),
+                            ("📁", "トランスクリプト保存"),
+                        ]
+                    )
+                }
             } label: {
                 FeatureRow(
                     icon: "ticket.fill",
                     title: "チケット",
-                    subtitle: "サポートチケットの管理"
+                    subtitle: "サポートチケットの管理",
+                    badge: appState.isPro ? nil : "Pro"
                 )
             }
 
             NavigationLink {
-                TempVCListView(guildId: appState.selectedGuildId)
+                if appState.isPro {
+                    TempVCListView(guildId: appState.selectedGuildId)
+                } else {
+                    ProUpgradeView(
+                        featureIcon: "waveform.and.mic",
+                        featureTitle: "一時チャンネル",
+                        description: "参加すると自動でVCを作成し、退出時に自動削除。常にすっきりとしたサーバーを維持。",
+                        proFeatures: [
+                            ("🔊", "参加で自動作成・退出で自動削除"),
+                            ("⚙️", "チャンネル名・人数制限を設定"),
+                            ("🎮", "ゲームセッション用途に最適"),
+                        ]
+                    )
+                }
             } label: {
                 FeatureRow(
                     icon: "waveform.and.mic",
                     title: "一時チャンネル",
-                    subtitle: "参加すると自動でVCを作成"
+                    subtitle: "参加すると自動でVCを作成",
+                    badge: appState.isPro ? nil : "Pro"
                 )
             }
 
@@ -116,12 +158,26 @@ struct FeaturesTabView: View {
     private var automationSection: some View {
         Section("自動化・通知") {
             NavigationLink {
-                ReactionRolesView()
+                if appState.isPro {
+                    ReactionRolesView()
+                } else {
+                    ProUpgradeView(
+                        featureIcon: "heart.fill",
+                        featureTitle: "リアクションロール",
+                        description: "リアクションを押すだけでロールを自動付与。サーバー運営に欠かせない定番機能。",
+                        proFeatures: [
+                            ("💜", "絵文字1つでロール付与・解除"),
+                            ("📋", "複数パネル・複数ロール設定"),
+                            ("⚡", "リアルタイム同期"),
+                        ]
+                    )
+                }
             } label: {
                 FeatureRow(
                     icon: "heart.fill",
                     title: "リアクションロール",
-                    subtitle: "リアクションでロールを自動付与"
+                    subtitle: "リアクションでロールを自動付与",
+                    badge: appState.isPro ? nil : "Pro"
                 )
             }
 
@@ -237,14 +293,27 @@ struct FeaturesTabView: View {
             }
 
             NavigationLink {
-                StatChannelsView(guildId: appState.selectedGuildId)
+                if appState.isPro {
+                    StatChannelsView(guildId: appState.selectedGuildId)
+                } else {
+                    ProUpgradeView(
+                        featureIcon: "chart.bar.xaxis",
+                        featureTitle: "ステータスチャンネル",
+                        description: "メンバー数やBoost数をVCチャンネル名にリアルタイム表示。サーバーの今がひと目でわかる。",
+                        proFeatures: [
+                            ("📊", "メンバー数・Boost数をリアルタイム表示"),
+                            ("🔧", "表示フォーマットを自由にカスタマイズ"),
+                            ("♾️", "複数チャンネルの同時設定"),
+                        ]
+                    )
+                }
             } label: {
                 FeatureRow(
                     icon: "chart.bar.xaxis",
                     title: "ステータスチャンネル",
                     subtitle: "メンバー数・Boost数などをVC名に表示",
                     accentColor: .accentPurple,
-                    badge: "Pro"
+                    badge: appState.isPro ? nil : "Pro"
                 )
             }
         }

@@ -46,6 +46,25 @@ struct WorkerVerifyService: VerifyServiceProtocol {
         struct Body: Encodable { let channelId: String }
         return try await postReturning("/bot/verify-panels/\(id)/deploy", body: Body(channelId: channelId))
     }
+    func resetPanel(id: String) async throws -> VerifyPanel {
+        struct Empty: Encodable {}
+        return try await postReturning("/bot/verify-panels/\(id)/reset", body: Empty())
+    }
+
+    // MARK: - Role Creation
+
+    func createRole(guildId: String, name: String, color: Int,
+                    channelPermissions: [ChannelPermissionInput]) async throws -> CreatedRole {
+        struct Body: Encodable {
+            let guildId: String
+            let name: String
+            let color: Int
+            let channelPermissions: [ChannelPermissionInput]
+        }
+        return try await postReturning("/bot/roles/create", body: Body(
+            guildId: guildId, name: name, color: color, channelPermissions: channelPermissions
+        ))
+    }
 
     // MARK: - Manual Requests
 

@@ -1,6 +1,11 @@
 import SwiftUI
 import StoreKit
 
+private enum BillingPeriod: String, CaseIterable {
+    case monthly = "月額"
+    case annual  = "年額"
+}
+
 struct SubscriptionView: View {
     @Environment(\.services)    private var services
     @Environment(AppState.self) private var appState
@@ -13,8 +18,17 @@ struct SubscriptionView: View {
     @State private var isActivating: String? = nil
     @State private var errorMessage: String? = nil
     @State private var toast: ToastMessage?  = nil
+    @State private var billingPeriod: BillingPeriod = .monthly
 
     private var status: SubscriptionStatus { appState.subscriptionStatus }
+
+    private var currentCatalog: [SubscriptionProduct] {
+        billingPeriod == .monthly ? SubscriptionProduct.monthly : SubscriptionProduct.annual
+    }
+
+    private var currentStoreProducts: [StoreKit.Product] {
+        storeProducts.filter { sp in currentCatalog.contains(where: { $0.id == sp.id }) }
+    }
 
     var body: some View {
         ScrollView {
@@ -75,7 +89,7 @@ struct SubscriptionView: View {
                         }
                     }
                 } else {
-                    Text("1サーバーから始められます · いつでも解約可能")
+                    Text("全Pro機能つき · いつでも解約可能")
                         .font(.bodySmall).foregroundStyle(Color.textSecondary)
                 }
             }
@@ -97,22 +111,29 @@ struct SubscriptionView: View {
                 Text("サーバースロット")
                     .font(.titleMedium).foregroundStyle(Color.textPrimary)
                 Spacer()
-                Text("\(status.usedSlots) / \(status.purchasedSlots) 使用中")
-                    .font(.captionRegular).foregroundStyle(Color.textSecondary)
-            }
-            GeometryReader { geo in
-                ZStack(alignment: .leading) {
-                    RoundedRectangle(cornerRadius: 4).fill(Color.bgSurface).frame(height: 8)
-                    RoundedRectangle(cornerRadius: 4)
-                        .fill(status.availableSlots > 0 ? Color.accentIndigo : Color.accentOrange)
-                        .frame(
-                            width: geo.size.width * CGFloat(status.usedSlots) / CGFloat(max(status.purchasedSlots, 1)),
-                            height: 8
-                        )
-                        .animation(.easeInOut, value: status.usedSlots)
+                if status.isUnlimited {
+                    Label("無制限", systemImage: "infinity")
+                        .font(.captionRegular).foregroundStyle(Color.accentIndigo)
+                } else {
+                    Text("\(status.usedSlots) / \(status.purchasedSlots) 使用中")
+                        .font(.captionRegular).foregroundStyle(Color.textSecondary)
                 }
             }
-            .frame(height: 8)
+            if !status.isUnlimited {
+                GeometryReader { geo in
+                    ZStack(alignment: .leading) {
+                        RoundedRectangle(cornerRadius: 4).fill(Color.bgSurface).frame(height: 8)
+                        RoundedRectangle(cornerRadius: 4)
+                            .fill(status.availableSlots > 0 ? Color.accentIndigo : Color.accentOrange)
+                            .frame(
+                                width: geo.size.width * CGFloat(status.usedSlots) / CGFloat(max(status.purchasedSlots, 1)),
+                                height: 8
+                            )
+                            .animation(.easeInOut, value: status.usedSlots)
+                    }
+                }
+                .frame(height: 8)
+            }
         }
         .padding(.horizontal)
     }
@@ -171,21 +192,28 @@ struct SubscriptionView: View {
 
     private var plansSection: some View {
         VStack(spacing: .spacing12) {
-            ForEach(storeProducts.isEmpty ? [] : storeProducts.compactMap({ sp in
-                SubscriptionProduct.catalog.first(where: { $0.id == sp.id })
+            Picker("", selection: $billingPeriod) {
+                ForEach(BillingPeriod.allCases, id: \.self) { period in
+                    Text(period == .annual ? "年額（最大38%オフ）" : period.rawValue).tag(period)
+                }
+            }
+            .pickerStyle(.segmented)
+
+            ForEach(currentStoreProducts.isEmpty ? [] : currentStoreProducts.compactMap({ sp in
+                currentCatalog.first(where: { $0.id == sp.id })
             }), id: \.id) { plan in
-                if let sp = storeProducts.first(where: { $0.id == plan.id }) {
+                if let sp = currentStoreProducts.first(where: { $0.id == plan.id }) {
                     PlanCard(
                         plan: plan,
-                        displayPrice: sp.displayPrice + "/mo",
+                        displayPrice: sp.displayPrice + plan.periodSuffix,
                         isPurchasing: isPurchasing
                     ) { await purchase(productId: plan.id) }
                 }
             }
 
             // StoreKit未取得時のフォールバック
-            if storeProducts.isEmpty {
-                ForEach(SubscriptionProduct.catalog) { plan in
+            if currentStoreProducts.isEmpty {
+                ForEach(currentCatalog) { plan in
                     PlanCard(plan: plan, displayPrice: plan.priceLabel, isPurchasing: isPurchasing) {
                         await purchase(productId: plan.id)
                     }
@@ -241,14 +269,18 @@ struct SubscriptionView: View {
     }
 
     private let rows: [(feature: String, free: Bool)] = [
-        ("Embedメッセージ",      true),
-        ("チケット",             true),
         ("メンバー管理",         true),
-        ("挨拶メッセージ",       true),
-        ("リアクションロール",   true),
-        ("モデレーション",       true),
+        ("基本モデレーション",   true),
+        ("入退室メッセージ",     true),
+        ("Embedメッセージ",      true),
+        ("リアクションロール",   false),
+        ("チケット",             false),
+        ("認証パネル",           false),
+        ("一時チャンネル",       false),
         ("ステータスチャンネル", false),
         ("ギブアウェイ",         false),
+        ("レベリング",           false),
+        ("ショップ",             false),
     ]
 
     // MARK: - Footer
@@ -338,9 +370,15 @@ private struct PlanCard: View {
                     RoundedRectangle(cornerRadius: .cornerRadiusSmall)
                         .fill(plan.isRecommended ? Color.accentIndigo : Color.accentIndigo.opacity(0.1))
                         .frame(width: 48, height: 48)
-                    Text("\(plan.slots)")
-                        .font(.titleLarge)
-                        .foregroundStyle(plan.isRecommended ? Color.white : Color.accentIndigo)
+                    if plan.slots >= 99 {
+                        Image(systemName: "infinity")
+                            .font(.titleMedium)
+                            .foregroundStyle(plan.isRecommended ? Color.white : Color.accentIndigo)
+                    } else {
+                        Text("\(plan.slots)")
+                            .font(.titleLarge)
+                            .foregroundStyle(plan.isRecommended ? Color.white : Color.accentIndigo)
+                    }
                 }
 
                 VStack(alignment: .leading, spacing: 3) {
@@ -357,9 +395,21 @@ private struct PlanCard: View {
                                     startPoint: .leading, endPoint: .trailing))
                                 .clipShape(Capsule())
                         }
+                        if let savings = plan.savingsLabel {
+                            Text(savings)
+                                .font(.system(size: 10, weight: .bold))
+                                .foregroundStyle(Color.accentGreen)
+                                .padding(.horizontal, 6).padding(.vertical, 2)
+                                .background(Color.accentGreen.opacity(0.12))
+                                .clipShape(Capsule())
+                        }
                     }
-                    Text("\(plan.slots) サーバー · ステータスCH・ギブアウェイ対応")
+                    Text("\(plan.slotsLabel)サーバー · 全Pro機能")
                         .font(.captionRegular).foregroundStyle(Color.textSecondary)
+                    if let equiv = plan.monthlyEquivalentLabel {
+                        Text(equiv)
+                            .font(.captionRegular).foregroundStyle(Color.textTertiary)
+                    }
                 }
 
                 Spacer()

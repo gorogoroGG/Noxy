@@ -37,6 +37,10 @@ struct ActionsTabView: View {
 
     private var communityGroup: some View {
         ActionGroup(title: "コミュニティ", icon: "person.3.fill") {
+            navCard(icon: "checkmark.shield.fill", title: "認証",
+                    description: "CAPTCHAでロールを自動付与", color: .accentGreen) {
+                VerifyPanelListView(guildId: appState.selectedGuildId)
+            }
             navCard(icon: "ticket.fill", title: "チケット",
                     description: "サポート・お問い合わせ対応", color: .accentOrange) {
                 TicketsCoordinatorView(guildId: appState.selectedGuildId)

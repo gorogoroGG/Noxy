@@ -582,6 +582,19 @@ actor MockVerifyService: VerifyServiceProtocol {
         panels[idx].messageId = "mock-msg-\(UUID().uuidString.prefix(8))"
         return panels[idx]
     }
+    func resetPanel(id: String) async throws -> VerifyPanel {
+        try await mockDelay()
+        guard let idx = panels.firstIndex(where: { $0.id == id }) else { throw ServiceError.notFound }
+        panels[idx].channelId = ""
+        panels[idx].messageId = nil
+        return panels[idx]
+    }
+    func createRole(guildId: String, name: String, color: Int,
+                    channelPermissions: [ChannelPermissionInput]) async throws -> CreatedRole {
+        try await mockDelay()
+        return CreatedRole(id: UUID().uuidString, name: name, color: color)
+    }
+
     func fetchRequests(guildId: String, status: VerifyRequestStatus?) async throws -> [VerifyRequest] {
         try await mockDelay()
         var base = requests.filter { $0.guildId == guildId }

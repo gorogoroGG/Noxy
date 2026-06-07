@@ -810,7 +810,10 @@ export default {
     // ── 認証ページ（Cloudflare Turnstile）──────────────────────
     // GET /verify/{panelId}?u={userId}&g={guildId}&exp={expiry}&sig={hmac}
     const verifyPageMatch = url.pathname.match(/^\/verify\/([^/]+)$/);
-    if (verifyPageMatch && request.method === 'GET') {
+    if (verifyPageMatch) {
+      if (request.method !== 'GET') {
+        return jsonResponse({ error: 'Method not allowed' }, 405);
+      }
       const panelId = verifyPageMatch[1];
       const u   = url.searchParams.get('u')   ?? '';
       const g   = url.searchParams.get('g')   ?? '';
@@ -1153,6 +1156,43 @@ export default {
       return new Response(JSON.stringify(roles), {
         headers: { "Content-Type": "application/json" },
       });
+    }
+
+    // ロール新規作成 POST /bot/roles/create
+    if (url.pathname === '/bot/roles/create' && request.method === 'POST') {
+      try {
+        const b = await request.json() as {
+          guildId: string; name: string; color?: number;
+          channelPermissions?: Array<{ channelId: string; allow: string; deny: string }>;
+        };
+        if (!b.guildId || !b.name) return jsonResponse({ error: 'guildId and name are required' }, 400);
+
+        // ロール作成
+        const roleResp = await fetch(`https://discord.com/api/v10/guilds/${b.guildId}/roles`, {
+          method: 'POST',
+          headers: { Authorization: `Bot ${env.DISCORD_BOT_TOKEN}`, 'Content-Type': 'application/json' },
+          body: JSON.stringify({ name: b.name, color: b.color ?? 0, hoist: false, mentionable: false }),
+        });
+        if (!roleResp.ok) {
+          const err = await roleResp.text();
+          return jsonResponse({ error: `ロール作成失敗: ${err}` }, roleResp.status);
+        }
+        const role = await roleResp.json() as { id: string; name: string; color: number };
+
+        // チャンネル権限オーバーライド設定
+        if (b.channelPermissions?.length) {
+          await Promise.all(b.channelPermissions.map(async (cp) => {
+            if (cp.allow === '0' && cp.deny === '0') return;
+            await fetch(`https://discord.com/api/v10/channels/${cp.channelId}/permissions/${role.id}`, {
+              method: 'PUT',
+              headers: { Authorization: `Bot ${env.DISCORD_BOT_TOKEN}`, 'Content-Type': 'application/json' },
+              body: JSON.stringify({ allow: cp.allow, deny: cp.deny, type: 0 }),
+            });
+          }));
+        }
+
+        return jsonResponse({ id: role.id, name: role.name, color: role.color });
+      } catch (e) { return jsonResponse({ error: String(e) }, 500); }
     }
 
     // ── メンバー管理 ────────────────────────────────────────────

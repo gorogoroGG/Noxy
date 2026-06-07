@@ -22,7 +22,7 @@ enum VerifyType: String, Codable, CaseIterable {
         case .captcha:  "shield.checkerboard"
         case .reaction: "hand.thumbsup.fill"
         case .manual:   "person.badge.clock.fill"
-        case .button:   "cursorarrow.click.fill"
+        case .button:   "hand.tap.fill"
         }
     }
 

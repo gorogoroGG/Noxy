@@ -89,7 +89,7 @@ struct ProUpgradeView: View {
                     .buttonStyle(ScalePressButtonStyle())
                     .padding(.horizontal)
 
-                    Text("月額 $1.99〜 · いつでも解約可能")
+                    Text("月額 ¥480〜 · いつでも解約可能")
                         .font(.captionRegular)
                         .foregroundStyle(Color.textTertiary)
                 }
