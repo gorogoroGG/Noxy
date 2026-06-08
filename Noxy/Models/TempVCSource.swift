@@ -14,6 +14,7 @@ struct TempVCSource: Identifiable, Codable, Equatable {
     var deleteDelayMinutes: Int
     var joinLeaveNotification: Bool
     var enabled: Bool
+    var waitingRoomEnabled: Bool
     var createdAt: Date?
 
     var effectiveId: String { id ?? UUID().uuidString }
@@ -33,6 +34,7 @@ struct TempVCSource: Identifiable, Codable, Equatable {
             deleteDelayMinutes: 0,
             joinLeaveNotification: true,
             enabled: true,
+            waitingRoomEnabled: false,
             createdAt: nil
         )
     }

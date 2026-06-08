@@ -145,6 +145,7 @@ struct MockTempVCSourceService: TempVCSourceServiceProtocol {
                 deleteDelayMinutes: 0,
                 joinLeaveNotification: true,
                 enabled: true,
+                waitingRoomEnabled: false,
                 createdAt: Date()
             ),
         ]

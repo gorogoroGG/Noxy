@@ -13,6 +13,7 @@ import './events/ticketInteraction';
 import './events/shopInteraction';
 import './events/verifyInteraction';
 import './events/voiceState';
+import './events/waitingRoomInteraction';
 import './events/guildCreate';
 
 const token = process.env.DISCORD_BOT_TOKEN;

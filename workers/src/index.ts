@@ -2140,6 +2140,7 @@ export default {
         deleteDelayMinutes:       r['delete_delay_minutes'],
         joinLeaveNotification:    r['join_leave_notification'],
         enabled:                  r['enabled'],
+        waitingRoomEnabled:       r['waiting_room_enabled'] ?? false,
         createdAt:                r['created_at'],
       }))), { headers: { 'Content-Type': 'application/json' } });
     }
@@ -2151,7 +2152,7 @@ export default {
           guildId: string; triggerVcName?: string; vcCategoryId: string;
           textChannelCategoryId: string; vcNameFormat?: string; channelNameFormat?: string;
           userLimit?: number; autoDelete?: boolean; deleteDelayMinutes?: number;
-          joinLeaveNotification?: boolean; enabled?: boolean;
+          joinLeaveNotification?: boolean; enabled?: boolean; waitingRoomEnabled?: boolean;
         };
         const insertData = {
           guild_id:                   body.guildId,
@@ -2166,6 +2167,7 @@ export default {
           delete_delay_minutes:       body.deleteDelayMinutes ?? 0,
           join_leave_notification:    body.joinLeaveNotification ?? true,
           enabled:                    body.enabled ?? true,
+          waiting_room_enabled:       body.waitingRoomEnabled ?? false,
         };
         const resp = await sb('/temp_vc_sources', {
           method: 'POST',
@@ -2189,6 +2191,7 @@ export default {
           deleteDelayMinutes:       r['delete_delay_minutes'],
           joinLeaveNotification:    r['join_leave_notification'],
           enabled:                  r['enabled'],
+          waitingRoomEnabled:       r['waiting_room_enabled'] ?? false,
           createdAt:                r['created_at'],
         }), { headers: { 'Content-Type': 'application/json' } });
       } catch (e) { return new Response(JSON.stringify({ error: String(e) }), { status: 500 }); }
@@ -2208,6 +2211,7 @@ export default {
           userLimit: 'user_limit', autoDelete: 'auto_delete',
           deleteDelayMinutes: 'delete_delay_minutes', joinLeaveNotification: 'join_leave_notification',
           enabled: 'enabled', triggerVcId: 'trigger_vc_id',
+          waitingRoomEnabled: 'waiting_room_enabled',
         };
         for (const [k, v] of Object.entries(body)) {
           const snakeKey = camelToSnake[k] ?? k;
@@ -2237,6 +2241,7 @@ export default {
           deleteDelayMinutes:       r['delete_delay_minutes'],
           joinLeaveNotification:    r['join_leave_notification'],
           enabled:                  r['enabled'],
+          waitingRoomEnabled:       r['waiting_room_enabled'] ?? false,
           createdAt:                r['created_at'],
         }), { headers: { 'Content-Type': 'application/json' } });
       } catch (e) { return new Response(JSON.stringify({ error: String(e) }), { status: 500 }); }
@@ -2303,6 +2308,7 @@ export default {
           deleteDelayMinutes:       r['delete_delay_minutes'],
           joinLeaveNotification:    r['join_leave_notification'],
           enabled:                  r['enabled'],
+          waitingRoomEnabled:       r['waiting_room_enabled'] ?? false,
           createdAt:                r['created_at'],
         }), { headers: { 'Content-Type': 'application/json' } });
       } catch (e) { return new Response(JSON.stringify({ error: String(e) }), { status: 500 }); }

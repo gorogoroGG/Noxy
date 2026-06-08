@@ -212,6 +212,36 @@ struct TempVCSourceEditView: View {
                     }
                 }
 
+                FormSection("待機室認証", icon: "lock.shield",
+                            footer: "オンにすると、一般ユーザーが直接メインVCに入れなくなります。待機室から入室リクエストを送り、メインVC内のメンバーまたは管理者が承認/拒否できます。") {
+                    VStack(spacing: .spacing12) {
+                        FormField.toggle(
+                            label: "待機室認証を有効にする",
+                            isOn: Binding(
+                                get: { editedSource.waitingRoomEnabled },
+                                set: { editedSource.waitingRoomEnabled = $0 }
+                            )
+                        )
+
+                        if editedSource.waitingRoomEnabled {
+                            HStack(alignment: .top, spacing: .spacing12) {
+                                Image(systemName: "info.circle.fill")
+                                    .font(.system(size: 14))
+                                    .foregroundStyle(Color.accentIndigo)
+                                VStack(alignment: .leading, spacing: 4) {
+                                    Text("VC作成時に「〇〇のVC-待機室」が自動作成されます。")
+                                        .font(.captionSmall)
+                                        .foregroundStyle(Color.textSecondary)
+                                    Text("待機室は全員が見えますが、メインVCは作成者・管理者のみ表示されます。")
+                                        .font(.captionSmall)
+                                        .foregroundStyle(Color.textTertiary)
+                                }
+                            }
+                            .padding(.vertical, 4)
+                        }
+                    }
+                }
+
                 FormSection("通知", icon: "bell") {
                     FormField.toggle(
                         label: "参加/退出の通知",

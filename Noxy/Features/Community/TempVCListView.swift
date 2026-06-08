@@ -51,9 +51,12 @@ struct TempVCListView: View {
                         tipRow(icon: "person.2.fill", color: .accentGreen,
                                title: "参加者に移動",
                                detail: "参加したユーザーは自動的に作成されたVCに移動されます。")
+                        tipRow(icon: "lock.shield.fill", color: .accentIndigo,
+                               title: "待機室認証",
+                               detail: "オンにすると「〇〇-待機室」が自動作成されます。一般ユーザーは待機室から入室リクエストを送り、VC内のメンバーが承認/拒否できます。")
                         tipRow(icon: "trash.fill", color: .red,
                                title: "自動削除",
-                               detail: "全員が退室すると、作成されたVCとテキストチャンネルは自動削除されます。")
+                               detail: "全員が退室すると、作成されたVC・テキストチャンネル・待機室が自動削除されます。")
                     } header: { Text("使い方") }
                 }
             }
@@ -137,10 +140,15 @@ struct TempVCListView: View {
                         .clipShape(RoundedRectangle(cornerRadius: 7))
 
                     VStack(alignment: .leading, spacing: 2) {
-                        Text(source.triggerVcName)
-                            .font(.bodySmall)
-                            .fontWeight(.semibold)
-                            .foregroundStyle(Color.textPrimary)
+                        HStack(spacing: .spacing6) {
+                            Text(source.triggerVcName)
+                                .font(.bodySmall)
+                                .fontWeight(.semibold)
+                                .foregroundStyle(Color.textPrimary)
+                            if source.waitingRoomEnabled {
+                                Badge(text: "待機室", color: .accentIndigo)
+                            }
+                        }
                         if source.triggerVcId != nil {
                             Text("トリガーVC作成済")
                                 .font(.captionSmall)
@@ -208,10 +216,15 @@ struct TempVCListView: View {
 
     // MARK: - Actions
 
-    private func loadAll() async {
-        isLoading = true
+    /// 初回・guildId変更時のみ isLoading を立てる。
+    /// silent=true のときはリストを維持したままバックグラウンドでデータを更新する。
+    private func loadAll(silent: Bool = false) async {
+        if !silent { isLoading = true }
 
-        sources = (try? await services.tempVCSource.fetchSources(guildId: guildId)) ?? []
+        let fetched = (try? await services.tempVCSource.fetchSources(guildId: guildId)) ?? []
+        if !silent || !fetched.isEmpty {
+            sources = fetched
+        }
 
         if let url = URL(string: "\(DiscordConfig.workerURL)/bot/channels?guild_id=\(guildId)"),
            let (data, _) = try? await URLSession.shared.data(from: url) {
@@ -221,13 +234,14 @@ struct TempVCListView: View {
             }
         }
 
-        isLoading = false
+        if !silent { isLoading = false }
     }
 
     private func saveSource(_ source: TempVCSource) async {
         do {
             var saved: TempVCSource
             if source.id != nil {
+                // ── 更新：リスト内の該当行だけ差し替え ──────────────
                 saved = try await services.tempVCSource.updateSource(source)
 
                 if let triggerVcId = saved.triggerVcId {
@@ -238,11 +252,16 @@ struct TempVCListView: View {
                     )
                 }
 
+                withAnimation {
+                    if let idx = sources.firstIndex(where: { $0.id == saved.id }) {
+                        sources[idx] = saved
+                    }
+                }
                 showToast("✅ 保存しました")
             } else {
+                // ── 新規作成：先頭に追加 ──────────────────────────
                 saved = try await services.tempVCSource.createSource(source)
 
-                // トリガーVCが未作成の場合は作成
                 if saved.triggerVcId == nil {
                     saved = try await services.tempVCSource.createTriggerVc(
                         id: saved.effectiveId,
@@ -254,21 +273,26 @@ struct TempVCListView: View {
                 } else {
                     showToast("✅ 作成しました")
                 }
+
+                withAnimation { sources.insert(saved, at: 0) }
             }
 
             withAnimation { isEditing = false }
-            await loadAll()
         } catch {
             showToast("❌ 保存に失敗しました")
         }
     }
 
     private func deleteSource(_ source: TempVCSource) async {
+        // 楽観的削除：先にリストから消してトーストを表示
+        withAnimation { sources.removeAll { $0.id == source.id } }
+        showToast("🗑️ 削除しました")
+
         do {
             try await services.tempVCSource.deleteSource(id: source.effectiveId)
-            showToast("🗑️ 削除しました")
-            await loadAll()
         } catch {
+            // 失敗時は元に戻す
+            withAnimation { sources.append(source) }
             showToast("❌ 削除に失敗しました")
         }
     }
