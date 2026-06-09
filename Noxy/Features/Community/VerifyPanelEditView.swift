@@ -555,7 +555,7 @@ struct VerifyCreateRoleSheet: View {
         ScrollView(.horizontal, showsIndicators: false) {
             HStack(spacing: 8) {
                 ForEach(DiscordChannelPerm.allCases, id: \.self) { perm in
-                    let count = textChannels.filter { allowedPerms[$0.id]?.contains(perm) == true }.count
+                    let count = categoryGroups.filter { allowedPerms[$0.id]?.contains(perm) == true }.count
                     Button {
                         withAnimation(.easeInOut(duration: 0.15)) { activePermTab = perm }
                     } label: {
@@ -585,65 +585,85 @@ struct VerifyCreateRoleSheet: View {
             // 全選択/全解除
             HStack {
                 Button {
-                    for ch in textChannels { allowedPerms[ch.id, default: []].insert(activePermTab) }
+                    for group in categoryGroups { allowedPerms[group.id, default: []].insert(activePermTab) }
                 } label: { Text("全選択").font(.captionSmall).foregroundStyle(Color.accentIndigo) }
                 .buttonStyle(.plain)
                 Spacer()
                 Button {
-                    for ch in textChannels { allowedPerms[ch.id]?.remove(activePermTab) }
+                    for group in categoryGroups { allowedPerms[group.id]?.remove(activePermTab) }
                 } label: { Text("全解除").font(.captionSmall).foregroundStyle(Color.textTertiary) }
                 .buttonStyle(.plain)
             }
             .padding(.horizontal, 16)
 
             ForEach(categoryGroups) { group in
-                VStack(alignment: .leading, spacing: 8) {
-                    Text(group.name).font(.system(size: 10, weight: .semibold)).foregroundStyle(Color.textTertiary)
-                        .padding(.horizontal, 16)
-                    let cols = [GridItem(.flexible()), GridItem(.flexible()), GridItem(.flexible())]
-                    LazyVGrid(columns: cols, spacing: 8) {
-                        ForEach(group.channels, id: \.id) { ch in
-                            channelToggleButton(ch: ch)
-                        }
-                    }
-                    .padding(.horizontal, 16)
-                }
+                categoryToggleButton(group: group)
             }
         }
     }
 
-    private func channelToggleButton(ch: (id: String, name: String)) -> some View {
-        let isAllowed = allowedPerms[ch.id]?.contains(activePermTab) == true
-        return Button {
-            withAnimation(.easeInOut(duration: 0.15)) {
-                if isAllowed { allowedPerms[ch.id]?.remove(activePermTab) }
-                else { allowedPerms[ch.id, default: []].insert(activePermTab) }
-            }
-        } label: {
-            ZStack {
-                RoundedRectangle(cornerRadius: 8)
-                    .fill(isAllowed ? Color.accentGreen.opacity(0.15) : Color(.tertiarySystemGroupedBackground))
-                    .frame(height: 44)
-                    .overlay(RoundedRectangle(cornerRadius: 8).stroke(isAllowed ? Color.accentGreen : Color.clear, lineWidth: 2))
-                VStack(spacing: 2) {
-                    Image(systemName: "number").font(.system(size: 10))
+    private func categoryToggleButton(group: CategoryChannelGroup) -> some View {
+        let isAllowed = allowedPerms[group.id]?.contains(activePermTab) == true
+        return VStack(alignment: .leading, spacing: 0) {
+            Button {
+                withAnimation(.easeInOut(duration: 0.15)) {
+                    if isAllowed { allowedPerms[group.id]?.remove(activePermTab) }
+                    else { allowedPerms[group.id, default: []].insert(activePermTab) }
+                }
+            } label: {
+                HStack(spacing: 12) {
+                    ZStack {
+                        RoundedRectangle(cornerRadius: 8)
+                            .fill(isAllowed ? Color.accentGreen.opacity(0.15) : Color(.tertiarySystemGroupedBackground))
+                            .frame(width: 40, height: 40)
+                        Image(systemName: "folder.fill")
+                            .font(.system(size: 16))
+                            .foregroundStyle(isAllowed ? Color.accentGreen : Color.textTertiary)
+                    }
+                    VStack(alignment: .leading, spacing: 2) {
+                        Text(group.name).font(.bodySmall).fontWeight(.semibold)
+                            .foregroundStyle(isAllowed ? Color.accentGreen : Color.textPrimary)
+                        Text("\(group.channels.count)チャンネル").font(.captionSmall)
+                            .foregroundStyle(Color.textSecondary)
+                    }
+                    Spacer()
+                    Image(systemName: isAllowed ? "checkmark.circle.fill" : "circle")
                         .foregroundStyle(isAllowed ? Color.accentGreen : Color.textTertiary)
-                    Text(ch.name).font(.system(size: 10, weight: .medium))
-                        .foregroundStyle(isAllowed ? Color.accentGreen : Color.textSecondary)
-                        .lineLimit(1)
+                        .font(.system(size: 20))
                 }
             }
+            .buttonStyle(.plain)
+            .padding(.horizontal, 16)
+            .padding(.vertical, 8)
+
+            // カテゴリ内チャンネル一覧（表示のみ）
+            ForEach(group.channels, id: \.id) { ch in
+                HStack(spacing: 8) {
+                    Image(systemName: "number").font(.captionSmall).foregroundStyle(Color.textTertiary)
+                    Text(ch.name).font(.captionSmall).foregroundStyle(Color.textSecondary)
+                    Spacer()
+                }
+                .padding(.leading, 68)
+                .padding(.vertical, 2)
+            }
+            .padding(.bottom, 8)
         }
-        .buttonStyle(.plain)
+        .background(Color(.secondarySystemGroupedBackground))
+        .clipShape(RoundedRectangle(cornerRadius: 12))
+        .padding(.horizontal, 16)
     }
 
     private func createRole() async {
         guard !roleName.trimmingCharacters(in: .whitespaces).isEmpty else { return }
         isCreating = true; errorMessage = nil
-        let inputs: [ChannelPermissionInput] = textChannels.compactMap { ch in
-            let perms = allowedPerms[ch.id] ?? []
-            guard !perms.isEmpty else { return nil }
-            return ChannelPermissionInput(channelId: ch.id, allow: String(perms.map { Int64($0.rawValue)! }.reduce(0, |)), deny: "0")
+        // カテゴリ単位で権限を設定 → カテゴリ内の全チャンネルに同じ権限を適用
+        let inputs: [ChannelPermissionInput] = categoryGroups.flatMap { group in
+            let perms = allowedPerms[group.id] ?? []
+            guard !perms.isEmpty else { return [ChannelPermissionInput]() }
+            let allowValue = String(perms.map { Int64($0.rawValue)! }.reduce(0, |))
+            return group.channels.map { ch in
+                ChannelPermissionInput(channelId: ch.id, allow: allowValue, deny: "0")
+            }
         }
         do {
             let created = try await services.verify.createRole(guildId: guildId, name: roleName.trimmingCharacters(in: .whitespaces), color: Int(colorHex), channelPermissions: inputs)
@@ -716,7 +736,7 @@ struct EditRolePermissionsSheet: View {
                         ScrollView(.horizontal, showsIndicators: false) {
                             HStack(spacing: 8) {
                                 ForEach(DiscordChannelPerm.allCases, id: \.self) { perm in
-                                    let count = textChannels.filter { allowedPerms[$0.id]?.contains(perm) == true }.count
+                                    let count = categoryGroups.filter { allowedPerms[$0.id]?.contains(perm) == true }.count
                                     Button {
                                         withAnimation(.easeInOut(duration: 0.15)) { activePermTab = perm }
                                     } label: {
@@ -744,29 +764,19 @@ struct EditRolePermissionsSheet: View {
                         VStack(alignment: .leading, spacing: 16) {
                             HStack {
                                 Button {
-                                    for ch in textChannels { allowedPerms[ch.id, default: []].insert(activePermTab) }
+                                    for group in categoryGroups { allowedPerms[group.id, default: []].insert(activePermTab) }
                                 } label: { Text("全選択").font(.captionSmall).foregroundStyle(Color.accentIndigo) }
                                 .buttonStyle(.plain)
                                 Spacer()
                                 Button {
-                                    for ch in textChannels { allowedPerms[ch.id]?.remove(activePermTab) }
+                                    for group in categoryGroups { allowedPerms[group.id]?.remove(activePermTab) }
                                 } label: { Text("全解除").font(.captionSmall).foregroundStyle(Color.textTertiary) }
                                 .buttonStyle(.plain)
                             }
                             .padding(.horizontal, 16)
 
                             ForEach(categoryGroups) { group in
-                                VStack(alignment: .leading, spacing: 8) {
-                                    Text(group.name).font(.system(size: 10, weight: .semibold)).foregroundStyle(Color.textTertiary)
-                                        .padding(.horizontal, 16)
-                                    let cols = [GridItem(.flexible()), GridItem(.flexible()), GridItem(.flexible())]
-                                    LazyVGrid(columns: cols, spacing: 8) {
-                                        ForEach(group.channels, id: \.id) { ch in
-                                            channelToggle(ch: ch)
-                                        }
-                                    }
-                                    .padding(.horizontal, 16)
-                                }
+                                categoryToggleEdit(group: group)
                             }
                         }
 
@@ -790,42 +800,72 @@ struct EditRolePermissionsSheet: View {
         }
     }
 
-    private func channelToggle(ch: (id: String, name: String)) -> some View {
-        let isAllowed = allowedPerms[ch.id]?.contains(activePermTab) == true
-        return Button {
-            withAnimation(.easeInOut(duration: 0.15)) {
-                if isAllowed { allowedPerms[ch.id]?.remove(activePermTab) }
-                else { allowedPerms[ch.id, default: []].insert(activePermTab) }
-            }
-        } label: {
-            ZStack {
-                RoundedRectangle(cornerRadius: 8)
-                    .fill(isAllowed ? Color.accentGreen.opacity(0.15) : Color(.tertiarySystemGroupedBackground))
-                    .frame(height: 44)
-                    .overlay(RoundedRectangle(cornerRadius: 8).stroke(isAllowed ? Color.accentGreen : Color.clear, lineWidth: 2))
-                VStack(spacing: 2) {
-                    Image(systemName: "number").font(.system(size: 10))
+    private func categoryToggleEdit(group: CategoryChannelGroup) -> some View {
+        let isAllowed = allowedPerms[group.id]?.contains(activePermTab) == true
+        return VStack(alignment: .leading, spacing: 0) {
+            Button {
+                withAnimation(.easeInOut(duration: 0.15)) {
+                    if isAllowed { allowedPerms[group.id]?.remove(activePermTab) }
+                    else { allowedPerms[group.id, default: []].insert(activePermTab) }
+                }
+            } label: {
+                HStack(spacing: 12) {
+                    ZStack {
+                        RoundedRectangle(cornerRadius: 8)
+                            .fill(isAllowed ? Color.accentGreen.opacity(0.15) : Color(.tertiarySystemGroupedBackground))
+                            .frame(width: 40, height: 40)
+                        Image(systemName: "folder.fill")
+                            .font(.system(size: 16))
+                            .foregroundStyle(isAllowed ? Color.accentGreen : Color.textTertiary)
+                    }
+                    VStack(alignment: .leading, spacing: 2) {
+                        Text(group.name).font(.bodySmall).fontWeight(.semibold)
+                            .foregroundStyle(isAllowed ? Color.accentGreen : Color.textPrimary)
+                        Text("\(group.channels.count)チャンネル").font(.captionSmall)
+                            .foregroundStyle(Color.textSecondary)
+                    }
+                    Spacer()
+                    Image(systemName: isAllowed ? "checkmark.circle.fill" : "circle")
                         .foregroundStyle(isAllowed ? Color.accentGreen : Color.textTertiary)
-                    Text(ch.name).font(.system(size: 10, weight: .medium))
-                        .foregroundStyle(isAllowed ? Color.accentGreen : Color.textSecondary)
-                        .lineLimit(1)
+                        .font(.system(size: 20))
                 }
             }
+            .buttonStyle(.plain)
+            .padding(.horizontal, 16)
+            .padding(.vertical, 8)
+
+            // カテゴリ内チャンネル一覧（表示のみ）
+            ForEach(group.channels, id: \.id) { ch in
+                HStack(spacing: 8) {
+                    Image(systemName: "number").font(.captionSmall).foregroundStyle(Color.textTertiary)
+                    Text(ch.name).font(.captionSmall).foregroundStyle(Color.textSecondary)
+                    Spacer()
+                }
+                .padding(.leading, 68)
+                .padding(.vertical, 2)
+            }
+            .padding(.bottom, 8)
         }
-        .buttonStyle(.plain)
+        .background(Color(.secondarySystemGroupedBackground))
+        .clipShape(RoundedRectangle(cornerRadius: 12))
+        .padding(.horizontal, 16)
     }
 
     private func loadExistingPermissions() {
-        for ch in textChannels { allowedPerms[ch.id, default: []].insert(.viewChannel) }
+        for group in categoryGroups { allowedPerms[group.id, default: []].insert(.viewChannel) }
         initialPerms = allowedPerms
     }
 
     private func savePermissions() async {
         isSaving = true; errorMessage = nil
-        let inputs: [ChannelPermissionInput] = textChannels.compactMap { ch in
-            let perms = allowedPerms[ch.id] ?? []
-            guard !perms.isEmpty else { return nil }
-            return ChannelPermissionInput(channelId: ch.id, allow: String(perms.map { Int64($0.rawValue)! }.reduce(0, |)), deny: "0")
+        // カテゴリ単位で権限を設定 → カテゴリ内の全チャンネルに同じ権限を適用
+        let inputs: [ChannelPermissionInput] = categoryGroups.flatMap { group in
+            let perms = allowedPerms[group.id] ?? []
+            guard !perms.isEmpty else { return [ChannelPermissionInput]() }
+            let allowValue = String(perms.map { Int64($0.rawValue)! }.reduce(0, |))
+            return group.channels.map { ch in
+                ChannelPermissionInput(channelId: ch.id, allow: allowValue, deny: "0")
+            }
         }
         do {
             _ = try await services.verify.createRole(guildId: guildId, name: role.name, color: role.color, channelPermissions: inputs)

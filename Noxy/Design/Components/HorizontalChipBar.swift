@@ -97,7 +97,7 @@ struct HorizontalChipBar: UIViewRepresentable {
     }
 
     private func makeChipButton(title: String, tag: Int, color: UIColor, coordinator: Coordinator) -> UIButton {
-        let btn = UIButton(type: .system)
+        let btn = UIButton(type: .custom)
         btn.setTitle(title, for: .normal)
         btn.tag = tag
         btn.titleLabel?.font = UIFont.systemFont(ofSize: 12, weight: .semibold)

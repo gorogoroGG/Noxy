@@ -45,6 +45,7 @@ struct AutoResponsesListView: View {
                 }
                 toast = ToastMessage(type: .success, message: "保存しました")
             }
+            .id(editingResponse?.id ?? "new-auto-response")
         }
         .toast($toast)
         .task { await loadResponses() }

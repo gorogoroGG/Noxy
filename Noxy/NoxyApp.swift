@@ -12,6 +12,7 @@ struct NoxyApp: App {
 struct RootView: View {
     @State private var services: ServiceContainer
     @State private var authManager: AuthManager
+    @State private var appState = AppState()
     @State private var showSplash = true
     @AppStorage("hasSeenOnboarding") private var hasSeenOnboarding = false
 
@@ -38,11 +39,7 @@ struct RootView: View {
             } else if !hasSeenOnboarding {
                 OnboardingView()
             } else if !authManager.isLoggedIn {
-                #if DEBUG
-                MainTabView()
-                #else
                 LoginView()
-                #endif
             } else {
                 MainTabView()
             }
@@ -51,5 +48,6 @@ struct RootView: View {
         .animation(.easeInOut(duration: 0.3), value: authManager.isLoggedIn)
         .environment(\.services, services)
         .environment(authManager)
+        .environment(appState)
     }
 }

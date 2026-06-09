@@ -26,7 +26,7 @@ struct MoreTabView: View {
             .navigationBarTitleDisplayMode(.large)
         }
         .task { await loadSubStatus() }
-        .onReceive(NotificationCenter.default.publisher(for: UIApplication.willEnterForegroundNotification)) { _ in
+        .onReceive(NotificationCenter.default.publisher(for: PlatformHelper.willEnterForegroundNotification)) { _ in
             Task { await loadSubStatus() }
         }
     }

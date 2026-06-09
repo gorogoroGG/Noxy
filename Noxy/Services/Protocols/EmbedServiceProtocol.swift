@@ -2,6 +2,7 @@ import Foundation
 
 protocol EmbedServiceProtocol: Sendable {
     func fetchAll() async throws -> [EmbedModel]
+    func fetchByGuild(_ guildId: String) async throws -> [EmbedModel]
     func fetch(id: String) async throws -> EmbedModel
     func create(_ embed: EmbedModel) async throws -> EmbedModel
     func update(_ embed: EmbedModel) async throws -> EmbedModel

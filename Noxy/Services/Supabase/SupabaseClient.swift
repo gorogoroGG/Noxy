@@ -181,9 +181,13 @@ struct SupabaseClient: Sendable {
         } catch let error as SupabaseError {
             if case .httpError(let code, _) = error, code == 401 {
                 // トークン期限切れ → リフレッシュして再試行
+                #if DEBUG
                 print("[Supabase] 401 detected, refreshing token...")
+                #endif
                 if try await refreshToken() {
+                    #if DEBUG
                     print("[Supabase] token refreshed, retrying...")
+                    #endif
                     return try await performRequest(method: method, path: path, body: body)
                 }
             }
@@ -221,7 +225,9 @@ struct SupabaseClient: Sendable {
     private func refreshToken() async throws -> Bool {
         guard let refreshToken = KeychainHelper.load(forKey: "supabase_refresh_token"),
               !refreshToken.isEmpty else {
+            #if DEBUG
             print("[Supabase] no refresh token available")
+            #endif
             return false
         }
 
@@ -235,7 +241,9 @@ struct SupabaseClient: Sendable {
 
         let (data, response) = try await session.data(for: req)
         guard let http = response as? HTTPURLResponse, http.statusCode == 200 else {
+            #if DEBUG
             print("[Supabase] refresh failed")
+            #endif
             return false
         }
 
@@ -254,7 +262,9 @@ struct SupabaseClient: Sendable {
 
         KeychainHelper.save(resp.accessToken,  forKey: "supabase_access_token")
         KeychainHelper.save(resp.refreshToken, forKey: "supabase_refresh_token")
+        #if DEBUG
         print("[Supabase] token refreshed successfully")
+        #endif
         return true
     }
 

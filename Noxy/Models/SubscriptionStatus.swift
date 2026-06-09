@@ -19,7 +19,7 @@ struct SubscriptionStatus: Codable, Hashable {
 
     var isPro: Bool { isActive }
 
-    static let inactive = SubscriptionStatus(
+    nonisolated static let inactive = SubscriptionStatus(
         purchasedSlots: 0, usedSlots: 0,
         productId: nil, expiresAt: nil, activatedGuildIds: []
     )

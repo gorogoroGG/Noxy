@@ -143,8 +143,32 @@ struct ReactionRolesView: View {
         ZStack(alignment: .bottomTrailing) {
             Group {
                 if isLoading {
-                    ProgressView()
-                        .frame(maxWidth: .infinity, maxHeight: .infinity)
+                    ScrollView {
+                        LazyVStack(spacing: .spacing12) {
+                            ForEach(0..<3) { _ in
+                                VStack(alignment: .leading, spacing: .spacing8) {
+                                    HStack(spacing: .spacing8) {
+                                        RoundedRectangle(cornerRadius: 4)
+                                            .fill(Color.textTertiary.opacity(0.2))
+                                            .frame(width: 100, height: 16)
+                                        Spacer()
+                                        RoundedRectangle(cornerRadius: 4)
+                                            .fill(Color.textTertiary.opacity(0.15))
+                                            .frame(width: 60, height: 12)
+                                    }
+                                    RoundedRectangle(cornerRadius: 4)
+                                        .fill(Color.textTertiary.opacity(0.1))
+                                        .frame(width: 200, height: 12)
+                                }
+                                .padding(.spacing12)
+                                .background(Color.bgSurface)
+                                .clipShape(RoundedRectangle(cornerRadius: .cornerRadiusMedium))
+                            }
+                        }
+                        .padding(.horizontal, .spacing16)
+                        .padding(.top, .spacing16)
+                    }
+                    .transition(.opacity)
                 } else if items.isEmpty {
                     EmptyStateView(
                         icon: "heart.fill",
@@ -156,6 +180,7 @@ struct ReactionRolesView: View {
                         showEditor = true
                     }
                     .frame(maxWidth: .infinity, maxHeight: .infinity)
+                    .transition(.opacity)
                 } else {
                     ScrollView {
                         LazyVStack(spacing: .spacing12) {
@@ -171,6 +196,7 @@ struct ReactionRolesView: View {
                         .padding()
                         .padding(.bottom, 80)
                     }
+                    .transition(.opacity)
                 }
             }
             .background(Color(.systemGroupedBackground))
@@ -190,6 +216,7 @@ struct ReactionRolesView: View {
                 }
                 .padding(.trailing, .spacing20)
                 .padding(.bottom, .spacing24)
+                .transition(.scale.combined(with: .opacity))
             }
         }
         .navigationTitle("リアクションロール")
@@ -215,6 +242,7 @@ struct ReactionRolesView: View {
                 }
                 toast = ToastMessage(type: .success, message: "保存しました")
             }
+            .id(editingItem?.id ?? "new-reaction-role")
         }
         .sheet(item: $sendingItem) { item in
             ChannelPickerForPublishView(
@@ -231,7 +259,10 @@ struct ReactionRolesView: View {
         }
         .toast($toast)
         .task { await load() }
-        .onChange(of: appState.selectedGuildId) { Task { await load() } }
+        .onChange(of: appState.selectedGuildId) { _, _ in
+            isLoading = true
+            Task { await load() }
+        }
     }
 
     private func load() async {
@@ -240,7 +271,21 @@ struct ReactionRolesView: View {
             isLoading = false
             return
         }
-        items = (try? await services.reactionRoles.fetchAll(guildId: appState.selectedGuildId)) ?? []
+        // キャッシュから即座に表示（ちらつき防止）
+        if let cached = appState.cachedReactionRoles[appState.selectedGuildId] {
+            items = cached
+            isLoading = false
+        }
+        // バックグラウンドで最新データを取得
+        do {
+            let fetched = try await services.reactionRoles.fetchAll(guildId: appState.selectedGuildId)
+            items = fetched
+            appState.cacheReactionRoles(fetched, for: appState.selectedGuildId)
+        } catch {
+            if appState.cachedReactionRoles[appState.selectedGuildId] == nil {
+                items = []
+            }
+        }
         isLoading = false
     }
 

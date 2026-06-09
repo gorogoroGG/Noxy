@@ -4,11 +4,15 @@ struct MainTabView: View {
     @Environment(AuthManager.self)   private var authManager
     @Environment(\.services)         private var services
     @Environment(\.scenePhase)       private var scenePhase
-    @State private var appState = AppState()
+    @Environment(AppState.self)      private var appState
 
     var body: some View {
         Group {
-            if appState.isBotOffline {
+            if !appState.isAppReady {
+                AppLoadingOverlay()
+            } else if appState.isBotNotInAnyGuild {
+                BotNotInGuildView()
+            } else if appState.isBotOffline {
                 BotOfflineView {
                     await refreshBotStatus()
                 }
@@ -30,7 +34,6 @@ struct MainTabView: View {
                     }
                     .tint(Color.accentIndigo)
                     .mockBanner()
-                    .environment(appState)
 
                     // サーバー切り替え時の全画面ローディング
                     if appState.isSwitchingServer {
@@ -43,17 +46,68 @@ struct MainTabView: View {
                 .transition(.opacity)
             }
         }
+        .animation(.easeInOut(duration: 0.3), value: appState.isAppReady)
+        .animation(.easeInOut(duration: 0.3), value: appState.isBotNotInAnyGuild)
         .animation(.easeInOut(duration: 0.3), value: appState.isBotOffline)
-        .task { await loadSubscription() }
-        .task { await startBotPolling() }
+        .task(id: appState.needsReload) { await loadInitialData() }
         .onChange(of: scenePhase) { _, phase in
             guard phase == .active else { return }
             if appState.selectedGuild == nil, !appState.selectedGuildId.isEmpty {
                 Task { await restoreSelectedGuild() }
             }
-            // フォアグラウンド復帰時に即時再確認
-            Task { await refreshBotStatus() }
+            // フォアグラウンド復帰時に BotGuilds を再確認（招待後の自動検出）
+            Task { await recheckBotGuildsOnForeground() }
         }
+    }
+
+    // MARK: - Initial Loading
+
+    @MainActor
+    private func loadInitialData() async {
+        // Bot が入っているサーバー一覧取得
+        let botGuilds = (try? await DiscordService().fetchBotGuilds()) ?? []
+        appState.botGuilds = botGuilds
+
+        // Bot がどのサーバーにも入っていない場合はここで早期リターン
+        if botGuilds.isEmpty {
+            withAnimation(.easeInOut(duration: 0.3)) {
+                appState.isAppReady = true
+            }
+            return
+        }
+
+        // ユーザーが管理できるサーバー一覧（Discord OAuth）
+        let fetchedGuilds = (try? await services.guilds.fetchAll()) ?? []
+        let botGuildIds = Set(botGuilds.map(\.id))
+        appState.guilds = fetchedGuilds
+
+        // サーバー選択: Bot が入っているサーバーの中から優先
+        let storedId = appState.selectedGuildId
+        let g = fetchedGuilds.first { $0.id == storedId && botGuildIds.contains($0.id) }
+            ?? fetchedGuilds.first { botGuildIds.contains($0.id) }
+            ?? botGuilds.first
+        if let g {
+            appState.selectedGuildId = g.id
+            appState.selectedGuild = g
+        }
+
+        // サブスクリプション
+        let userId = KeychainHelper.load(forKey: "discord_user_id") ?? ""
+        let status = (try? await services.subscription.fetchStatus(discordUserId: userId)) ?? .inactive
+        withAnimation { appState.subscriptionStatus = status }
+
+        // Bot ステータス
+        let botStatus = (try? await services.bot.fetchStatus())
+            ?? BotStatus(isOnline: false, latency: 0, uptime: 0, activeGuilds: 0, totalCommands: 0)
+        withAnimation { appState.botStatus = botStatus }
+
+        // 準備完了
+        withAnimation(.easeInOut(duration: 0.3)) {
+            appState.isAppReady = true
+        }
+
+        // Bot ポーリング開始
+        await startBotPolling()
     }
 
     /// selectedGuild を DiscordAPI から取得して復元する
@@ -62,12 +116,6 @@ struct MainTabView: View {
               let match = guilds.first(where: { $0.id == appState.selectedGuildId }) else { return }
         appState.guilds       = guilds
         appState.selectedGuild = match
-    }
-
-    private func loadSubscription() async {
-        let userId = KeychainHelper.load(forKey: "discord_user_id") ?? ""
-        let status = (try? await services.subscription.fetchStatus(discordUserId: userId)) ?? .inactive
-        withAnimation { appState.subscriptionStatus = status }
     }
 
     private func startBotPolling() async {
@@ -81,9 +129,27 @@ struct MainTabView: View {
 
     @MainActor
     private func refreshBotStatus() async {
-        let status = (try? await services.bot.fetchStatus())
-            ?? BotStatus(isOnline: false, latency: 0, uptime: 0, activeGuilds: 0, totalCommands: 0)
+        guard let status = try? await services.bot.fetchStatus() else { return }
         withAnimation { appState.botStatus = status }
+    }
+
+    /// フォアグラウンド復帰時に BotGuilds を再確認（招待後の自動検出・再ロード）
+    @MainActor
+    private func recheckBotGuildsOnForeground() async {
+        // すでに guild が選択済みなら Bot ステータスのみ更新
+        guard appState.selectedGuild == nil else {
+            await refreshBotStatus()
+            return
+        }
+        let botGuilds = (try? await DiscordService().fetchBotGuilds()) ?? []
+        if !botGuilds.isEmpty {
+            withAnimation(.easeInOut(duration: 0.3)) {
+                appState.botGuilds = botGuilds
+                appState.needsReload.toggle()
+            }
+        } else {
+            await refreshBotStatus()
+        }
     }
 }
 
@@ -140,6 +206,178 @@ private struct ServerSwitchingOverlay: View {
             withAnimation(.spring(duration: 0.4)) {
                 scale   = 1.0
                 opacity = 1.0
+            }
+        }
+    }
+}
+
+// MARK: - AppLoadingOverlay
+
+private struct AppLoadingOverlay: View {
+    @State private var scale: CGFloat = 0.8
+    @State private var opacity: Double = 0
+
+    var body: some View {
+        ZStack {
+            Color.bgPrimary.ignoresSafeArea()
+
+            VStack(spacing: .spacing20) {
+                // アプリアイコン
+                RoundedRectangle(cornerRadius: .cornerRadiusLarge)
+                    .fill(
+                        LinearGradient(
+                            colors: [Color.accentIndigo, Color.accentPink],
+                            startPoint: .topLeading,
+                            endPoint: .bottomTrailing
+                        )
+                    )
+                    .frame(width: 96, height: 96)
+                    .overlay {
+                        Image(systemName: "bubble.left.and.bubble.right.fill")
+                            .font(.system(size: 36, weight: .bold))
+                            .foregroundStyle(.white)
+                    }
+                    .shadow(color: Color.accentIndigo.opacity(0.4), radius: 20, x: 0, y: 10)
+                    .scaleEffect(scale)
+
+                VStack(spacing: .spacing12) {
+                    ProgressView()
+                        .tint(Color.accentIndigo)
+
+                    Text("読み込み中...")
+                        .font(.bodySmall)
+                        .foregroundStyle(Color.textSecondary)
+                        .opacity(opacity)
+                }
+            }
+        }
+        .onAppear {
+            withAnimation(.spring(duration: 0.4)) {
+                scale   = 1.0
+                opacity = 1.0
+            }
+        }
+    }
+}
+
+// MARK: - BotNotInGuildView
+
+private struct BotNotInGuildView: View {
+    @Environment(AppState.self) private var appState
+    @State private var isChecking = false
+    @State private var errorMessage: String? = nil
+
+    var body: some View {
+        ZStack {
+            Color.bgPrimary.ignoresSafeArea()
+
+            VStack(spacing: .spacing24) {
+                Spacer()
+
+                // アプリアイコン
+                RoundedRectangle(cornerRadius: .cornerRadiusLarge)
+                    .fill(
+                        LinearGradient(
+                            colors: [Color.accentIndigo, Color.accentPink],
+                            startPoint: .topLeading,
+                            endPoint: .bottomTrailing
+                        )
+                    )
+                    .frame(width: 120, height: 120)
+                    .overlay {
+                        Image(systemName: "bubble.left.and.bubble.right.fill")
+                            .font(.system(size: 48, weight: .bold))
+                            .foregroundStyle(.white)
+                    }
+                    .shadow(color: Color.accentIndigo.opacity(0.4), radius: 30, x: 0, y: 15)
+
+                VStack(spacing: .spacing12) {
+                    Text("Botをサーバーに追加してください")
+                        .font(.titleLarge)
+                        .fontWeight(.bold)
+                        .foregroundStyle(Color.textPrimary)
+                        .multilineTextAlignment(.center)
+
+                    Text("このアプリを使うには、DiscordサーバーにNoxy Botを追加する必要があります。")
+                        .font(.bodyRegular)
+                        .foregroundStyle(Color.textSecondary)
+                        .multilineTextAlignment(.center)
+                        .padding(.horizontal, .spacing32)
+                }
+
+                Spacer()
+
+                VStack(spacing: .spacing16) {
+                    Button {
+                        openBotInviteURL()
+                    } label: {
+                        HStack(spacing: .spacing12) {
+                            Image(systemName: "plus.circle.fill")
+                                .font(.system(size: 20))
+                                .foregroundStyle(.white)
+                            Text("Botをサーバーに追加")
+                                .font(.titleMedium)
+                                .foregroundStyle(.white)
+                        }
+                        .frame(maxWidth: .infinity)
+                        .frame(height: 56)
+                        .background(Color.accentIndigo)
+                        .clipShape(RoundedRectangle(cornerRadius: .cornerRadiusMedium))
+                    }
+                    .buttonStyle(ScalePressButtonStyle())
+                    .padding(.horizontal, .spacing24)
+
+                    if let error = errorMessage {
+                        Text(error)
+                            .font(.captionRegular)
+                            .foregroundStyle(.red)
+                            .multilineTextAlignment(.center)
+                            .padding(.horizontal, .spacing24)
+                    }
+
+                    if isChecking {
+                        HStack(spacing: .spacing8) {
+                            ProgressView()
+                                .tint(Color.accentIndigo)
+                            Text("サーバーを確認中...")
+                                .font(.bodySmall)
+                                .foregroundStyle(Color.textSecondary)
+                        }
+                    }
+                }
+                .padding(.bottom, .spacing48)
+            }
+        }
+        .task {
+            // 30秒ごとに再確認（Botが追加されたかどうか）
+            while true {
+                try? await Task.sleep(for: .seconds(30))
+                guard !Task.isCancelled else { return }
+                await recheckBotGuilds()
+            }
+        }
+    }
+
+    private func openBotInviteURL() {
+        Task {
+            if let url = try? await DiscordService().generalInviteURL() {
+                PlatformHelper.openURL(url)
+            } else if let fallback = URL(string: "https://discord.com/oauth2/authorize?client_id=1257646175054245918&scope=bot&permissions=8") {
+                // フォールバック: Noxy Bot のクライアント ID を直接指定
+                PlatformHelper.openURL(fallback)
+            }
+        }
+    }
+
+    @MainActor
+    private func recheckBotGuilds() async {
+        isChecking = true
+        defer { isChecking = false }
+        let botGuilds = (try? await DiscordService().fetchBotGuilds()) ?? []
+        if !botGuilds.isEmpty {
+            withAnimation(.easeInOut(duration: 0.3)) {
+                appState.botGuilds = botGuilds
+                appState.needsReload.toggle()
             }
         }
     }

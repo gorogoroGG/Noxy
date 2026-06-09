@@ -1,0 +1,146 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>サポート — Noxy</title>
+  <meta name="description" content="Noxyアプリのサポートページ。よくある質問、トラブルシューティング、お問い合わせ方法をご案内しています。">
+  <link rel="stylesheet" href="css/style.css">
+  <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><rect width='100' height='100' rx='20' fill='%236366f1'/><text x='50' y='70' font-size='55' text-anchor='middle' fill='white' font-weight='bold'>N</text></svg>">
+</head>
+<body>
+  <nav>
+    <div class="container nav-inner">
+      <a href="index.html" class="logo">
+        <span class="logo-icon">N</span>
+        Noxy
+      </a>
+      <ul class="nav-links">
+        <li><a href="index.html">ホーム</a></li>
+        <li><a href="support.html">サポート</a></li>
+        <li><a href="privacy.html">プライバシー</a></li>
+      </ul>
+    </div>
+  </nav>
+
+  <main class="content-page">
+    <div class="container">
+      <h1>サポート</h1>
+      <span class="last-updated">Noxy アプリの使い方やトラブルについてご案内します</span>
+
+      <h2>よくある質問（FAQ）</h2>
+
+      <div class="faq-item">
+        <h3>Noxyとは何ですか？</h3>
+        <p>Noxyは、Discordサーバーのオーナーや管理者向けのiOSアプリです。iPhoneからサーバーのモデレーション、ロール管理、チケット対応、自動返信、Embed作成などが行えます。</p>
+      </div>
+
+      <div class="faq-item">
+        <h3>Discordアカウントでログインできません</h3>
+        <p>以下をご確認ください：</p>
+        <ul>
+          <li>iOSの設定で Safari が正常に動作しているか確認してください。</li>
+          <li>Discordアカウントが有効であり、2要素認証が正しく設定されているか確認してください。</li>
+          <li>アプリを再起動し、再度ログインをお試しください。</li>
+        </ul>
+      </div>
+
+      <div class="faq-item">
+        <h3>サーバーがリストに表示されません</h3>
+        <p>以下の条件を満たしている必要があります：</p>
+        <ul>
+          <li>そのサーバーの管理者・モデレーター権限を持っていること</li>
+          <li>Noxy Botがサーバーに招待されていること（サーバーダッシュボードの「Botを追加」から招待できます）</li>
+          <li>Discordアプリ側でサーバーへの参加が正常に完了していること</li>
+        </ul>
+      </div>
+
+      <div class="faq-item">
+        <h3>Proプランとは何ですか？</h3>
+        <p>Proプランでは、以下の機能が利用可能になります：</p>
+        <ul>
+          <li>複数サーバーの同時管理（スロット制）</li>
+          <li>定期投稿・予約投稿機能</li>
+          <li>詳細な分析ダッシュボード</li>
+          <li>優先サポート</li>
+        </ul>
+        <p>購入はApp Storeのサブスクリプションまたはワンタイム購入から行えます。</p>
+      </div>
+
+      <div class="faq-item">
+        <h3>サブスクリプションを解約したい</h3>
+        <p>解約は iPhone の「設定」>「Apple ID」>「サブスクリプション」から行えます。次回更新日以降、自動的にPro機能へのアクセスが停止されます。データ自体は削除されません。</p>
+      </div>
+
+      <div class="faq-item">
+        <h3>Botの反応が遅い・止まっている</h3>
+        <p>以下をお試しください：</p>
+        <ul>
+          <li>アプリ内のダッシュボードで「Botステータス」を確認してください。</li>
+          <li>Discordサーバー側で Noxy Bot の権限が正しく設定されているか確認してください。</li>
+          <li>問題が継続する場合、一度Botをキックしてから再招待してください。</li>
+        </ul>
+      </div>
+
+      <div class="faq-item">
+        <h3>データはどこに保存されていますか？</h3>
+        <p>認証トークンはお使いのiPhone内の安全な領域（Keychain）に保存されます。サーバー管理設定は、当方のCloudflare WorkersおよびSupabaseインフラに暗号化されて保存されます。詳細は<a href="privacy.html">プライバシーポリシー</a>をご覧ください。</p>
+      </div>
+
+      <h2>トラブルシューティング</h2>
+
+      <div class="faq-item">
+        <h3>アプリがクラッシュする</h3>
+        <p>iOSを最新バージョンにアップデートし、アプリを再起動してください。問題が続く場合は、以下をお問い合わせの際にご記載ください：</p>
+        <ul>
+          <li>iOSのバージョン（例: iOS 18.2）</li>
+          <li>使用しているiPhoneの機種</li>
+          <li>クラッシュが発生した画面と操作手順</li>
+        </ul>
+      </div>
+
+      <div class="faq-item">
+        <h3>通知が届かない</h3>
+        <p>iPhoneの「設定」>「Noxy」>「通知」で、通知が許可されているか確認してください。また、Discordサーバー側で Noxy Bot の権限に「メッセージを送信」が含まれているか確認してください。</p>
+      </div>
+
+      <div class="faq-item">
+        <h3>購入が反映されない</h3>
+        <p>App Store側での購入処理が完了するまで数分かかることがあります。アプリを完全に終了（アプリスイッチャーからスワイプアップ）して再起動してください。それでも反映されない場合は、App Storeの「購入を復元」機能をお試しください。</p>
+      </div>
+
+      <h2>機能リクエスト・バグ報告</h2>
+      <p>アプリの改善にご協力いただける場合は、以下の情報を添えてご連絡ください：</p>
+      <ul>
+        <li>ご希望の機能や再現手順</li>
+        <li>発生頻度（毎回 / 時々 / 一度だけ）</li>
+        <li>スクリーンショットや画面録画（可能な場合）</li>
+      </ul>
+
+      <div class="contact-box">
+        <h3 style="margin-bottom: 12px; font-size: 1.2rem;">Discord サポートサーバー</h3>
+        <p style="color: var(--text-muted); margin-bottom: 20px;">
+          上記で解決しない場合は、Discord サーバーにてお問い合わせください。<br>
+          コミュニティメンバーや開発者が迅速にサポートいたします。
+        </p>
+        <iframe src="https://discord.com/widget?id=1513530319901561003&theme=dark" width="100%" height="320" allowtransparency="true" frameborder="0" sandbox="allow-popups allow-popups-to-escape-sandbox allow-same-origin allow-scripts" style="border-radius: 12px; max-width: 400px;"></iframe>
+        <p style="margin-top: 16px;">
+          <a href="https://discord.gg/H9Qg2nZw6c" class="email" target="_blank" rel="noopener">discord.gg/H9Qg2nZw6c</a>
+        </p>
+      </div>
+    </div>
+  </main>
+
+  <footer>
+    <div class="container">
+      <p>&copy; 2026 Yugo Imai. All rights reserved.</p>
+      <p style="margin-top: 8px;">
+        <a href="index.html">ホーム</a>
+        <a href="support.html">サポート</a>
+        <a href="privacy.html">プライバシーポリシー</a>
+        <a href="https://discord.gg/H9Qg2nZw6c" target="_blank" rel="noopener">Discord</a>
+      </p>
+    </div>
+  </footer>
+</body>
+</html>

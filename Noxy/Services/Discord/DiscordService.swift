@@ -3,16 +3,16 @@ import Foundation
     // MARK: - Discord 設定
 
 struct DiscordConfig {
-    static var workerURL: String {
+    nonisolated static var workerURL: String {
         "https://noxy-scheduler.watch-yugo.workers.dev"
     }
     /// Worker API 認証シークレット (#1)
     /// wrangler secret put WORKER_API_SECRET で設定した値と一致させる
-    static let workerAPISecret: String = {
-        // Keychain に保存されていればそちらを優先
-        KeychainHelper.load(forKey: "worker_api_secret") ?? "change_me_before_deploy"
-    }()
-    static var userAccessToken: String {
+    nonisolated static var workerAPISecret: String {
+        // Keychain に保存されていればそちらを優先。未設定時は空文字（ヘッダー送信しない）
+        KeychainHelper.load(forKey: "worker_api_secret") ?? ""
+    }
+    nonisolated static var userAccessToken: String {
         KeychainHelper.load(forKey: "discord_access_token") ?? ""
     }
 
@@ -20,7 +20,9 @@ struct DiscordConfig {
     static func makeWorkerRequest(url: URL, method: String = "GET") -> URLRequest {
         var req = URLRequest(url: url, timeoutInterval: 15)
         req.httpMethod = method
-        req.setValue(workerAPISecret, forHTTPHeaderField: "X-Bot-Secret")
+        if !workerAPISecret.isEmpty {
+            req.setValue(workerAPISecret, forHTTPHeaderField: "X-Bot-Secret")
+        }
         return req
     }
 }
@@ -151,6 +153,16 @@ struct DiscordService: GuildServiceProtocol {
         return inviteUrl
     }
 
+    /// 汎用 Bot 招待 URL（guild_id 指定なし）
+    func generalInviteURL() async throws -> URL? {
+        let url = URL(string: "\(DiscordConfig.workerURL)/bot/invite-url")!
+        let (data, response) = try await session.data(for: workerRequest(url: url))
+        guard let http = response as? HTTPURLResponse, http.statusCode == 200 else {
+            return nil
+        }
+        return URL(string: String(data: data, encoding: .utf8) ?? "")
+    }
+
     /// サーバーロール一覧（Worker 経由）
     func fetchRoles(guildId: String) async throws -> [DiscordRole] {
         let url = URL(string: "\(DiscordConfig.workerURL)/bot/roles?guild_id=\(guildId)")!
@@ -180,7 +192,9 @@ struct DiscordService: GuildServiceProtocol {
     /// Worker リクエストに認証ヘッダーを付与 (#1)
     private func workerRequest(url: URL) -> URLRequest {
         var req = URLRequest(url: url, timeoutInterval: 15)
-        req.setValue(DiscordConfig.workerAPISecret, forHTTPHeaderField: "X-Bot-Secret")
+        if !DiscordConfig.workerAPISecret.isEmpty {
+            req.setValue(DiscordConfig.workerAPISecret, forHTTPHeaderField: "X-Bot-Secret")
+        }
         return req
     }
 

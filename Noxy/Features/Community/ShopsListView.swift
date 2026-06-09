@@ -50,6 +50,7 @@ struct ShopsListView: View {
 private struct ShopPanelListView: View {
     let guildId: String
     @Environment(\.services) private var services
+    @Environment(AppState.self) private var appState
     @State private var shops: [Shop] = []
     @State private var productCounts: [String: Int] = [:]
     @State private var isLoading = true
@@ -66,13 +67,34 @@ private struct ShopPanelListView: View {
         ZStack(alignment: .bottom) {
             List {
                 if isLoading {
-                    HStack { Spacer(); ProgressView(); Spacer() }
+                    ForEach(0..<3) { _ in
+                        VStack(alignment: .leading, spacing: .spacing8) {
+                            HStack(spacing: .spacing8) {
+                                RoundedRectangle(cornerRadius: 4)
+                                    .fill(Color.textTertiary.opacity(0.2))
+                                    .frame(width: 100, height: 18)
+                                Spacer()
+                                RoundedRectangle(cornerRadius: 4)
+                                    .fill(Color.textTertiary.opacity(0.15))
+                                    .frame(width: 50, height: 14)
+                            }
+                            RoundedRectangle(cornerRadius: 4)
+                                .fill(Color.textTertiary.opacity(0.1))
+                                .frame(width: 180, height: 12)
+                        }
+                        .padding(.spacing12)
+                        .background(Color.bgSurface)
+                        .clipShape(RoundedRectangle(cornerRadius: .cornerRadiusMedium))
                         .listRowBackground(Color(.systemGroupedBackground))
-                        .listRowSeparator(.hidden).padding(.top, 40)
+                        .listRowSeparator(.hidden)
+                        .padding(.top, 8)
+                    }
+                    .transition(.opacity)
                 } else if shops.isEmpty {
                     emptyState
                         .listRowBackground(Color(.systemGroupedBackground))
                         .listRowSeparator(.hidden)
+                        .transition(.opacity)
                 } else {
                     ForEach(shops) { shop in
                         let count = productCounts[shop.id] ?? 0
@@ -171,7 +193,10 @@ private struct ShopPanelListView: View {
             Text("新しいメッセージとしてDiscordに投稿されます。既存のパネルは更新されません。")
         }
         .task { await load() }
-        .onChange(of: guildId) { _, _ in Task { await load() } }
+        .onChange(of: guildId) { _, _ in
+            isLoading = true
+            Task { await load() }
+        }
     }
 
     private var emptyState: some View {
@@ -189,7 +214,21 @@ private struct ShopPanelListView: View {
 
     private func load() async {
         isLoading = true
-        shops = (try? await services.shops.fetchShops(guildId: guildId)) ?? []
+        // キャッシュから即座に表示（ちらつき防止）
+        if let cached = appState.cachedShops[guildId] {
+            shops = cached
+            isLoading = false
+        }
+        // バックグラウンドで最新データを取得
+        do {
+            let fetched = try await services.shops.fetchShops(guildId: guildId)
+            shops = fetched
+            appState.cacheShops(fetched, for: guildId)
+        } catch {
+            if appState.cachedShops[guildId] == nil {
+                shops = []
+            }
+        }
         await loadProductCounts()
         isLoading = false
     }

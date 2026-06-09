@@ -9,7 +9,7 @@ enum KeychainHelper {
     // MARK: - Save
 
     @discardableResult
-    static func save(_ value: String, forKey key: String) -> Bool {
+    nonisolated static func save(_ value: String, forKey key: String) -> Bool {
         guard let data = value.data(using: .utf8) else { return false }
 
         let query: [String: Any] = [
@@ -32,7 +32,7 @@ enum KeychainHelper {
 
     // MARK: - Load
 
-    static func load(forKey key: String) -> String? {
+    nonisolated static func load(forKey key: String) -> String? {
         let query: [String: Any] = [
             kSecClass as String:       kSecClassGenericPassword,
             kSecAttrService as String: service,
@@ -49,7 +49,7 @@ enum KeychainHelper {
     // MARK: - Delete
 
     @discardableResult
-    static func delete(forKey key: String) -> Bool {
+    nonisolated static func delete(forKey key: String) -> Bool {
         let query: [String: Any] = [
             kSecClass as String:       kSecClassGenericPassword,
             kSecAttrService as String: service,
@@ -62,7 +62,7 @@ enum KeychainHelper {
     // MARK: - Migrate from UserDefaults
 
     /// アプリ起動時に一度呼ぶ。UserDefaults にトークンが残っていれば Keychain に移行してから削除する
-    static func migrateFromUserDefaults() {
+    nonisolated static func migrateFromUserDefaults() {
         let keys = [
             "supabase_access_token",
             "supabase_refresh_token",

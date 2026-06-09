@@ -599,18 +599,24 @@ struct ShopEditView: View {
             shop.welcomeFooterIconUrl = welcomeFooterIconUrl.isEmpty ? nil : welcomeFooterIconUrl
             shop.welcomeShowTimestamp = welcomeShowTimestamp
 
+            #if DEBUG
             print("[ShopEditView] save: isNew=\(isNew), shop.id=\(shop.id), guildId=\(shop.guildId)")
             print("[ShopEditView] save: name=\(shop.name), color=\(shop.color), reviewEnabled=\(shop.reviewEnabled)")
+            #endif
 
             let saved = isNew
                 ? try await services.shops.createShop(shop)
                 : try await services.shops.updateShop(shop)
 
+            #if DEBUG
             print("[ShopEditView] save: success, returned id=\(saved.id)")
+            #endif
             onSave(saved)
             dismiss()
         } catch {
+            #if DEBUG
             print("[ShopEditView] save: error=\(error)")
+            #endif
             errorMessage = "保存に失敗しました: \(error.localizedDescription)"
         }
         isSaving = false

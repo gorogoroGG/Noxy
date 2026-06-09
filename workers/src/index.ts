@@ -807,6 +807,25 @@ export default {
       });
     }
 
+    // Bot ステータス（認証不要・Discord API 使用）
+    if (url.pathname === '/bot/status') {
+      const start = Date.now();
+      let isOnline = false;
+      let latency = 0;
+      try {
+        const dcResp = await fetch('https://discord.com/api/v10/users/@me', {
+          headers: { Authorization: `Bot ${env.DISCORD_BOT_TOKEN}` },
+        });
+        latency = Date.now() - start;
+        isOnline = dcResp.ok;
+      } catch {
+        isOnline = false;
+      }
+      return new Response(JSON.stringify({ isOnline, latency, uptime: 0, activeGuilds: 0, totalCommands: 0, timestamp: new Date().toISOString() }), {
+        headers: { 'Content-Type': 'application/json', 'Access-Control-Allow-Origin': '*' },
+      });
+    }
+
     // ── 認証ページ（Cloudflare Turnstile）──────────────────────
     // GET /verify/{panelId}?u={userId}&g={guildId}&exp={expiry}&sig={hmac}
     const verifyPageMatch = url.pathname.match(/^\/verify\/([^/]+)$/);
@@ -1127,6 +1146,31 @@ export default {
         headers: { Authorization: `Bot ${env.DISCORD_BOT_TOKEN}` },
       });
       const guilds: Array<{ id: string; name: string; icon: string | null; owner: boolean }> = await resp.json();
+
+      // Supabase guilds テーブルに UPSERT（存在しないサーバーは自動追加）
+      try {
+        await Promise.all(guilds.map(async (g) => {
+          const iconUrl = g.icon ? `https://cdn.discordapp.com/icons/${g.id}/${g.icon}.png` : null;
+          await sb(`/guilds?on_conflict=id`, {
+            method: 'POST',
+            headers: {
+              'Prefer': 'resolution=merge-duplicates,return=representation',
+            },
+            body: JSON.stringify({
+              id: g.id,
+              discord_id: g.id,
+              name: g.name,
+              icon_url: iconUrl,
+              member_count: 0,
+              user_role: '',
+              category: '',
+            }),
+          });
+        }));
+      } catch (e) {
+        console.error('[Worker] Failed to sync guilds to Supabase:', e);
+      }
+
       return new Response(JSON.stringify(guilds), {
         headers: { "Content-Type": "application/json" },
       });
@@ -1529,11 +1573,11 @@ export default {
       }
     }
 
-    // Bot招待URL
+    // Bot招待URL（管理者権限付き）
     if (url.pathname === "/bot/invite-url") {
       const guildId = url.searchParams.get("guild_id") || "";
-      // MoveMembers (16777216) を追加
-      const permissions = "2164262912";
+      // Administrator (8) = サーバー管理者権限
+      const permissions = "8";
       const inviteUrl = "https://discord.com/api/oauth2/authorize"
         + `?client_id=${env.DISCORD_CLIENT_ID}`
         + `&permissions=${permissions}`
@@ -1549,14 +1593,17 @@ export default {
     // チケット作成 POST /bot/tickets/create
     if (url.pathname === '/bot/tickets/create' && request.method === 'POST') {
       try {
-        const body = await request.json() as { guildId: string; subject: string; openedByUserId?: string };
-        if (!body.guildId || !body.subject?.trim())
+        const body = await request.json() as Record<string, unknown>;
+        const guildId = (body.guildId ?? body.guild_id ?? '') as string;
+        const subject = (body.subject ?? body.subject ?? '') as string;
+        const openedByUserId = (body.openedByUserId ?? body.opened_by_user_id ?? 'admin') as string;
+        if (!guildId || !subject?.trim())
           return new Response('guildId and subject are required', { status: 400 });
 
         // Discord にチャンネルを作成
         const suffix      = Date.now().toString().slice(-4);
         const channelName = `ticket-admin-${suffix}`;
-        const chResp = await fetch(`https://discord.com/api/v10/guilds/${body.guildId}/channels`, {
+        const chResp = await fetch(`https://discord.com/api/v10/guilds/${guildId}/channels`, {
           method: 'POST',
           headers: { Authorization: `Bot ${env.DISCORD_BOT_TOKEN}`, 'Content-Type': 'application/json' },
           body: JSON.stringify({ name: channelName, type: 0 }),
@@ -1567,10 +1614,10 @@ export default {
         const sbRes = await sb('/tickets', {
           method:  'POST',
           body:    JSON.stringify({
-            guild_id:          body.guildId,
+            guild_id:          guildId,
             channel_id:        channelId,
-            opened_by_user_id: body.openedByUserId ?? 'admin',
-            subject:           body.subject.trim(),
+            opened_by_user_id: openedByUserId,
+            subject:           subject.trim(),
           }),
           headers: { Prefer: 'return=representation' },
         });
@@ -1810,8 +1857,9 @@ export default {
     const ticketAssignMatch = url.pathname.match(/^\/bot\/tickets\/([^\/]+)\/assign$/);
     if (ticketAssignMatch && request.method === 'POST') {
       const id = ticketAssignMatch[1];
-      const body = await request.json() as { userId: string };
-      if (!body.userId?.trim()) return new Response('userId is required', { status: 400 });
+      const body = await request.json() as Record<string, unknown>;
+      const userId = (body.userId ?? body.user_id ?? '') as string;
+      if (!userId?.trim()) return new Response('userId is required', { status: 400 });
 
       const ticketResp = await sb(`/tickets?id=eq.${id}`);
       const tickets = await ticketResp.json() as TicketRow[];
@@ -1820,12 +1868,12 @@ export default {
 
       await sb(`/tickets?id=eq.${id}`, {
         method: 'PATCH',
-        body: JSON.stringify({ assigned_to_user_id: body.userId }),
+        body: JSON.stringify({ assigned_to_user_id: userId }),
       });
 
       // Discord チャンネルに担当者を追加
       try {
-        await fetch(`https://discord.com/api/v10/channels/${ticket.channel_id}/permissions/${body.userId}`, {
+        await fetch(`https://discord.com/api/v10/channels/${ticket.channel_id}/permissions/${userId}`, {
           method: 'PUT',
           headers: { Authorization: `Bot ${env.DISCORD_BOT_TOKEN}`, 'Content-Type': 'application/json' },
           body: JSON.stringify({ allow: '117760', type: 1 }),
@@ -1853,28 +1901,22 @@ export default {
     if (url.pathname === '/bot/ticket-panels' && request.method === 'POST') {
       try {
         // iOS は camelCase で送信する
-        const body = await request.json() as {
-          guildId?: string; channelId?: string; title?: string; description?: string;
-          color?: number; buttonLabel?: string; buttonEmoji?: string;
-          supportRoleId?: string | null; openCategoryId?: string | null;
-          closedCategoryId?: string | null; ticketMsgContent?: string | null;
-          ticketEmbedTitle?: string; ticketEmbedColor?: number; maxOpenPerUser?: number;
-        };
+        const body = await request.json() as Record<string, unknown>;
         const insertData = {
-          guild_id:          body.guildId          ?? '',
-          channel_id:        body.channelId        ?? '',
-          title:             body.title            ?? 'サポートチケット',
-          description:       body.description      ?? '',
-          color:             body.color            ?? 0x6366f1,
-          button_label:      body.buttonLabel      ?? 'チケットを作成',
-          button_emoji:      body.buttonEmoji      ?? '🎫',
-          support_role_id:   body.supportRoleId    ?? null,
-          open_category_id:  body.openCategoryId   ?? null,
-          closed_category_id:body.closedCategoryId ?? null,
-          ticket_msg_content:body.ticketMsgContent ?? null,
-          ticket_embed_title:body.ticketEmbedTitle ?? 'チケット',
-          ticket_embed_color:body.ticketEmbedColor ?? 0x6366f1,
-          max_open_per_user: body.maxOpenPerUser   ?? 1,
+          guild_id:          (body.guildId ?? body.guild_id ?? '') as string,
+          channel_id:        (body.channelId ?? body.channel_id ?? '') as string,
+          title:             (body.title ?? body.title ?? 'サポートチケット') as string,
+          description:       (body.description ?? body.description ?? '') as string,
+          color:             (body.color ?? body.color ?? 0x6366f1) as number,
+          button_label:      (body.buttonLabel ?? body.button_label ?? 'チケットを作成') as string,
+          button_emoji:      (body.buttonEmoji ?? body.button_emoji ?? '🎫') as string,
+          support_role_id:   (body.supportRoleId ?? body.support_role_id ?? null) as string | null,
+          open_category_id:  (body.openCategoryId ?? body.open_category_id ?? null) as string | null,
+          closed_category_id:(body.closedCategoryId ?? body.closed_category_id ?? null) as string | null,
+          ticket_msg_content:(body.ticketMsgContent ?? body.ticket_msg_content ?? null) as string | null,
+          ticket_embed_title:(body.ticketEmbedTitle ?? body.ticket_embed_title ?? 'チケット') as string,
+          ticket_embed_color:(body.ticketEmbedColor ?? body.ticket_embed_color ?? 0x6366f1) as number,
+          max_open_per_user: (body.maxOpenPerUser ?? body.max_open_per_user ?? 1) as number,
         };
         const resp = await sb('/ticket_panels', {
           method: 'POST',
@@ -1932,11 +1974,11 @@ export default {
     if (panelDeployMatch && request.method === 'POST') {
       const id = panelDeployMatch[1];
       try {
-        // channelId をリクエストボディから受け取る
+        // channelId / channel_id をリクエストボディから受け取る（iOS は snake_case で送信する）
         let bodyChannelId = '';
         try {
-          const body = await request.json() as { channelId?: string };
-          bodyChannelId = body.channelId ?? '';
+          const body = await request.json() as { channelId?: string; channel_id?: string };
+          bodyChannelId = body.channelId ?? body.channel_id ?? '';
         } catch { /* body なし */ }
 
         const panelResp = await sb(`/ticket_panels?id=eq.${id}`);
@@ -1956,6 +1998,18 @@ export default {
         }
 
         // Discord にパネルメッセージを投稿
+        const btnComponent: Record<string, unknown> = {
+          type:      2,
+          style:     1,
+          label:     panel.button_label,
+          custom_id: `ticket_open_${panel.id}`,
+        };
+        // button_emoji が空でなければ emoji を追加（variation selector も除去）
+        const cleanEmoji = (panel.button_emoji ?? '').replace(/\uFE0F/g, '').trim();
+        if (cleanEmoji) {
+          btnComponent.emoji = { name: cleanEmoji };
+        }
+
         const postResp = await fetch(`https://discord.com/api/v10/channels/${channelId}/messages`, {
           method: 'POST',
           headers: { Authorization: `Bot ${env.DISCORD_BOT_TOKEN}`, 'Content-Type': 'application/json' },
@@ -1967,13 +2021,7 @@ export default {
             }],
             components: [{
               type: 1,
-              components: [{
-                type:      2,
-                style:     1,
-                label:     panel.button_label,
-                emoji:     { name: panel.button_emoji },
-                custom_id: `ticket_open_${panel.id}`,
-              }],
+              components: [btnComponent],
             }],
           }),
         });

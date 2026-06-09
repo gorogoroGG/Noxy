@@ -51,6 +51,11 @@ actor MockEmbedService: EmbedServiceProtocol {
         return embeds
     }
 
+    func fetchByGuild(_ guildId: String) async throws -> [EmbedModel] {
+        try await mockDelay()
+        return embeds.filter { $0.guildId == guildId }
+    }
+
     func fetch(id: String) async throws -> EmbedModel {
         try await mockDelay()
         guard let embed = embeds.first(where: { $0.id == id }) else { throw ServiceError.notFound }
@@ -373,29 +378,32 @@ actor MockBotService: BotServiceProtocol {
         let workerURL = await MainActor.run { DiscordConfig.workerURL }
         let apiSecret = await MainActor.run { DiscordConfig.workerAPISecret }
 
-        // まず /bot/ping（認証不要・Discord API 不使用）で疎通確認
-        if let pingURL = URL(string: "\(workerURL)/bot/ping") {
-            let start = Date()
-            if let (_, resp) = try? await URLSession.shared.data(from: pingURL),
-               (resp as? HTTPURLResponse)?.statusCode == 200 {
-                let latency = Int(Date().timeIntervalSince(start) * 1000)
-                return BotStatus(isOnline: true, latency: latency, uptime: 0, activeGuilds: 0, totalCommands: 0)
-            }
-        }
-
-        // /bot/ping が 404 (未デプロイ) の場合は /bot/guilds でフォールバック
-        guard let guildsURL = URL(string: "\(workerURL)/bot/guilds") else {
+        // /bot/status（認証不要・Discord API 不使用）で疎通確認
+        guard let statusURL = URL(string: "\(workerURL)/bot/status") else {
             return BotStatus(isOnline: false, latency: 0, uptime: 0, activeGuilds: 0, totalCommands: 0)
         }
-        var req = URLRequest(url: guildsURL, timeoutInterval: 8)
-        req.setValue(apiSecret, forHTTPHeaderField: "X-Bot-Secret")
+        var req = URLRequest(url: statusURL, timeoutInterval: 10)
+        if !apiSecret.isEmpty {
+            req.setValue(apiSecret, forHTTPHeaderField: "X-Bot-Secret")
+        }
         let start = Date()
         do {
-            let (_, resp) = try await URLSession.shared.data(for: req)
+            let (data, resp) = try await URLSession.shared.data(for: req)
             let latency = Int(Date().timeIntervalSince(start) * 1000)
-            let isOnline = (resp as? HTTPURLResponse)?.statusCode == 200
+            guard (resp as? HTTPURLResponse)?.statusCode == 200 else {
+                return BotStatus(isOnline: false, latency: latency, uptime: 0, activeGuilds: 0, totalCommands: 0)
+            }
+            let json = try JSONSerialization.jsonObject(with: data) as? [String: Any]
+            let isOnline = json?["isOnline"] as? Bool ?? false
             return BotStatus(isOnline: isOnline, latency: latency, uptime: 0, activeGuilds: 0, totalCommands: 0)
         } catch {
+            // フォールバック: /bot/ping
+            if let pingURL = URL(string: "\(workerURL)/bot/ping") {
+                if let (_, resp) = try? await URLSession.shared.data(from: pingURL),
+                   (resp as? HTTPURLResponse)?.statusCode == 200 {
+                    return BotStatus(isOnline: true, latency: 0, uptime: 0, activeGuilds: 0, totalCommands: 0)
+                }
+            }
             return BotStatus(isOnline: false, latency: 0, uptime: 0, activeGuilds: 0, totalCommands: 0)
         }
     }

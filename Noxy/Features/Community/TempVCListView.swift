@@ -120,7 +120,10 @@ struct TempVCListView: View {
             }
         }
         .task { await loadAll() }
-        .onChange(of: guildId) { _, _ in Task { await loadAll() } }
+        .onChange(of: guildId) { _, _ in
+            isLoading = true
+            Task { await loadAll() }
+        }
     }
 
     // MARK: - Source Row

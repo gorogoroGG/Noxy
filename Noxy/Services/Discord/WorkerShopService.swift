@@ -50,9 +50,11 @@ struct WorkerShopService: ShopServiceProtocol {
             welcomeShowTimestamp: shop.welcomeShowTimestamp
         )
         let jsonData = try JSONEncoder().encode(body)
+        #if DEBUG
         if let jsonStr = String(data: jsonData, encoding: .utf8) {
             print("[ShopService] createShop body: \(jsonStr)")
         }
+        #endif
         return try await postReturning("/bot/shops", body: body)
     }
 
@@ -240,15 +242,21 @@ struct WorkerShopService: ShopServiceProtocol {
         req.httpBody = try JSONEncoder().encode(body)
         let (data, resp) = try await session.data(for: req)
         guard let http = resp as? HTTPURLResponse else {
+            #if DEBUG
             print("[ShopService] postReturning: no HTTP response for \(path)")
+            #endif
             throw ServiceError.networkError
         }
         if !(200..<300).contains(http.statusCode) {
             let errorBody = String(data: data, encoding: .utf8) ?? "(no body)"
+            #if DEBUG
             print("[ShopService] postReturning FAILED: \(path) -> status \(http.statusCode), body: \(errorBody)")
+            #endif
             throw ServiceError.networkError
         }
+        #if DEBUG
         print("[ShopService] postReturning OK: \(path) -> status \(http.statusCode)")
+        #endif
         return try Self.decoder.decode(T.self, from: data)
     }
 }

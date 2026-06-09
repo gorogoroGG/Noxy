@@ -23,7 +23,7 @@ struct SupabaseAuthService: AuthServiceProtocol {
 
     func logout() async throws {
         // Supabase セッション失効（可能な場合）
-        if let token = UserDefaults.standard.string(forKey: "supabase_access_token") {
+        if let token = KeychainHelper.load(forKey: "supabase_access_token") {
             var req = URLRequest(url: URL(string: "\(SupabaseConfig.baseURL)/auth/v1/logout")!)
             req.httpMethod = "POST"
             req.setValue("Bearer \(token)", forHTTPHeaderField: "Authorization")
@@ -169,9 +169,16 @@ private class AuthPresentationContextProvider: NSObject, ASWebAuthenticationPres
     static let shared = AuthPresentationContextProvider()
 
     func presentationAnchor(for session: ASWebAuthenticationSession) -> ASPresentationAnchor {
+        #if canImport(UIKit)
         let scenes = UIApplication.shared.connectedScenes
-        let windowScene = scenes.first as? UIWindowScene
-        return windowScene?.windows.first(where: \.isKeyWindow) ?? ASPresentationAnchor()
+        if let windowScene = scenes.first as? UIWindowScene,
+           let window = windowScene.windows.first(where: \.isKeyWindow) {
+            return window
+        }
+        return ASPresentationAnchor()
+        #elseif canImport(AppKit)
+        return NSApplication.shared.windows.first ?? ASPresentationAnchor()
+        #endif
     }
 }
 

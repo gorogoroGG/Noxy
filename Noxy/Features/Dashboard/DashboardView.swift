@@ -38,11 +38,12 @@ struct DashboardView: View {
                         headerSection
                         if isBotStatusLoading {
                             botStatusLoadingCard.transition(.opacity)
-                        } else if let status = botStatus {
-                            botStatusCard(status).transition(.asymmetric(
-                                insertion: .opacity.combined(with: .scale(scale: 0.97, anchor: .leading)),
-                                removal: .opacity
-                            ))
+                        } else {
+                            botStatusCard(botStatus ?? BotStatus(isOnline: false, latency: 0, uptime: 0, activeGuilds: 0, totalCommands: 0))
+                                .transition(.asymmetric(
+                                    insertion: .opacity.combined(with: .scale(scale: 0.97, anchor: .leading)),
+                                    removal: .opacity
+                                ))
                         }
                         notifFeedSection
                         quickActionsSection
@@ -56,9 +57,21 @@ struct DashboardView: View {
             .navigationTitle("ホーム")
             .navigationBarTitleDisplayMode(.large)
             .sheet(isPresented: $showGuildPicker) {
-                GuildPickerSheet(guilds: appState.guilds, selectedId: appState.selectedGuildId) { g in
-                    Task { await appState.switchServer(to: g) }
-                }
+                GuildPickerSheet(
+                    guilds: appState.guilds,
+                    selectedId: appState.selectedGuildId,
+                    onSelect: { g in
+                        Task { await appState.switchServer(to: g) }
+                    },
+                    onRefresh: {
+                        Task {
+                            let botGuilds = (try? await DiscordService().fetchBotGuilds()) ?? []
+                            appState.botGuilds = botGuilds
+                            let fetchedGuilds = (try? await services.guilds.fetchAll()) ?? []
+                            appState.guilds = fetchedGuilds
+                        }
+                    }
+                )
             }
             .sheet(isPresented: $showNotifSettings) {
                 NotifSettingsSheet()
@@ -78,6 +91,7 @@ struct DashboardView: View {
         // ギルド切り替え時に通知・状況を再取得
         .onChange(of: appState.selectedGuildId) { _, newId in
             guard !newId.isEmpty else { return }
+            isLoading = true
             Task {
                 async let notifsTask   = fetchNotifications(guildId: newId)
                 async let activityTask = fetchRecentActivity(guildId: newId)
@@ -85,11 +99,12 @@ struct DashboardView: View {
                 let fetchedStatus = try? await statusTask
                 let (notifs, activity) = await (notifsTask, activityTask)
                 withAnimation {
-                    botStatus        = fetchedStatus
+                    if let fetchedStatus { botStatus = fetchedStatus }
                     isBotStatusLoading = false
                     notifications    = notifs
                     isNotifLoading   = false
                     recentActivities = activity
+                    isLoading        = false
                 }
             }
         }
@@ -448,33 +463,13 @@ struct DashboardView: View {
     // MARK: - Data
 
     private func loadData() async {
-        isLoading = true
+        // サーバーは MainTabView で事前に選択済みなので isLoading は不要
+        isLoading = false
         isBotStatusLoading = true
         isNotifLoading = true
         botStatus = nil
 
-        let fetchedGuilds = (try? await services.guilds.fetchAll()) ?? []
-        let botGuilds     = (try? await DiscordService().fetchBotGuilds()) ?? []
-        let botGuildIds   = Set(botGuilds.map(\.id))
-        appState.guilds   = fetchedGuilds
-
-        let storedId = appState.selectedGuildId
-        var targetGuildId = storedId
-        if !fetchedGuilds.isEmpty {
-            // 前回選択したサーバーが有効（Botが入っている）ならそれを維持
-            // 無効 or 未選択なら最初のBotサーバーにフォールバック
-            // storedId が fetchedGuilds にあれば無条件に優先（Botが入っていなくても）
-            // なければ Botが入っている最初のサーバー → それもなければ最初のサーバー
-            let g = fetchedGuilds.first { $0.id == storedId }
-                ?? fetchedGuilds.first { botGuildIds.contains($0.id) }
-                ?? fetchedGuilds.first
-            if let g {
-                appState.selectedGuildId = g.id
-                appState.selectedGuild   = g
-                targetGuildId            = g.id
-            }
-        }
-        isLoading = false
+        let targetGuildId = appState.selectedGuildId
 
         async let statusTask   = services.bot.fetchStatus()
         async let notifsTask   = fetchNotifications(guildId: targetGuildId)
@@ -482,7 +477,7 @@ struct DashboardView: View {
 
         let fetchedStatus = try? await statusTask
         withAnimation(.spring(response: 0.5, dampingFraction: 0.8)) {
-            botStatus          = fetchedStatus
+            if let fetchedStatus { botStatus = fetchedStatus }
             isBotStatusLoading = false
         }
         let (notifs, activity) = await (notifsTask, activityTask)
@@ -843,7 +838,7 @@ private struct AnyButtonStyle: ButtonStyle {
 
 private struct GuildPickerSheet: View {
     @Environment(\.dismiss) private var dismiss
-    let guilds: [Guild]; let selectedId: String; let onSelect: (Guild) -> Void
+    let guilds: [Guild]; let selectedId: String; let onSelect: (Guild) -> Void; let onRefresh: () -> Void
 
     @State private var botGuildIds: Set<String> = []
     @State private var showInviteSheet = false
@@ -861,6 +856,25 @@ private struct GuildPickerSheet: View {
                 else { mainList }
             }
             .background(Color(.systemGroupedBackground))
+            .navigationTitle("サーバー").navigationBarTitleDisplayMode(.inline)
+            .toolbar {
+                ToolbarItem(placement: .topBarLeading) {
+                    Button {
+                        isLoading = true
+                        onRefresh()
+                        Task {
+                            botGuildIds = (try? await discord.fetchBotGuildIds()) ?? []
+                            isLoading = false
+                        }
+                    } label: {
+                        Image(systemName: "arrow.clockwise")
+                            .font(.system(size: 17, weight: .medium))
+                            .foregroundStyle(Color.accentIndigo)
+                    }
+                    .disabled(isLoading)
+                }
+                ToolbarItem(placement: .topBarTrailing) { Button("完了") { dismiss() } }
+            }
         }
         .task {
             botGuildIds = (try? await discord.fetchBotGuildIds()) ?? []
@@ -896,8 +910,6 @@ private struct GuildPickerSheet: View {
             }
         }
         .listStyle(.insetGrouped).scrollContentBackground(.hidden)
-        .navigationTitle("サーバー").navigationBarTitleDisplayMode(.inline)
-        .toolbar { ToolbarItem(placement: .topBarTrailing) { Button("完了") { dismiss() } } }
         .safeAreaInset(edge: .bottom) {
             if !manageableGuilds.isEmpty {
                 PrimaryButton("ボットを追加する", style: .outlined, size: .medium, icon: "plus") { showInviteSheet = true }
@@ -961,7 +973,7 @@ private struct InviteBotSheet: View {
                             Button {
                                 Task {
                                     if let url = try? await DiscordService().inviteURL(guildId: guild.id) {
-                                        await MainActor.run { UIApplication.shared.open(url) }
+                                        await MainActor.run { PlatformHelper.openURL(url) }
                                     }
                                 }
                             } label: {

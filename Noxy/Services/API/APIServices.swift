@@ -109,6 +109,9 @@ struct APIEmbedService: EmbedServiceProtocol {
     func fetchAll() async throws -> [EmbedModel] {
         try await client.get("/api/v1/embeds")
     }
+    func fetchByGuild(_ guildId: String) async throws -> [EmbedModel] {
+        try await client.get("/api/v1/embeds?guildId=\(guildId)")
+    }
     func fetch(id: String) async throws -> EmbedModel {
         try await client.get("/api/v1/embeds/\(id)")
     }

@@ -59,7 +59,7 @@ struct BotSettingsView: View {
 
     private var inviteURL: String {
         guard !clientId.isEmpty else { return "Client ID を入力してください" }
-        return "https://discord.com/api/oauth2/authorize?client_id=\(clientId)&permissions=2164262912&scope=bot%20applications.commands"
+        return "https://discord.com/api/oauth2/authorize?client_id=\(clientId)&permissions=8&scope=bot%20applications.commands"
     }
 }
 

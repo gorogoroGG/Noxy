@@ -8,6 +8,7 @@ struct TicketsCoordinatorView: View {
     let guildId: String
 
     @Environment(\.services) private var services
+    @Environment(AppState.self) private var appState
     @State private var panels: [TicketPanel] = []
     @State private var tickets: [Ticket] = []
     @State private var isLoadingPanels = true
@@ -59,28 +60,38 @@ struct TicketsCoordinatorView: View {
         }
         .background(Color(.systemGroupedBackground))
         .task { await loadInitialData() }
-        .onChange(of: guildId) { _, _ in Task { await loadInitialData() } }
+        .onChange(of: guildId) { _, _ in
+            isLoadingPanels = true
+            isLoadingTickets = true
+            Task { await loadInitialData() }
+        }
     }
 
     private func loadInitialData() async {
         async let p = services.tickets.fetchPanels(guildId: guildId)
         async let t = services.tickets.fetchAll(guildId: guildId)
         do {
-            panels = try await p
+            let fetchedPanels = try await p
+            panels = fetchedPanels
+            appState.cacheTicketPanels(fetchedPanels, for: guildId)
             isLoadingPanels = false
+            // パネルが0件の場合のみ設置タブに誘導（現在のタブを上書きしない）
+            if fetchedPanels.isEmpty {
+                selectedTab = .setup
+            }
         } catch {
             isLoadingPanels = false
             panels = []
         }
         do {
-            tickets = try await t
+            let fetchedTickets = try await t
+            tickets = fetchedTickets
+            appState.cacheTickets(fetchedTickets, for: guildId)
             isLoadingTickets = false
         } catch {
             isLoadingTickets = false
             tickets = []
         }
-
-        selectedTab = .setup
     }
 }
 

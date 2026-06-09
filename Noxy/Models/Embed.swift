@@ -55,7 +55,16 @@ struct EmbedModel: Identifiable, Codable, Hashable, Sendable {
         embedUrl = try container.decodeIfPresent(String.self, forKey: .embedUrl)
         description = try container.decodeIfPresent(String.self, forKey: .description)
         colorHex = try container.decodeIfPresent(UInt32.self, forKey: .colorHex) ?? 0x5865F2
-        fields = try container.decodeIfPresent([EmbedFieldModel].self, forKey: .fields) ?? []
+        // fields: JSONB から配列、または文字列化された JSON 配列の両方に対応
+        if let fieldArray = try? container.decodeIfPresent([EmbedFieldModel].self, forKey: .fields) {
+            fields = fieldArray
+        } else if let fieldString = try? container.decodeIfPresent(String.self, forKey: .fields),
+                  let fieldData = fieldString.data(using: .utf8),
+                  let fieldArray = try? JSONDecoder().decode([EmbedFieldModel].self, from: fieldData) {
+            fields = fieldArray
+        } else {
+            fields = []
+        }
         imageUrl = try container.decodeIfPresent(String.self, forKey: .imageUrl)
         thumbnailUrl = try container.decodeIfPresent(String.self, forKey: .thumbnailUrl)
         footerText = try container.decodeIfPresent(String.self, forKey: .footerText)

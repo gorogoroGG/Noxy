@@ -4,9 +4,9 @@ import Foundation
 
 struct APIConfig {
     /// Tailscale または LAN の IP/ドメイン（末尾スラッシュなし）
-    /// 例: "http://100.64.0.1:3000" or "http://192.168.1.2:3000"
+    /// 本番では設定画面で明示的に入力必須。未設定時は空文字。
     static var baseURL: String {
-        UserDefaults.standard.string(forKey: "api_base_url") ?? "http://192.168.1.2:3000"
+        UserDefaults.standard.string(forKey: "api_base_url") ?? ""
     }
 
     /// .env の API_KEY（未設定なら空文字）

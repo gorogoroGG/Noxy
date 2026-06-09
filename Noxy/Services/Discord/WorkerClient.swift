@@ -42,8 +42,10 @@ struct WorkerClient: Sendable {
     private func makeRequest(url: URL, method: String = "GET", body: Data? = nil) -> URLRequest {
         var req = URLRequest(url: url, timeoutInterval: 15)
         req.httpMethod = method
-        // #1: 認証ヘッダーを全リクエストに自動付与
-        req.setValue(DiscordConfig.workerAPISecret, forHTTPHeaderField: "X-Bot-Secret")
+        // #1: 認証ヘッダーを全リクエストに自動付与（未設定時は送信しない）
+        if !DiscordConfig.workerAPISecret.isEmpty {
+            req.setValue(DiscordConfig.workerAPISecret, forHTTPHeaderField: "X-Bot-Secret")
+        }
         if body != nil {
             req.setValue("application/json", forHTTPHeaderField: "Content-Type")
             req.httpBody = body

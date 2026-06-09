@@ -74,6 +74,7 @@ struct MonitorView: View {
             .refreshable { await loadActivities() }
             .task { await loadActivities() }
             .onChange(of: appState.selectedGuildId) { _, _ in
+                isLoading = true
                 Task { await loadActivities() }
             }
         }

@@ -99,7 +99,7 @@ final class ServiceContainer {
             auditLogs:         MockAuditLogService(),
             notifications:     MockNotificationService(),
             analytics:         WorkerAnalyticsService(),
-            bot:               MockBotService(),
+            bot:               WorkerBotService(),
             auth:              SupabaseAuthService(),
             reactionRoles:     SupabaseReactionRoleService(),
             greeting:          SupabaseGreetingService(),

@@ -27,8 +27,10 @@ struct EmbedListView: View {
             Group {
                 if !appState.isPro {
                     freeUserView
+                        .transition(.opacity)
                 } else if isLoading {
-                    ProgressView().frame(maxWidth: .infinity, maxHeight: .infinity)
+                    skeletonList
+                        .transition(.opacity)
                 } else if filtered.isEmpty && searchText.isEmpty {
                     EmptyStateView(
                         icon: "rectangle.stack.badge.plus",
@@ -93,6 +95,7 @@ struct EmbedListView: View {
                 }
                 .padding(.trailing, .spacing20)
                 .padding(.bottom, .spacing24)
+                .transition(.scale.combined(with: .opacity))
             }
         }
         .navigationTitle("Embed")
@@ -106,6 +109,7 @@ struct EmbedListView: View {
                     embeds.insert(saved, at: 0)
                 }
             }
+            .id(editingEmbed?.id ?? "new-embed")
         }
         .sheet(item: $embedToSend) { embed in
             SendEmbedView(embed: embed)
@@ -123,7 +127,10 @@ struct EmbedListView: View {
         }
         .toast($toast)
         .task { await load() }
-        .onChange(of: appState.selectedGuildId) { Task { await load() } }
+        .onChange(of: appState.selectedGuildId) { _, _ in
+            isLoading = true
+            Task { await load() }
+        }
     }
 
     // MARK: - Free User View
@@ -184,11 +191,21 @@ struct EmbedListView: View {
             isLoading = false
             return
         }
+        // キャッシュから即座に表示（ちらつき防止）
+        if let cached = appState.cachedEmbeds[appState.selectedGuildId] {
+            embeds = cached
+            isLoading = false
+        }
+        // バックグラウンドで最新データを取得
         do {
-            let all = try await services.embeds.fetchAll()
-            embeds = all.filter { $0.guildId == appState.selectedGuildId || $0.guildId == nil }
+            let guildEmbeds = try await services.embeds.fetchByGuild(appState.selectedGuildId)
+            embeds = guildEmbeds
+            appState.cacheEmbeds(guildEmbeds, for: appState.selectedGuildId)
         } catch {
-            embeds = []
+            print("[EmbedListView] fetch error: \(error)")
+            if appState.cachedEmbeds[appState.selectedGuildId] == nil {
+                embeds = []
+            }
         }
         isLoading = false
     }
@@ -236,6 +253,39 @@ struct EmbedListView: View {
                 }
             )
         }
+    }
+
+    // MARK: - Skeleton Loading
+
+    private var skeletonList: some View {
+        List {
+            ForEach(0..<5) { _ in
+                HStack(spacing: .spacing12) {
+                    RoundedRectangle(cornerRadius: 2)
+                        .fill(Color.textTertiary.opacity(0.2))
+                        .frame(width: 4, height: 36)
+
+                    VStack(alignment: .leading, spacing: .spacing4) {
+                        RoundedRectangle(cornerRadius: 4)
+                            .fill(Color.textTertiary.opacity(0.15))
+                            .frame(width: 120, height: 16)
+                        RoundedRectangle(cornerRadius: 4)
+                            .fill(Color.textTertiary.opacity(0.1))
+                            .frame(width: 180, height: 12)
+                    }
+
+                    Spacer()
+                }
+                .padding(.spacing12)
+                .background(Color.bgSurface)
+                .clipShape(RoundedRectangle(cornerRadius: .cornerRadiusMedium))
+                .listRowInsets(EdgeInsets(top: 6, leading: 16, bottom: 6, trailing: 16))
+                .listRowBackground(Color.clear)
+                .listRowSeparator(.hidden)
+            }
+        }
+        .listStyle(.plain)
+        .scrollContentBackground(.hidden)
     }
 }
 

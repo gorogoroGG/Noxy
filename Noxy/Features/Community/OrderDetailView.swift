@@ -109,7 +109,7 @@ struct OrderDetailView: View {
             }
             Button("URLを開く") {
                 if let nsUrl = URL(string: url) {
-                    UIApplication.shared.open(nsUrl)
+                    PlatformHelper.openURL(nsUrl)
                 }
             }
             .font(.captionSmall)

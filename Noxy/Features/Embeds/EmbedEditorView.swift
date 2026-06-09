@@ -597,23 +597,8 @@ struct EmbedEditorView: View {
 
     private var fieldsSection: some View {
         VStack(alignment: .leading, spacing: .spacing8) {
-            // Inline fields
-            let inlineFields = vm.embed.fields.filter { $0.inline }
-            if !inlineFields.isEmpty {
-                let cols = min(inlineFields.count, 3)
-                LazyVGrid(
-                    columns: Array(repeating: GridItem(.flexible(), spacing: .spacing8), count: cols),
-                    spacing: .spacing8
-                ) {
-                    ForEach(inlineFields) { field in
-                        fieldEditor(fieldBinding(for: field))
-                    }
-                }
-            }
-
-            // Block fields
-            let blockFields = vm.embed.fields.filter { !$0.inline }
-            ForEach(blockFields) { field in
+            // すべてのフィールドを縦並びで編集（inline も block も区別せず）
+            ForEach(vm.embed.fields) { field in
                 fieldEditor(fieldBinding(for: field))
             }
 
@@ -705,6 +690,7 @@ struct EmbedEditorView: View {
                     .labelsHidden()
                     .tint(accentColor)
                     .scaleEffect(0.75)
+                    .frame(width: 44)
 
                 // 削除
                 Button {

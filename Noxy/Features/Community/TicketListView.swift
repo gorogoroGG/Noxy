@@ -9,6 +9,7 @@ struct TicketListView: View {
     @Binding var tickets: [Ticket]
 
     @Environment(\.services) private var services
+    @Environment(AppState.self) private var appState
     @State private var isLoading = true
     @State private var loadError: String? = nil
     @State private var selectedStatus: TicketStatus = .open
@@ -65,10 +66,13 @@ struct TicketListView: View {
 
                 if isLoading {
                     loadingCell
+                        .transition(.opacity)
                 } else if let err = loadError {
                     errorCell(err)
+                        .transition(.opacity)
                 } else if filtered.isEmpty {
                     emptyCell
+                        .transition(.opacity)
                 } else {
                     countCell
                     ForEach(filtered) { ticket in
@@ -261,10 +265,28 @@ struct TicketListView: View {
     // MARK: - List Cells
 
     private var loadingCell: some View {
-        HStack { Spacer(); ProgressView(); Spacer() }
+        ForEach(0..<3) { _ in
+            VStack(alignment: .leading, spacing: .spacing8) {
+                HStack(spacing: .spacing8) {
+                    RoundedRectangle(cornerRadius: 4)
+                        .fill(Color.textTertiary.opacity(0.2))
+                        .frame(width: 80, height: 14)
+                    Spacer()
+                    RoundedRectangle(cornerRadius: 4)
+                        .fill(Color.textTertiary.opacity(0.15))
+                        .frame(width: 50, height: 12)
+                }
+                RoundedRectangle(cornerRadius: 4)
+                    .fill(Color.textTertiary.opacity(0.1))
+                    .frame(width: 200, height: 12)
+            }
+            .padding(.spacing12)
+            .background(Color.bgSurface)
+            .clipShape(RoundedRectangle(cornerRadius: .cornerRadiusMedium))
             .listRowBackground(Color(.systemGroupedBackground))
             .listRowSeparator(.hidden)
-            .padding(.top, 40)
+            .padding(.top, 8)
+        }
     }
 
     private func errorCell(_ message: String) -> some View {
@@ -341,12 +363,25 @@ struct TicketListView: View {
     // MARK: - Actions
 
     private func load() async {
-        isLoading = true
         loadError = nil
+        // 既にデータがあるかキャッシュがあれば即座に表示
+        if !tickets.isEmpty {
+            isLoading = false
+        } else if let cached = appState.cachedTickets[guildId] {
+            tickets = cached
+            isLoading = false
+        } else {
+            isLoading = true
+        }
+        // バックグラウンドで最新データを取得
         do {
-            tickets = try await services.tickets.fetchAll(guildId: guildId)
+            let fetched = try await services.tickets.fetchAll(guildId: guildId)
+            tickets = fetched
+            appState.cacheTickets(fetched, for: guildId)
         } catch {
-            loadError = "サーバーに接続できませんでした。ネットワークを確認してください。"
+            if tickets.isEmpty {
+                loadError = "サーバーに接続できませんでした。ネットワークを確認してください。"
+            }
         }
         isLoading = false
     }

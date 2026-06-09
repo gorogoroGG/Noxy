@@ -6,8 +6,46 @@
 	objectVersion = 77;
 	objects = {
 
+/* Begin PBXBuildFile section */
+		16F5D500782680BD3D7D5CC5 /* DiffOutputPanel.swift in Sources */ = {isa = PBXBuildFile; fileRef = 358026BF111975603A01FCFB /* DiffOutputPanel.swift */; };
+		29B0D8790F79F6C550EC8AA4 /* PreviewCanvas.swift in Sources */ = {isa = PBXBuildFile; fileRef = E101A98A4DFC0B882D06F250 /* PreviewCanvas.swift */; };
+		3527557A28D232D80BE6CA91 /* Cocoa.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = A5683984E06E53436305C7B2 /* Cocoa.framework */; };
+		3A6AEE514326843DCB3B65F0 /* PropertyInspector.swift in Sources */ = {isa = PBXBuildFile; fileRef = DC56CEF210ABD4302152456C /* PropertyInspector.swift */; };
+		3FC4EA7D24666E3D321F02FF /* ComponentTree.swift in Sources */ = {isa = PBXBuildFile; fileRef = 3842453FD7827E79ED24577B /* ComponentTree.swift */; };
+		5121614563914BFDF527D90D /* Colors.swift in Sources */ = {isa = PBXBuildFile; fileRef = 149C09BF9237F757C96D3F51 /* Colors.swift */; };
+		775404BDD81BFFB4C3705024 /* DiffTracker.swift in Sources */ = {isa = PBXBuildFile; fileRef = FC9D9EC5C32E8BE9D7EC5776 /* DiffTracker.swift */; };
+		7865493B5C8F00D2C00AD511 /* ChangeRecord.swift in Sources */ = {isa = PBXBuildFile; fileRef = 29F2D8818755E16EE2C9E17F /* ChangeRecord.swift */; };
+		8BE889835141A318A58CCBA4 /* Spacing.swift in Sources */ = {isa = PBXBuildFile; fileRef = C3404C9CC7CB93B7AF5C02CE /* Spacing.swift */; };
+		9406BEDDC0772B24B88D350E /* NoxyEditorApp.swift in Sources */ = {isa = PBXBuildFile; fileRef = E9022F04D0A5BF3A94B50C12 /* NoxyEditorApp.swift */; };
+		9C3DBDCB647E2F9C0C10C808 /* iPhoneMockFrame.swift in Sources */ = {isa = PBXBuildFile; fileRef = 3E1128CBE2DA30E1376884F2 /* iPhoneMockFrame.swift */; };
+		A18307660F27621538194ECB /* DiffReport.swift in Sources */ = {isa = PBXBuildFile; fileRef = A261FE63757B8D3841B978B9 /* DiffReport.swift */; };
+		A95E55E0BC6A7E5CCD57F34B /* EditorState.swift in Sources */ = {isa = PBXBuildFile; fileRef = 3D48BE8F237596F8B8BA9767 /* EditorState.swift */; };
+		BDC06A64180B0A64E99B76A9 /* EditorMainWindow.swift in Sources */ = {isa = PBXBuildFile; fileRef = B4B1C043CF5462ED63E74158 /* EditorMainWindow.swift */; };
+		C500664EE846287B47872EB9 /* ScreenshotManager.swift in Sources */ = {isa = PBXBuildFile; fileRef = 4A8DEDA1C929099E4787C718 /* ScreenshotManager.swift */; };
+		C8C6EFC5BB86ABCA9B1888B5 /* Typography.swift in Sources */ = {isa = PBXBuildFile; fileRef = 720A9B45D5FFEB4DDA489981 /* Typography.swift */; };
+/* End PBXBuildFile section */
+
 /* Begin PBXFileReference section */
+		149C09BF9237F757C96D3F51 /* Colors.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; name = Colors.swift; path = NoxyEditor/Design/Colors.swift; sourceTree = "<group>"; };
+		29F2D8818755E16EE2C9E17F /* ChangeRecord.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; name = ChangeRecord.swift; path = NoxyEditor/Models/ChangeRecord.swift; sourceTree = "<group>"; };
+		358026BF111975603A01FCFB /* DiffOutputPanel.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; name = DiffOutputPanel.swift; path = NoxyEditor/Views/DiffOutputPanel.swift; sourceTree = "<group>"; };
+		3842453FD7827E79ED24577B /* ComponentTree.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; name = ComponentTree.swift; path = NoxyEditor/Views/ComponentTree.swift; sourceTree = "<group>"; };
+		3D48BE8F237596F8B8BA9767 /* EditorState.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; name = EditorState.swift; path = NoxyEditor/Core/EditorState.swift; sourceTree = "<group>"; };
+		3E1128CBE2DA30E1376884F2 /* iPhoneMockFrame.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; name = iPhoneMockFrame.swift; path = NoxyEditor/Utilities/iPhoneMockFrame.swift; sourceTree = "<group>"; };
+		3F5B392C3BBC6727AEFE9F28 /* NoxyEditor.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = NoxyEditor.app; sourceTree = BUILT_PRODUCTS_DIR; };
+		4A8DEDA1C929099E4787C718 /* ScreenshotManager.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; name = ScreenshotManager.swift; path = NoxyEditor/Utilities/ScreenshotManager.swift; sourceTree = "<group>"; };
+		4C958394F27DF026BF8CA002 /* NoxyEditor.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = NoxyEditor.app; sourceTree = BUILT_PRODUCTS_DIR; };
+		720A9B45D5FFEB4DDA489981 /* Typography.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; name = Typography.swift; path = NoxyEditor/Design/Typography.swift; sourceTree = "<group>"; };
+		A261FE63757B8D3841B978B9 /* DiffReport.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; name = DiffReport.swift; path = NoxyEditor/Models/DiffReport.swift; sourceTree = "<group>"; };
+		A5683984E06E53436305C7B2 /* Cocoa.framework */ = {isa = PBXFileReference; lastKnownFileType = wrapper.framework; name = Cocoa.framework; path = Platforms/MacOSX.platform/Developer/SDKs/MacOSX15.0.sdk/System/Library/Frameworks/Cocoa.framework; sourceTree = DEVELOPER_DIR; };
+		B4B1C043CF5462ED63E74158 /* EditorMainWindow.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; name = EditorMainWindow.swift; path = NoxyEditor/Views/EditorMainWindow.swift; sourceTree = "<group>"; };
+		B4D00EF1A368B0E8CBE4BC28 /* NoxyEditor.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = NoxyEditor.app; sourceTree = BUILT_PRODUCTS_DIR; };
+		C3404C9CC7CB93B7AF5C02CE /* Spacing.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; name = Spacing.swift; path = NoxyEditor/Design/Spacing.swift; sourceTree = "<group>"; };
 		CCE130802FC6EF810006E7C4 /* Noxy.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = Noxy.app; sourceTree = BUILT_PRODUCTS_DIR; };
+		DC56CEF210ABD4302152456C /* PropertyInspector.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; name = PropertyInspector.swift; path = NoxyEditor/Views/PropertyInspector.swift; sourceTree = "<group>"; };
+		E101A98A4DFC0B882D06F250 /* PreviewCanvas.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; name = PreviewCanvas.swift; path = NoxyEditor/Views/PreviewCanvas.swift; sourceTree = "<group>"; };
+		E9022F04D0A5BF3A94B50C12 /* NoxyEditorApp.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; name = NoxyEditorApp.swift; path = NoxyEditor/NoxyEditorApp.swift; sourceTree = "<group>"; };
+		FC9D9EC5C32E8BE9D7EC5776 /* DiffTracker.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; name = DiffTracker.swift; path = NoxyEditor/Core/DiffTracker.swift; sourceTree = "<group>"; };
 /* End PBXFileReference section */
 
 /* Begin PBXFileSystemSynchronizedBuildFileExceptionSet section */
@@ -32,6 +70,14 @@
 /* End PBXFileSystemSynchronizedRootGroup section */
 
 /* Begin PBXFrameworksBuildPhase section */
+		779884FF3F46B569DAC64D92 /* Frameworks */ = {
+			isa = PBXFrameworksBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+				3527557A28D232D80BE6CA91 /* Cocoa.framework in Frameworks */,
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
 		CCE1307D2FC6EF810006E7C4 /* Frameworks */ = {
 			isa = PBXFrameworksBuildPhase;
 			buildActionMask = 2147483647;
@@ -42,11 +88,43 @@
 /* End PBXFrameworksBuildPhase section */
 
 /* Begin PBXGroup section */
+		12D39F4F1CC1AAB4C06A81F2 /* Frameworks */ = {
+			isa = PBXGroup;
+			children = (
+				81E7C6D4A231E82A952CD06A /* OS X */,
+			);
+			name = Frameworks;
+			sourceTree = "<group>";
+		};
+		81E7C6D4A231E82A952CD06A /* OS X */ = {
+			isa = PBXGroup;
+			children = (
+				A5683984E06E53436305C7B2 /* Cocoa.framework */,
+			);
+			name = "OS X";
+			sourceTree = "<group>";
+		};
 		CCE130772FC6EF810006E7C4 = {
 			isa = PBXGroup;
 			children = (
 				CCE130822FC6EF810006E7C4 /* Noxy */,
 				CCE130812FC6EF810006E7C4 /* Products */,
+				12D39F4F1CC1AAB4C06A81F2 /* Frameworks */,
+				FC9D9EC5C32E8BE9D7EC5776 /* DiffTracker.swift */,
+				3D48BE8F237596F8B8BA9767 /* EditorState.swift */,
+				149C09BF9237F757C96D3F51 /* Colors.swift */,
+				C3404C9CC7CB93B7AF5C02CE /* Spacing.swift */,
+				720A9B45D5FFEB4DDA489981 /* Typography.swift */,
+				29F2D8818755E16EE2C9E17F /* ChangeRecord.swift */,
+				A261FE63757B8D3841B978B9 /* DiffReport.swift */,
+				E9022F04D0A5BF3A94B50C12 /* NoxyEditorApp.swift */,
+				4A8DEDA1C929099E4787C718 /* ScreenshotManager.swift */,
+				3E1128CBE2DA30E1376884F2 /* iPhoneMockFrame.swift */,
+				3842453FD7827E79ED24577B /* ComponentTree.swift */,
+				358026BF111975603A01FCFB /* DiffOutputPanel.swift */,
+				B4B1C043CF5462ED63E74158 /* EditorMainWindow.swift */,
+				E101A98A4DFC0B882D06F250 /* PreviewCanvas.swift */,
+				DC56CEF210ABD4302152456C /* PropertyInspector.swift */,
 			);
 			sourceTree = "<group>";
 		};
@@ -54,6 +132,9 @@
 			isa = PBXGroup;
 			children = (
 				CCE130802FC6EF810006E7C4 /* Noxy.app */,
+				B4D00EF1A368B0E8CBE4BC28 /* NoxyEditor.app */,
+				4C958394F27DF026BF8CA002 /* NoxyEditor.app */,
+				3F5B392C3BBC6727AEFE9F28 /* NoxyEditor.app */,
 			);
 			name = Products;
 			sourceTree = "<group>";
@@ -61,6 +142,23 @@
 /* End PBXGroup section */
 
 /* Begin PBXNativeTarget section */
+		BC60FA56B5609DAF81A3827C /* NoxyEditor */ = {
+			isa = PBXNativeTarget;
+			buildConfigurationList = 6D7ECE6765A2FAEE28C4CAA0 /* Build configuration list for PBXNativeTarget "NoxyEditor" */;
+			buildPhases = (
+				FE3D736B6FE6B1656D39E9F4 /* Sources */,
+				779884FF3F46B569DAC64D92 /* Frameworks */,
+				E7B8B94BEFC6FBBA0A2229CA /* Resources */,
+			);
+			buildRules = (
+			);
+			dependencies = (
+			);
+			name = NoxyEditor;
+			productName = NoxyEditor;
+			productReference = 3F5B392C3BBC6727AEFE9F28 /* NoxyEditor.app */;
+			productType = "com.apple.product-type.application";
+		};
 		CCE1307F2FC6EF810006E7C4 /* Noxy */ = {
 			isa = PBXNativeTarget;
 			buildConfigurationList = CCE1308B2FC6EF830006E7C4 /* Build configuration list for PBXNativeTarget "Noxy" */;
@@ -77,8 +175,6 @@
 				CCE130822FC6EF810006E7C4 /* Noxy */,
 			);
 			name = Noxy;
-			packageProductDependencies = (
-			);
 			productName = Noxy;
 			productReference = CCE130802FC6EF810006E7C4 /* Noxy.app */;
 			productType = "com.apple.product-type.application";
@@ -113,12 +209,20 @@
 			projectRoot = "";
 			targets = (
 				CCE1307F2FC6EF810006E7C4 /* Noxy */,
+				BC60FA56B5609DAF81A3827C /* NoxyEditor */,
 			);
 		};
 /* End PBXProject section */
 
 /* Begin PBXResourcesBuildPhase section */
 		CCE1307E2FC6EF810006E7C4 /* Resources */ = {
+			isa = PBXResourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+		E7B8B94BEFC6FBBA0A2229CA /* Resources */ = {
 			isa = PBXResourcesBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
@@ -135,9 +239,58 @@
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
+		FE3D736B6FE6B1656D39E9F4 /* Sources */ = {
+			isa = PBXSourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+				775404BDD81BFFB4C3705024 /* DiffTracker.swift in Sources */,
+				A95E55E0BC6A7E5CCD57F34B /* EditorState.swift in Sources */,
+				5121614563914BFDF527D90D /* Colors.swift in Sources */,
+				8BE889835141A318A58CCBA4 /* Spacing.swift in Sources */,
+				C8C6EFC5BB86ABCA9B1888B5 /* Typography.swift in Sources */,
+				7865493B5C8F00D2C00AD511 /* ChangeRecord.swift in Sources */,
+				A18307660F27621538194ECB /* DiffReport.swift in Sources */,
+				9406BEDDC0772B24B88D350E /* NoxyEditorApp.swift in Sources */,
+				C500664EE846287B47872EB9 /* ScreenshotManager.swift in Sources */,
+				9C3DBDCB647E2F9C0C10C808 /* iPhoneMockFrame.swift in Sources */,
+				3FC4EA7D24666E3D321F02FF /* ComponentTree.swift in Sources */,
+				16F5D500782680BD3D7D5CC5 /* DiffOutputPanel.swift in Sources */,
+				BDC06A64180B0A64E99B76A9 /* EditorMainWindow.swift in Sources */,
+				29B0D8790F79F6C550EC8AA4 /* PreviewCanvas.swift in Sources */,
+				3A6AEE514326843DCB3B65F0 /* PropertyInspector.swift in Sources */,
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
 /* End PBXSourcesBuildPhase section */
 
 /* Begin XCBuildConfiguration section */
+		979DA058CB13ACE159EF32FB /* Release */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
+				ASSETCATALOG_COMPILER_GLOBAL_ACCENT_COLOR_NAME = AccentColor;
+				CODE_SIGN_STYLE = Automatic;
+				COMBINE_HIDPI_IMAGES = YES;
+				DEVELOPMENT_TEAM = L876YJ7J98;
+				ENABLE_PREVIEWS = YES;
+				GENERATE_INFOPLIST_FILE = YES;
+				LD_RUNPATH_SEARCH_PATHS = (
+					"$(inherited)",
+					"@executable_path/Frameworks",
+				);
+				MACOSX_DEPLOYMENT_TARGET = 14.0;
+				PRODUCT_BUNDLE_IDENTIFIER = Gorogoro.NoxyEditor;
+				PRODUCT_NAME = "$(TARGET_NAME)";
+				SDKROOT = macosx;
+				STRING_CATALOG_GENERATE_SYMBOLS = YES;
+				SWIFT_APPROACHABLE_CONCURRENCY = YES;
+				SWIFT_DEFAULT_ACTOR_ISOLATION = MainActor;
+				SWIFT_EMIT_LOC_STRINGS = YES;
+				SWIFT_UPCOMING_FEATURE_MEMBER_IMPORT_VISIBILITY = YES;
+				SWIFT_VERSION = 5.0;
+			};
+			name = Release;
+		};
 		CCE130892FC6EF830006E7C4 /* Debug */ = {
 			isa = XCBuildConfiguration;
 			buildSettings = {
@@ -280,10 +433,12 @@
 					"$(inherited)",
 					"@executable_path/Frameworks",
 				);
+				MACOSX_DEPLOYMENT_TARGET = 14.0;
 				MARKETING_VERSION = 1.0;
 				PRODUCT_BUNDLE_IDENTIFIER = Gorogoro.Noxy;
 				PRODUCT_NAME = "$(TARGET_NAME)";
 				STRING_CATALOG_GENERATE_SYMBOLS = YES;
+				SUPPORTS_MACCATALYST = YES;
 				SWIFT_APPROACHABLE_CONCURRENCY = YES;
 				SWIFT_DEFAULT_ACTOR_ISOLATION = MainActor;
 				SWIFT_EMIT_LOC_STRINGS = YES;
@@ -314,10 +469,12 @@
 					"$(inherited)",
 					"@executable_path/Frameworks",
 				);
+				MACOSX_DEPLOYMENT_TARGET = 14.0;
 				MARKETING_VERSION = 1.0;
 				PRODUCT_BUNDLE_IDENTIFIER = Gorogoro.Noxy;
 				PRODUCT_NAME = "$(TARGET_NAME)";
 				STRING_CATALOG_GENERATE_SYMBOLS = YES;
+				SUPPORTS_MACCATALYST = YES;
 				SWIFT_APPROACHABLE_CONCURRENCY = YES;
 				SWIFT_DEFAULT_ACTOR_ISOLATION = MainActor;
 				SWIFT_EMIT_LOC_STRINGS = YES;
@@ -327,9 +484,45 @@
 			};
 			name = Release;
 		};
+		EB38AB098F16282EBD6FD929 /* Debug */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
+				ASSETCATALOG_COMPILER_GLOBAL_ACCENT_COLOR_NAME = AccentColor;
+				CODE_SIGN_STYLE = Automatic;
+				COMBINE_HIDPI_IMAGES = YES;
+				DEVELOPMENT_TEAM = L876YJ7J98;
+				ENABLE_PREVIEWS = YES;
+				GENERATE_INFOPLIST_FILE = YES;
+				LD_RUNPATH_SEARCH_PATHS = (
+					"$(inherited)",
+					"@executable_path/Frameworks",
+				);
+				MACOSX_DEPLOYMENT_TARGET = 14.0;
+				PRODUCT_BUNDLE_IDENTIFIER = Gorogoro.NoxyEditor;
+				PRODUCT_NAME = "$(TARGET_NAME)";
+				SDKROOT = macosx;
+				STRING_CATALOG_GENERATE_SYMBOLS = YES;
+				SWIFT_APPROACHABLE_CONCURRENCY = YES;
+				SWIFT_DEFAULT_ACTOR_ISOLATION = MainActor;
+				SWIFT_EMIT_LOC_STRINGS = YES;
+				SWIFT_UPCOMING_FEATURE_MEMBER_IMPORT_VISIBILITY = YES;
+				SWIFT_VERSION = 5.0;
+			};
+			name = Debug;
+		};
 /* End XCBuildConfiguration section */
 
 /* Begin XCConfigurationList section */
+		6D7ECE6765A2FAEE28C4CAA0 /* Build configuration list for PBXNativeTarget "NoxyEditor" */ = {
+			isa = XCConfigurationList;
+			buildConfigurations = (
+				979DA058CB13ACE159EF32FB /* Release */,
+				EB38AB098F16282EBD6FD929 /* Debug */,
+			);
+			defaultConfigurationIsVisible = 0;
+			defaultConfigurationName = Release;
+		};
 		CCE1307B2FC6EF810006E7C4 /* Build configuration list for PBXProject "Noxy" */ = {
 			isa = XCConfigurationList;
 			buildConfigurations = (

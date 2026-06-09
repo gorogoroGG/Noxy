@@ -9,6 +9,7 @@ struct TicketPanelListView: View {
     @Binding var panels: [TicketPanel]
 
     @Environment(\.services) private var services
+    @Environment(AppState.self) private var appState
     @State private var isLoading = true
     @State private var loadError: String? = nil
     @State private var showCreate = false
@@ -22,12 +23,16 @@ struct TicketPanelListView: View {
             Group {
                 if isLoading {
                     loadingView
+                        .transition(.opacity)
                 } else if let err = loadError {
                     errorView(err)
+                        .transition(.opacity)
                 } else if panels.isEmpty {
                     emptyView
+                        .transition(.opacity)
                 } else {
                     panelList
+                        .transition(.opacity)
                 }
             }
 
@@ -47,6 +52,7 @@ struct TicketPanelListView: View {
                 }
                 .padding(.trailing, .spacing20)
                 .padding(.bottom, .spacing24)
+                .transition(.scale.combined(with: .opacity))
             }
         }
         .sheet(isPresented: $showCreate) {
@@ -69,19 +75,38 @@ struct TicketPanelListView: View {
             }
         }
         .toast($toast)
-        .task { await load() }
         .refreshable { await load() }
     }
 
     // MARK: - States
 
     private var loadingView: some View {
-        VStack {
-            Spacer()
-            ProgressView()
-            Spacer()
+        List {
+            ForEach(0..<3) { _ in
+                VStack(alignment: .leading, spacing: .spacing8) {
+                    HStack(spacing: .spacing8) {
+                        RoundedRectangle(cornerRadius: 4)
+                            .fill(Color.textTertiary.opacity(0.2))
+                            .frame(width: 80, height: 16)
+                        Spacer()
+                        RoundedRectangle(cornerRadius: 4)
+                            .fill(Color.textTertiary.opacity(0.15))
+                            .frame(width: 60, height: 12)
+                    }
+                    RoundedRectangle(cornerRadius: 4)
+                        .fill(Color.textTertiary.opacity(0.1))
+                        .frame(width: 200, height: 12)
+                }
+                .padding(.spacing12)
+                .background(Color.bgSurface)
+                .clipShape(RoundedRectangle(cornerRadius: .cornerRadiusMedium))
+                .listRowInsets(EdgeInsets(top: 6, leading: 16, bottom: 6, trailing: 16))
+                .listRowBackground(Color.clear)
+                .listRowSeparator(.hidden)
+            }
         }
-        .frame(maxWidth: .infinity, maxHeight: .infinity)
+        .listStyle(.plain)
+        .scrollContentBackground(.hidden)
         .background(Color(.systemGroupedBackground))
     }
 
@@ -195,10 +220,21 @@ struct TicketPanelListView: View {
     private func load() async {
         isLoading = true
         loadError = nil
+        // キャッシュから即座に表示（ちらつき防止）
+        if let cached = appState.cachedTicketPanels[guildId] {
+            panels = cached
+            isLoading = false
+        }
+        // バックグラウンドで最新データを取得
         do {
-            panels = try await services.tickets.fetchPanels(guildId: guildId)
+            let fetched = try await services.tickets.fetchPanels(guildId: guildId)
+            panels = fetched
+            appState.cacheTicketPanels(fetched, for: guildId)
         } catch {
             loadError = "サーバーに接続できませんでした。ネットワークを確認してください。"
+            if appState.cachedTicketPanels[guildId] == nil {
+                panels = []
+            }
         }
         isLoading = false
     }
@@ -451,15 +487,13 @@ struct DeployChannelPickerSheet: View {
     private func load() async {
         isLoading = true
         loadError = nil
-        if let url = URL(string: "\(DiscordConfig.workerURL)/bot/channels?guild_id=\(guildId)") {
-            do {
-                let (data, _) = try await URLSession.shared.data(from: url)
-                struct RawCh: Decodable { let id: String; let name: String; let type: Int }
-                let chs = try JSONDecoder().decode([RawCh].self, from: data)
-                channels = chs.filter { $0.type == 0 || $0.type == 5 }.map { ($0.id, $0.name) }
-            } catch {
-                loadError = "チャンネル一覧の取得に失敗しました。"
-            }
+        do {
+            struct RawCh: Decodable { let id: String; let name: String; let type: Int }
+            let client = WorkerClient()
+            let chs: [RawCh] = try await client.get("/bot/channels?guild_id=\(guildId)")
+            channels = chs.filter { $0.type == 0 || $0.type == 5 }.map { ($0.id, $0.name) }
+        } catch {
+            loadError = "チャンネル一覧の取得に失敗しました。"
         }
         isLoading = false
     }

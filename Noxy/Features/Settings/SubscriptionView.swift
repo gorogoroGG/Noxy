@@ -178,7 +178,7 @@ struct SubscriptionView: View {
 
             Button {
                 if let url = URL(string: "https://apps.apple.com/account/subscriptions") {
-                    UIApplication.shared.open(url)
+                    PlatformHelper.openURL(url)
                 }
             } label: {
                 Text("App Storeでサブスクを管理")
