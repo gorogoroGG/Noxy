@@ -11,6 +11,7 @@ enum QuickActionDef: String, CaseIterable, Identifiable {
     case welcomeMsg    = "welcome_msg"
     case giveaways     = "giveaways"
     case shop          = "shop"
+    case vendingMachine = "vending_machine"
     case analytics     = "analytics"
     case monitor       = "monitor"
     case tempVC        = "temp_vc"
@@ -30,6 +31,7 @@ enum QuickActionDef: String, CaseIterable, Identifiable {
         case .welcomeMsg:    "入退室メッセージ"
         case .giveaways:     "ギブアウェイ"
         case .shop:          "ショップ"
+        case .vendingMachine: "自販機"
         case .analytics:     "アナリティクス"
         case .monitor:       "モニター"
         case .tempVC:        "一時VC"
@@ -49,6 +51,7 @@ enum QuickActionDef: String, CaseIterable, Identifiable {
         case .welcomeMsg:    "参加・退出あいさつ"
         case .giveaways:     "景品プレゼント"
         case .shop:          "商品販売・注文管理"
+        case .vendingMachine: "即時購入・スムーズな取引"
         case .analytics:     "メンバー統計"
         case .monitor:       "Bot活動ログ"
         case .tempVC:        "自動VC作成"
@@ -68,6 +71,7 @@ enum QuickActionDef: String, CaseIterable, Identifiable {
         case .welcomeMsg:    "hand.wave.fill"
         case .giveaways:     "gift.fill"
         case .shop:          "cart.fill"
+        case .vendingMachine: "storefront.fill"
         case .analytics:     "chart.bar.fill"
         case .monitor:       "waveform"
         case .tempVC:        "waveform.and.mic"
@@ -86,7 +90,8 @@ enum QuickActionDef: String, CaseIterable, Identifiable {
         case .reactionRoles: .accentPink
         case .welcomeMsg:    .accentGreen
         case .giveaways:     .accentPink
-        case .shop:          .accentOrange
+        case .shop:          .accentIndigo
+        case .vendingMachine: .accentGreen
         case .analytics:     .accentIndigo
         case .monitor:       .accentGreen
         case .tempVC:        .accentIndigo
@@ -99,8 +104,8 @@ enum QuickActionDef: String, CaseIterable, Identifiable {
     /// 近日公開予定でまだ利用できないアクション
     var isLocked: Bool {
         switch self {
-        case .giveaways: return true
-        default:         return false
+        case .giveaways:       return true
+        default:               return false
         }
     }
 
@@ -228,25 +233,25 @@ final class HomeNotifSettings {
 
 // MARK: - DismissedNotifsStore
 
+@Observable
 final class DismissedNotifsStore {
     static let shared = DismissedNotifsStore()
     private let udKey = "home_dismissed_notif_ids_v1"
 
-    private init() {}
+    // @Observable でトラッキングされるメモリ上のセット
+    private var _ids: Set<String>
 
-    private var ids: Set<String> {
-        Set(UserDefaults.standard.stringArray(forKey: udKey) ?? [])
+    private init() {
+        _ids = Set(UserDefaults.standard.stringArray(forKey: "home_dismissed_notif_ids_v1") ?? [])
     }
 
     func dismiss(_ id: String) {
-        var current = ids
-        current.insert(id)
-        // ArraySlice は UserDefaults に保存できないので必ず [String] に変換する
-        let stored: [String] = Array(current).suffix(1000).map { $0 }
+        _ids.insert(id)
+        let stored: [String] = Array(_ids).suffix(1000).map { $0 }
         UserDefaults.standard.set(stored, forKey: udKey)
     }
 
-    func isDismissed(_ id: String) -> Bool { ids.contains(id) }
+    func isDismissed(_ id: String) -> Bool { _ids.contains(id) }
 
     func filter(_ list: [HomeNotification]) -> [HomeNotification] {
         list.filter { !isDismissed($0.id) }

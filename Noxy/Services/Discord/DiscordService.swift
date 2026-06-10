@@ -8,10 +8,6 @@ struct DiscordConfig {
     }
     /// Worker API 認証シークレット (#1)
     /// wrangler secret put WORKER_API_SECRET で設定した値と一致させる
-    nonisolated static var workerAPISecret: String {
-        // Keychain に保存されていればそちらを優先。未設定時は空文字（ヘッダー送信しない）
-        KeychainHelper.load(forKey: "worker_api_secret") ?? ""
-    }
     nonisolated static var userAccessToken: String {
         KeychainHelper.load(forKey: "discord_access_token") ?? ""
     }
@@ -20,8 +16,8 @@ struct DiscordConfig {
     static func makeWorkerRequest(url: URL, method: String = "GET") -> URLRequest {
         var req = URLRequest(url: url, timeoutInterval: 15)
         req.httpMethod = method
-        if !workerAPISecret.isEmpty {
-            req.setValue(workerAPISecret, forHTTPHeaderField: "X-Bot-Secret")
+        if let token = WorkerClient.bearerToken() {
+            req.setValue("Bearer \(token)", forHTTPHeaderField: "Authorization")
         }
         return req
     }
@@ -170,6 +166,21 @@ struct DiscordService: GuildServiceProtocol {
         return try JSONDecoder().decode([DiscordRole].self, from: data)
     }
 
+    /// ロール新規作成（Worker 経由）
+    func createRole(guildId: String, name: String, color: Int) async throws -> DiscordRole {
+        let url = URL(string: "\(DiscordConfig.workerURL)/bot/roles")!
+        var req = workerRequest(url: url)
+        req.httpMethod = "POST"
+        req.setValue("application/json", forHTTPHeaderField: "Content-Type")
+        let body: [String: Any] = ["guildId": guildId, "name": name, "color": color, "permissions": "0"]
+        req.httpBody = try? JSONSerialization.data(withJSONObject: body)
+        let (data, response) = try await session.data(for: req)
+        guard let http = response as? HTTPURLResponse, (200..<300).contains(http.statusCode) else {
+            throw URLError(.badServerResponse)
+        }
+        return try JSONDecoder().decode(DiscordRole.self, from: data)
+    }
+
     /// ロール並び順を Discord に保存（Worker 経由）
     func reorderRoles(guildId: String, positions: [(id: String, position: Int)]) async throws {
         let url = URL(string: "\(DiscordConfig.workerURL)/bot/roles/reorder")!
@@ -189,11 +200,10 @@ struct DiscordService: GuildServiceProtocol {
 
     // MARK: - 内部
 
-    /// Worker リクエストに認証ヘッダーを付与 (#1)
     private func workerRequest(url: URL) -> URLRequest {
         var req = URLRequest(url: url, timeoutInterval: 15)
-        if !DiscordConfig.workerAPISecret.isEmpty {
-            req.setValue(DiscordConfig.workerAPISecret, forHTTPHeaderField: "X-Bot-Secret")
+        if let token = WorkerClient.bearerToken() {
+            req.setValue("Bearer \(token)", forHTTPHeaderField: "Authorization")
         }
         return req
     }

@@ -97,7 +97,7 @@ final class ServiceContainer {
             tickets:           WorkerTicketService(),
             autoResponses:     WorkerAutoResponseService(),
             auditLogs:         MockAuditLogService(),
-            notifications:     MockNotificationService(),
+            notifications:     WorkerNotificationService(),
             analytics:         WorkerAnalyticsService(),
             bot:               WorkerBotService(),
             auth:              SupabaseAuthService(),

@@ -270,16 +270,16 @@ struct FeaturesTabView: View {
         Section("ツール") {
             NavigationLink {
                 if appState.isPro {
-                    ShopsListView(guildId: appState.selectedGuildId)
+                    ShopsListView(guildId: appState.selectedGuildId, shopType: .shop)
                 } else {
                     ProUpgradeView(
                         featureIcon: "cart.fill",
                         featureTitle: "ショップ",
-                        description: "Discordサーバーで商品を販売できます",
+                        description: "チケット内で質問・交渉しながら商品を販売できます",
                         proFeatures: [
                             ("🛍", "商品ページの作成・管理"),
+                            ("💬", "購入者との交渉・やり取り"),
                             ("📦", "注文の受付・履歴管理"),
-                            ("💳", "売上レポート"),
                         ]
                     )
                 }
@@ -287,7 +287,32 @@ struct FeaturesTabView: View {
                 FeatureRow(
                     icon: "cart.fill",
                     title: "ショップ",
-                    subtitle: "商品販売・注文管理",
+                    subtitle: "商品販売・チケット交渉",
+                    badge: appState.isPro ? nil : "Pro"
+                )
+            }
+
+            NavigationLink {
+                if appState.isPro {
+                    ShopsListView(guildId: appState.selectedGuildId, shopType: .vendingMachine)
+                } else {
+                    ProUpgradeView(
+                        featureIcon: "storefront.fill",
+                        featureTitle: "自販機",
+                        description: "支払い情報を入力するだけで即時購入が完了する、スムーズな販売機能です",
+                        proFeatures: [
+                            ("⚡️", "支払い情報の送信だけで購入完了"),
+                            ("🏪", "自販機パネルの設置・管理"),
+                            ("📦", "注文の受付・履歴管理"),
+                        ]
+                    )
+                }
+            } label: {
+                FeatureRow(
+                    icon: "storefront.fill",
+                    title: "自販機",
+                    subtitle: "即時購入・スムーズな取引",
+                    accentColor: .accentGreen,
                     badge: appState.isPro ? nil : "Pro"
                 )
             }

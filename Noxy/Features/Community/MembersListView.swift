@@ -152,6 +152,8 @@ struct MembersListView: View {
             MemberDetailView(member: member, guildId: guildId, allRoles: selectableRoles,
                 onAction: { handleAction($0, member: member) })
         }
+        .navigationTitle("メンバー")
+        .navigationBarTitleDisplayMode(.large)
         .task { await load() }
     }
 

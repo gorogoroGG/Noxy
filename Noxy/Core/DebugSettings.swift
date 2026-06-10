@@ -64,7 +64,9 @@ final class DebugSettings {
         var req = URLRequest(url: url, timeoutInterval: 15)
         req.httpMethod = "POST"
         req.setValue("application/json", forHTTPHeaderField: "Content-Type")
-        req.setValue(DiscordConfig.workerAPISecret, forHTTPHeaderField: "X-Bot-Secret")
+        if let token = WorkerClient.bearerToken() {
+            req.setValue("Bearer \(token)", forHTTPHeaderField: "Authorization")
+        }
         req.setValue("1", forHTTPHeaderField: "X-Debug")   // デバッグ専用ヘッダー
         req.httpBody = try JSONEncoder().encode(Body(
             discordUserId:  discordUserId,
@@ -98,7 +100,9 @@ final class DebugSettings {
         var req = URLRequest(url: url, timeoutInterval: 15)
         req.httpMethod = "POST"
         req.setValue("application/json", forHTTPHeaderField: "Content-Type")
-        req.setValue(DiscordConfig.workerAPISecret, forHTTPHeaderField: "X-Bot-Secret")
+        if let token = WorkerClient.bearerToken() {
+            req.setValue("Bearer \(token)", forHTTPHeaderField: "Authorization")
+        }
         req.setValue("1", forHTTPHeaderField: "X-Debug")
         req.httpBody = try JSONEncoder().encode(Body(
             discordUserId:  discordUserId,

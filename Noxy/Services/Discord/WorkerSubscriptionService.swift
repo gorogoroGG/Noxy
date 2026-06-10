@@ -73,7 +73,7 @@ struct WorkerSubscriptionService: SubscriptionServiceProtocol {
         var req = URLRequest(url: url, timeoutInterval: 15)
         req.httpMethod = "POST"
         req.setValue("application/json", forHTTPHeaderField: "Content-Type")
-        req.setValue(DiscordConfig.workerAPISecret, forHTTPHeaderField: "X-Bot-Secret")
+        if !jwt.isEmpty { req.setValue("Bearer \(jwt)", forHTTPHeaderField: "Authorization") }
         req.httpBody = try JSONEncoder().encode(Body(guildId: guildId, discordUserId: userId, supabaseJwt: jwt))
 
         let (data, response) = try await URLSession.shared.data(for: req)
@@ -102,8 +102,7 @@ struct WorkerSubscriptionService: SubscriptionServiceProtocol {
 
         var req = URLRequest(url: url, timeoutInterval: 15)
         req.httpMethod = "DELETE"
-        req.setValue(DiscordConfig.workerAPISecret, forHTTPHeaderField: "X-Bot-Secret")
-        req.setValue(jwt, forHTTPHeaderField: "X-Supabase-Jwt")
+        if !jwt.isEmpty { req.setValue("Bearer \(jwt)", forHTTPHeaderField: "Authorization") }
         let (_, response) = try await URLSession.shared.data(for: req)
         guard let http = response as? HTTPURLResponse, (200..<300).contains(http.statusCode) else {
             throw ServiceError.networkError
@@ -147,7 +146,7 @@ struct WorkerSubscriptionService: SubscriptionServiceProtocol {
         var req = URLRequest(url: url, timeoutInterval: 15)
         req.httpMethod = "POST"
         req.setValue("application/json", forHTTPHeaderField: "Content-Type")
-        req.setValue(DiscordConfig.workerAPISecret, forHTTPHeaderField: "X-Bot-Secret")
+        if !supabaseJwt.isEmpty { req.setValue("Bearer \(supabaseJwt)", forHTTPHeaderField: "Authorization") }
         req.httpBody = try JSONEncoder().encode(body)
 
         let (data, response) = try await URLSession.shared.data(for: req)

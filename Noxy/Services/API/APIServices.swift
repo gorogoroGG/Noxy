@@ -236,10 +236,9 @@ struct APINotificationService: NotificationServiceProtocol {
         if guildId.isEmpty { return [] }
         return try await client.get("/api/v1/notifications?guildId=\(guildId)")
     }
-    func markRead(id: String) async throws {
-        // サーバー側に既読管理なし（監査ログ由来のため常にread=true）
-    }
+    func markRead(id: String) async throws { }
     func markAllRead() async throws { }
+    func delete(id: String) async throws { }
 }
 
 // ============================================================

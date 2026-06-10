@@ -85,15 +85,25 @@ struct ActionsTabView: View {
         ActionGroup(title: "ツール", icon: "wrench.and.screwdriver.fill") {
             if appState.isPro {
                 navCard(icon: "cart.fill", title: "ショップ",
-                        description: "サーバー内で商品を販売", color: .accentOrange) {
-                    ShopsListView(guildId: appState.selectedGuildId)
+                        description: "チケットで交渉しながら商品を販売", color: .accentIndigo) {
+                    ShopsListView(guildId: appState.selectedGuildId, shopType: .shop)
+                }
+                navCard(icon: "storefront.fill", title: "自販機",
+                        description: "支払い情報を送信するだけで即時購入", color: .accentGreen) {
+                    ShopsListView(guildId: appState.selectedGuildId, shopType: .vendingMachine)
                 }
             } else {
                 proNavCard(icon: "cart.fill", title: "ショップ",
-                           description: "サーバー内で商品を販売", color: .accentOrange) {
+                           description: "チケットで交渉しながら商品を販売", color: .accentIndigo) {
                     ProUpgradeView(featureIcon: "cart.fill", featureTitle: "ショップ",
                                    description: "Discordサーバーで商品を販売できます",
-                                   proFeatures: [("🛍","商品ページの作成・管理"),("📦","注文の受付・履歴管理"),("💳","売上レポート")])
+                                   proFeatures: [("🛍","商品ページの作成・管理"),("💬","購入者との交渉・やり取り"),("📦","注文の受付・履歴管理")])
+                }
+                proNavCard(icon: "storefront.fill", title: "自販機",
+                           description: "支払い情報を送信するだけで即時購入", color: .accentGreen) {
+                    ProUpgradeView(featureIcon: "storefront.fill", featureTitle: "自販機",
+                                   description: "スムーズな即時購入を実現する販売機能",
+                                   proFeatures: [("⚡️","支払い情報の送信だけで購入完了"),("🏪","自販機パネルの設置・管理"),("📦","注文の受付・履歴管理")])
                 }
             }
             navCard(icon: "chart.bar.xaxis", title: "ステータスチャンネル",

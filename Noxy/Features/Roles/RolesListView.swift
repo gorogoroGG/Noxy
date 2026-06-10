@@ -39,8 +39,7 @@ struct RolesListView: View {
 
     var guildId: String = ""
 
-    @State private var roles: [DiscordRole] = DiscordRole.mockRoles
-        .sorted { $0.position > $1.position }
+    @State private var roles: [DiscordRole] = []
     @State private var isLoadingRoles = false
 
     @State private var isReordering      = false
@@ -81,15 +80,16 @@ struct RolesListView: View {
         .animation(.spring(duration: 0.3), value: orderChangedFromSnapshot)
         .animation(.spring(duration: 0.25), value: isReordering)
         .animation(.easeInOut(duration: 0.2), value: noxyNeedsWarning)
-        .navigationTitle("ロール")
+        .navigationTitle("ロール管理")
         .navigationBarTitleDisplayMode(.large)
         .navigationBarBackButtonHidden(isReordering)
         .environment(\.editMode, $editMode)
         .toolbar { toolbarContent }
         .task { await loadRoles() }
         .refreshable { await loadRoles() }
+        .onChange(of: guildId) { _, _ in Task { await loadRoles() } }
         .sheet(isPresented: $showCreateSheet) {
-            CreateRoleSheet { role in
+            CreateRoleSheet(guildId: guildId) { role in
                 roles.insert(role, at: max(1, roles.count - 1))
                 recalcPositions()
             }
@@ -397,7 +397,12 @@ struct RolesListView: View {
     }
 
     private func loadRoles() async {
-        guard !guildId.isEmpty else { return }
+        guard !guildId.isEmpty else {
+            roles = []
+            isLoadingRoles = false
+            return
+        }
+        roles = []
         isLoadingRoles = true
         if let fetched = try? await DiscordService().fetchRoles(guildId: guildId) {
             roles = fetched.sorted { $0.position > $1.position }
@@ -478,10 +483,13 @@ private struct RoleRow: View {
 // MARK: - CreateRoleSheet
 
 private struct CreateRoleSheet: View {
+    let guildId: String
     let onCreated: (DiscordRole) -> Void
     @Environment(\.dismiss) private var dismiss
     @State private var name = ""
     @State private var selectedColor = 0
+    @State private var isCreating = false
+    @State private var errorMessage: String? = nil
     @FocusState private var focused: Bool
 
     var body: some View {
@@ -502,6 +510,12 @@ private struct CreateRoleSheet: View {
                         Text("ロールカラー").font(.captionSmall).foregroundStyle(Color.textTertiary)
                         colorGrid
                     }
+                    if let error = errorMessage {
+                        Text(error)
+                            .font(.captionSmall)
+                            .foregroundStyle(Color.accentRed)
+                            .frame(maxWidth: .infinity, alignment: .leading)
+                    }
                     Spacer()
                 }
                 .padding(.spacing16)
@@ -509,24 +523,40 @@ private struct CreateRoleSheet: View {
             .navigationTitle("ロールを作成").navigationBarTitleDisplayMode(.inline)
             .toolbar {
                 ToolbarItem(placement: .navigationBarLeading) {
-                    Button("キャンセル") { dismiss() }.foregroundStyle(Color.textSecondary)
+                    Button("キャンセル") { dismiss() }
+                        .foregroundStyle(Color.textSecondary)
+                        .disabled(isCreating)
                 }
                 ToolbarItem(placement: .navigationBarTrailing) {
-                    Button("作成") {
-                        let trimmed = name.trimmingCharacters(in: .whitespaces)
-                        onCreated(DiscordRole(
-                            id: UUID().uuidString,
-                            name: trimmed.isEmpty ? "新しいロール" : trimmed,
-                            color: selectedColor, position: 1, managed: false,
-                            permissions: "104324161", mentionable: false
-                        ))
-                        UINotificationFeedbackGenerator().notificationOccurred(.success)
-                        dismiss()
+                    Button {
+                        Task { await createRole() }
+                    } label: {
+                        if isCreating {
+                            ProgressView().scaleEffect(0.8)
+                        } else {
+                            Text("作成").fontWeight(.semibold).foregroundStyle(Color.accentIndigo)
+                        }
                     }
-                    .fontWeight(.semibold).foregroundStyle(Color.accentIndigo)
+                    .disabled(isCreating)
                 }
             }
             .onAppear { focused = true }
+        }
+    }
+
+    private func createRole() async {
+        isCreating = true
+        errorMessage = nil
+        let trimmed = name.trimmingCharacters(in: .whitespaces)
+        let roleName = trimmed.isEmpty ? "新しいロール" : trimmed
+        do {
+            let created = try await DiscordService().createRole(guildId: guildId, name: roleName, color: selectedColor)
+            UINotificationFeedbackGenerator().notificationOccurred(.success)
+            onCreated(created)
+            dismiss()
+        } catch {
+            errorMessage = "ロールの作成に失敗しました。再試行してください。"
+            isCreating = false
         }
     }
 

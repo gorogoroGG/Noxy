@@ -173,8 +173,30 @@ struct SupabaseClient: Sendable {
         return url
     }
 
+    // MARK: - JWT helpers
+
+    /// JWTペイロードから exp クレームを取得する（ネットワーク不要）
+    private func jwtExpiry(from token: String) -> Date? {
+        let parts = token.split(separator: ".")
+        guard parts.count == 3 else { return nil }
+        var b64 = String(parts[1])
+        let rem = b64.count % 4
+        if rem != 0 { b64 += String(repeating: "=", count: 4 - rem) }
+        guard let data = Data(base64Encoded: b64),
+              let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
+              let exp = json["exp"] as? TimeInterval else { return nil }
+        return Date(timeIntervalSince1970: exp)
+    }
+
     private func request(method: String, path: String, body: Data? = nil) async throws -> Data {
         guard SupabaseConfig.isConfigured else { throw SupabaseError.notConfigured }
+
+        // トークンの有効期限が5分以内なら事前リフレッシュ
+        if let token = KeychainHelper.load(forKey: "supabase_access_token"),
+           let expiry = jwtExpiry(from: token),
+           expiry.timeIntervalSinceNow < 300 {
+            _ = try? await refreshToken()
+        }
 
         do {
             return try await performRequest(method: method, path: path, body: body)

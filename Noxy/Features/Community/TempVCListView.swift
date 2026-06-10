@@ -229,12 +229,9 @@ struct TempVCListView: View {
             sources = fetched
         }
 
-        if let url = URL(string: "\(DiscordConfig.workerURL)/bot/channels?guild_id=\(guildId)"),
-           let (data, _) = try? await URLSession.shared.data(from: url) {
-            struct RawCh: Decodable { let id: String; let name: String; let type: Int }
-            if let chs = try? JSONDecoder().decode([RawCh].self, from: data) {
-                categories = chs.filter { $0.type == 4 }.map { ($0.id, $0.name) }
-            }
+        struct RawCh: Decodable { let id: String; let name: String; let type: Int }
+        if let chs = try? await WorkerClient().get("/bot/channels?guild_id=\(guildId)") as [RawCh] {
+            categories = chs.filter { $0.type == 4 }.map { ($0.id, $0.name) }
         }
 
         if !silent { isLoading = false }

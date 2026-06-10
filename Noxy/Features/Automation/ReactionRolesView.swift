@@ -220,6 +220,7 @@ struct ReactionRolesView: View {
             }
         }
         .navigationTitle("リアクションロール")
+        .navigationBarTitleDisplayMode(.large)
         .toolbar {
             ToolbarItem(placement: .topBarTrailing) {
                 Button {
@@ -460,6 +461,7 @@ struct ReactionRoleEditorView: View {
     @State private var rolePickerPairIndex = 0
     @State private var isSaving            = false
     @State private var showProSheet        = false
+    @State private var showDiscardAlert    = false
     @FocusState private var focusedField: FieldFocus?
 
     private let existingId: String?
@@ -488,6 +490,23 @@ struct ReactionRoleEditorView: View {
         !internalTitle.isEmpty
         && !pairs.isEmpty
         && pairs.allSatisfy { !$0.emoji.isEmpty && !$0.roleId.isEmpty }
+    }
+
+    private var hasChanges: Bool {
+        if let ex = existing {
+            return internalTitle != ex.title
+                || msgContent != ex.embedMessageContent
+                || embedTitle != ex.embedTitle
+                || embedDescription != ex.embedDescription
+                || Int(embedColorHex) != ex.embedColor
+                || pairs.map { $0.emoji + $0.roleId } != ex.pairs.map { $0.emoji + $0.roleId }
+                || mode != ex.mode
+        }
+        return !internalTitle.isEmpty
+            || !msgContent.isEmpty
+            || embedTitle != "ロールを選択"
+            || embedDescription != "リアクションを押してロールを取得してください。"
+            || pairs.contains { !$0.emoji.isEmpty || !$0.roleId.isEmpty }
     }
 
     // MARK: - Body
@@ -524,10 +543,19 @@ struct ReactionRoleEditorView: View {
             .background(Color.bgPrimary)
             .navigationTitle(existingId == nil ? "リアクションロールを作成" : "編集")
             .navigationBarTitleDisplayMode(.inline)
+            .alert("変更を破棄しますか？", isPresented: $showDiscardAlert) {
+                Button("破棄してキャンセル", role: .destructive) { dismiss() }
+                Button("編集を続ける", role: .cancel) {}
+            } message: {
+                Text("保存されていない変更があります。")
+            }
             .toolbar {
                 ToolbarItem(placement: .topBarLeading) {
-                    Button("キャンセル") { dismiss() }
-                        .foregroundStyle(Color.textSecondary)
+                    Button("キャンセル") {
+                        if hasChanges { showDiscardAlert = true }
+                        else { dismiss() }
+                    }
+                    .foregroundStyle(Color.textSecondary)
                 }
                 ToolbarItem(placement: .topBarTrailing) {
                     Button {
@@ -734,22 +762,28 @@ struct ReactionRoleEditorView: View {
                                 rolePickerPairIndex = idx
                                 showEmojiPicker = true
                             } label: {
-                                Text(pair.emoji.isEmpty ? "😀" : pair.emoji)
-                                    .font(.system(size: 22))
-                                    .frame(width: 44, height: 44)
-                                    .background(
-                                        pair.emoji.isEmpty
-                                            ? Color.bgElevated
-                                            : accentColor.opacity(0.12)
-                                    )
-                                    .clipShape(RoundedRectangle(cornerRadius: 10))
-                                    .overlay(
-                                        RoundedRectangle(cornerRadius: 10)
-                                            .stroke(
-                                                pair.emoji.isEmpty ? Color.border : accentColor.opacity(0.3),
-                                                lineWidth: 1
-                                            )
-                                    )
+                                if pair.emoji.isEmpty {
+                                    Image(systemName: "plus")
+                                        .font(.system(size: 16, weight: .bold))
+                                        .foregroundStyle(Color.accentPink)
+                                        .frame(width: 44, height: 44)
+                                        .background(Color.accentPink.opacity(0.08))
+                                        .clipShape(RoundedRectangle(cornerRadius: 10))
+                                        .overlay(
+                                            RoundedRectangle(cornerRadius: 10)
+                                                .stroke(Color.accentPink, lineWidth: 1.5)
+                                        )
+                                } else {
+                                    Text(pair.emoji)
+                                        .font(.system(size: 22))
+                                        .frame(width: 44, height: 44)
+                                        .background(accentColor.opacity(0.12))
+                                        .clipShape(RoundedRectangle(cornerRadius: 10))
+                                        .overlay(
+                                            RoundedRectangle(cornerRadius: 10)
+                                                .stroke(accentColor.opacity(0.3), lineWidth: 1)
+                                        )
+                                }
                             }
                             .buttonStyle(.plain)
 

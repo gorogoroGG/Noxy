@@ -7,10 +7,10 @@ import SwiftUI
 struct TicketPanelListView: View {
     let guildId: String
     @Binding var panels: [TicketPanel]
+    @Binding var isLoading: Bool
 
     @Environment(\.services) private var services
     @Environment(AppState.self) private var appState
-    @State private var isLoading = true
     @State private var loadError: String? = nil
     @State private var showCreate = false
     @State private var editingPanel: TicketPanel? = nil
@@ -75,6 +75,7 @@ struct TicketPanelListView: View {
             }
         }
         .toast($toast)
+        .task(id: guildId) { await load() }
         .refreshable { await load() }
     }
 
@@ -225,14 +226,16 @@ struct TicketPanelListView: View {
             panels = cached
             isLoading = false
         }
-        // バックグラウンドで最新データを取得
+        // ネットワークから最新データを取得
         do {
             let fetched = try await services.tickets.fetchPanels(guildId: guildId)
             panels = fetched
             appState.cacheTicketPanels(fetched, for: guildId)
+            loadError = nil
         } catch {
-            loadError = "サーバーに接続できませんでした。ネットワークを確認してください。"
+            // キャッシュが表示済みならエラー表示しない（バックグラウンド更新の失敗）
             if appState.cachedTicketPanels[guildId] == nil {
+                loadError = "サーバーに接続できませんでした。ネットワークを確認してください。"
                 panels = []
             }
         }
@@ -259,8 +262,10 @@ struct TicketPanelListView: View {
                 panels[idx] = updated
             }
             showToast("Discordに設置しました", type: .success)
+        } catch ServiceError.workerError(let status, let msg) {
+            showToast("設置失敗(\(status)): \(msg.prefix(80))", type: .error)
         } catch {
-            showToast("設置に失敗しました", type: .error)
+            showToast("設置に失敗しました: \(error.localizedDescription)", type: .error)
         }
         deployingId = nil
     }

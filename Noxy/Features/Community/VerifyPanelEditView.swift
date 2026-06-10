@@ -387,14 +387,9 @@ struct VerifyPanelEditView: View {
         isLoading = true
         async let rolesTask = DiscordService().fetchRoles(guildId: guildId)
         async let chTask: [(id: String, name: String, type: Int, parentId: String?)] = {
-            guard let url = URL(string: "\(DiscordConfig.workerURL)/bot/channels?guild_id=\(guildId)") else { return [] }
-            struct RawCh: Decodable {
-                let id: String; let name: String; let type: Int
-                let parent_id: String?
-            }
-            guard let (data, _) = try? await URLSession.shared.data(from: url),
-                  let chs = try? JSONDecoder().decode([RawCh].self, from: data) else { return [] }
-            return chs.map { ($0.id, $0.name, $0.type, $0.parent_id) }
+            struct RawCh: Decodable { let id: String; let name: String; let type: Int; let parentId: String? }
+            guard let chs = try? await WorkerClient().get("/bot/channels?guild_id=\(guildId)") as [RawCh] else { return [] }
+            return chs.map { ($0.id, $0.name, $0.type, $0.parentId) }
         }()
         roles = (try? await rolesTask) ?? []
         allChannels = await chTask

@@ -114,6 +114,12 @@ struct MoreTabView: View {
     private var settingsSection: some View {
         Section("設定") {
             NavigationLink {
+                NotificationSettingsView()
+            } label: {
+                SettingsRow(icon: "bell.badge.fill", title: "通知設定")
+            }
+
+            NavigationLink {
                 AppearanceSettingsView()
             } label: {
                 SettingsRow(icon: "paintbrush.fill", title: "外観")

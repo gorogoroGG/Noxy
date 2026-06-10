@@ -194,7 +194,13 @@ struct SendEmbedView: View {
 
     private func loadChannels() async {
         isLoading = true
-        channels = (try? await services.guilds.fetchChannels(guildId: appState.selectedGuildId)) ?? []
+        var fetched: [Channel]? = nil
+        for _ in 0..<3 {
+            fetched = try? await services.guilds.fetchChannels(guildId: appState.selectedGuildId)
+            if fetched != nil { break }
+            try? await Task.sleep(for: .seconds(1))
+        }
+        channels = fetched ?? []
         isLoading = false
     }
 

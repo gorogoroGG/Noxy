@@ -43,7 +43,7 @@ struct VerifyPanelListView: View {
         }
         .background(Color(.systemGroupedBackground))
         .refreshable { await load() }
-        .navigationTitle("認証パネル")
+        .navigationTitle("認証")
         .navigationBarTitleDisplayMode(.large)
         .sheet(isPresented: $showCreate) {
             VerifyPanelEditView(guildId: guildId) { created in
@@ -173,10 +173,8 @@ struct VerifyPanelListView: View {
         async let panelTask = services.verify.fetchPanels(guildId: guildId)
         async let reqTask = services.verify.fetchRequests(guildId: guildId, status: .pending)
         async let chTask: [(id: String, name: String)] = {
-            guard let url = URL(string: "\(DiscordConfig.workerURL)/bot/channels?guild_id=\(guildId)") else { return [] }
             struct RawCh: Decodable { let id: String; let name: String; let type: Int }
-            guard let (data, _) = try? await URLSession.shared.data(from: url),
-                  let chs = try? JSONDecoder().decode([RawCh].self, from: data) else { return [] }
+            guard let chs = try? await WorkerClient().get("/bot/channels?guild_id=\(guildId)") as [RawCh] else { return [] }
             return chs.filter { $0.type == 0 }.map { ($0.id, $0.name) }
         }()
         let panels = (try? await panelTask) ?? []

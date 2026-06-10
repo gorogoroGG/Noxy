@@ -1,10 +1,39 @@
 import SwiftUI
 
+// MARK: - ShopType
+
+enum ShopType: String, Codable, CaseIterable, Sendable {
+    case shop = "shop"
+    case vendingMachine = "vending_machine"
+
+    var label: String {
+        switch self {
+        case .shop: return "ショップ"
+        case .vendingMachine: return "自販機"
+        }
+    }
+
+    var icon: String {
+        switch self {
+        case .shop: return "cart.fill"
+        case .vendingMachine: return "storefront.fill"
+        }
+    }
+
+    var accentColor: Color {
+        switch self {
+        case .shop: return .accentIndigo
+        case .vendingMachine: return .accentGreen
+        }
+    }
+}
+
 // MARK: - Shop
 
 struct Shop: Identifiable, Codable, Hashable, Sendable {
     let id: String
     var guildId: String
+    var shopType: ShopType
     var name: String
     var description: String
     var enabled: Bool
@@ -25,16 +54,23 @@ struct Shop: Identifiable, Codable, Hashable, Sendable {
     var welcomeFooterText: String?
     var welcomeFooterIconUrl: String?
     var welcomeShowTimestamp: Bool
+    /// 自販機のみ使用。購入時の支払い入力欄に表示する案内文
+    var paymentInputLabel: String?
+    var autoDeleteEnabled: Bool
+    var autoDeleteDays: Int?
     let createdAt: Date
 
     var isDeployed: Bool { messageId != nil && !(messageId!.isEmpty) }
 
-    nonisolated static func blank(guildId: String) -> Shop {
+    nonisolated static func blank(guildId: String, shopType: ShopType = .shop) -> Shop {
         Shop(
             id: UUID().uuidString,
             guildId: guildId,
-            name: "ショップ",
-            description: "商品を選択して購入してください。",
+            shopType: shopType,
+            name: shopType == .vendingMachine ? "自販機" : "ショップ",
+            description: shopType == .vendingMachine
+                ? "商品を選択し、支払い情報を送信してください。"
+                : "商品を選択して購入してください。",
             enabled: true,
             disabledMessage: nil,
             channelId: "",
@@ -43,7 +79,7 @@ struct Shop: Identifiable, Codable, Hashable, Sendable {
             archiveCategoryId: nil,
             supportRoleId: nil,
             timeoutHours: nil,
-            color: 0x6366f1,
+            color: shopType == .vendingMachine ? 0x10b981 : 0x6366f1,
             footerText: "",
             reviewEnabled: false,
             reviewChannelId: nil,
@@ -53,6 +89,9 @@ struct Shop: Identifiable, Codable, Hashable, Sendable {
             welcomeFooterText: nil,
             welcomeFooterIconUrl: nil,
             welcomeShowTimestamp: true,
+            paymentInputLabel: shopType == .vendingMachine ? "PayPayの受け取りURLを入力してください" : nil,
+            autoDeleteEnabled: false,
+            autoDeleteDays: nil,
             createdAt: .now
         )
     }
@@ -117,41 +156,45 @@ enum RewardType: String, Codable, CaseIterable {
 enum OrderStatus: String, Codable, CaseIterable {
     case open
     case paid
-    case delivered
     case completed
     case cancelled
     case disputed
+    case archived
+    case delivered  // 後方互換性のため保持
 
     var label: String {
         switch self {
         case .open: return "注文受付中"
-        case .paid: return "支払い確認済"
-        case .delivered: return "商品引渡済"
+        case .paid: return "取引完了"
         case .completed: return "取引完了"
         case .cancelled: return "キャンセル"
         case .disputed: return "異議あり"
+        case .archived: return "アーカイブ済"
+        case .delivered: return "商品引渡済"
         }
     }
 
     var icon: String {
         switch self {
         case .open: return "cart.fill"
-        case .paid: return "creditcard.fill"
-        case .delivered: return "shippingbox.fill"
+        case .paid: return "checkmark.circle.fill"
         case .completed: return "checkmark.circle.fill"
         case .cancelled: return "xmark.circle.fill"
         case .disputed: return "exclamationmark.triangle.fill"
+        case .archived: return "archivebox.fill"
+        case .delivered: return "shippingbox.fill"
         }
     }
 
     var chipColor: Color {
         switch self {
         case .open: return .accentOrange
-        case .paid: return .accentIndigo
-        case .delivered: return .accentPurple
+        case .paid: return .accentGreen
         case .completed: return .accentGreen
         case .cancelled: return Color.textTertiary
         case .disputed: return .red
+        case .archived: return Color.textTertiary
+        case .delivered: return .accentPurple
         }
     }
 }
@@ -180,6 +223,6 @@ struct Order: Identifiable, Codable, Hashable {
     var deliveredAt: Date?
     var completedAt: Date?
     var cancelledAt: Date?
+    var archivedAt: Date?
+    var autoDeleteAt: Date?
 }
-
-

@@ -56,8 +56,8 @@ struct SupabaseEmbedService: EmbedServiceProtocol {
         var request = URLRequest(url: url, timeoutInterval: 30)
         request.httpMethod = "POST"
         request.setValue("application/json", forHTTPHeaderField: "Content-Type")
-        if !DiscordConfig.workerAPISecret.isEmpty {
-            request.setValue(DiscordConfig.workerAPISecret, forHTTPHeaderField: "X-Bot-Secret")
+        if let token = WorkerClient.bearerToken() {
+            request.setValue("Bearer \(token)", forHTTPHeaderField: "Authorization")
         }
         let body: [String: Any] = ["urls": urls]
         request.httpBody = try JSONSerialization.data(withJSONObject: body)
@@ -74,8 +74,8 @@ struct SupabaseEmbedService: EmbedServiceProtocol {
         var request = URLRequest(url: url, timeoutInterval: 30)
         request.httpMethod = "POST"
         request.setValue("application/json", forHTTPHeaderField: "Content-Type")
-        if !DiscordConfig.workerAPISecret.isEmpty {
-            request.setValue(DiscordConfig.workerAPISecret, forHTTPHeaderField: "X-Bot-Secret")
+        if let token = WorkerClient.bearerToken() {
+            request.setValue("Bearer \(token)", forHTTPHeaderField: "Authorization")
         }
         let body: [String: Any] = [
             "guildId": guildId,

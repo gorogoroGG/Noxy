@@ -5,9 +5,13 @@ struct EmbedListView: View {
     @Environment(AppState.self) private var appState
     @State private var embeds: [EmbedModel] = []
     @State private var isLoading = true
-    @State private var showEditor = false
-    @State private var editingEmbed: EmbedModel? = nil
+    @State private var editSession: EditSession? = nil
     @State private var embedToSend: EmbedModel? = nil
+
+    private struct EditSession: Identifiable {
+        let id = UUID()
+        let embed: EmbedModel?
+    }
     @State private var deleteTarget: EmbedModel? = nil
     @State private var showDeleteConfirm = false
     @State private var toast: ToastMessage? = nil
@@ -38,8 +42,7 @@ struct EmbedListView: View {
                         description: "右下の＋から最初のEmbedを作成しましょう",
                         actionTitle: "作成する"
                     ) {
-                        editingEmbed = nil
-                        showEditor = true
+                        editSession = EditSession(embed: nil)
                     }
                 } else if filtered.isEmpty {
                     VStack(spacing: .spacing8) {
@@ -56,7 +59,7 @@ struct EmbedListView: View {
                         ForEach(filtered) { embed in
                             EmbedRow(
                                 embed: embed,
-                                onEdit: { editingEmbed = embed; showEditor = true },
+                                onEdit: { editSession = EditSession(embed: embed) },
                                 onSend: { embedToSend = embed },
                                 onDuplicate: { duplicateEmbed(embed) },
                                 onDelete: {
@@ -82,8 +85,7 @@ struct EmbedListView: View {
 
             if appState.isPro && !isLoading && !filtered.isEmpty {
                 Button {
-                    editingEmbed = nil
-                    showEditor = true
+                    editSession = EditSession(embed: nil)
                 } label: {
                     Image(systemName: "plus")
                         .font(.system(size: 22, weight: .semibold))
@@ -98,18 +100,17 @@ struct EmbedListView: View {
                 .transition(.scale.combined(with: .opacity))
             }
         }
-        .navigationTitle("Embed")
+        .navigationTitle("Embedメッセージ")
         .navigationBarTitleDisplayMode(.large)
         .searchable(text: $searchText, prompt: "Embedを検索")
-        .sheet(isPresented: $showEditor, onDismiss: { Task { await load() } }) {
-            EmbedEditorView(embed: editingEmbed) { saved in
+        .sheet(item: $editSession, onDismiss: { Task { await load() } }) { session in
+            EmbedEditorView(embed: session.embed) { saved in
                 if let idx = embeds.firstIndex(where: { $0.id == saved.id }) {
                     embeds[idx] = saved
                 } else {
                     embeds.insert(saved, at: 0)
                 }
             }
-            .id(editingEmbed?.id ?? "new-embed")
         }
         .sheet(item: $embedToSend) { embed in
             SendEmbedView(embed: embed)
@@ -156,8 +157,7 @@ struct EmbedListView: View {
                 .clipShape(RoundedRectangle(cornerRadius: .cornerRadiusMedium))
 
                 Button {
-                    editingEmbed = nil
-                    showEditor = true
+                    editSession = EditSession(embed: nil)
                 } label: {
                     HStack(spacing: .spacing8) {
                         Image(systemName: "paperplane.fill")

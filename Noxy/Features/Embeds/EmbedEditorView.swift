@@ -796,8 +796,8 @@ struct EmbedEditorView: View {
         request.httpMethod = "POST"
         let boundary = "Boundary-\(UUID().uuidString)"
         request.setValue("multipart/form-data; boundary=\(boundary)", forHTTPHeaderField: "Content-Type")
-        if !DiscordConfig.workerAPISecret.isEmpty {
-            request.setValue(DiscordConfig.workerAPISecret, forHTTPHeaderField: "X-Bot-Secret")
+        if let token = WorkerClient.bearerToken() {
+            request.setValue("Bearer \(token)", forHTTPHeaderField: "Authorization")
         }
         var body = Data()
         body.append("--\(boundary)\r\n".data(using: .utf8)!)

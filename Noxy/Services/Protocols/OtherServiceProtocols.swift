@@ -16,6 +16,7 @@ protocol NotificationServiceProtocol: Sendable {
     func fetchAll() async throws -> [AppNotification]
     func markRead(id: String) async throws
     func markAllRead() async throws
+    func delete(id: String) async throws
 }
 
 protocol AnalyticsServiceProtocol: Sendable {

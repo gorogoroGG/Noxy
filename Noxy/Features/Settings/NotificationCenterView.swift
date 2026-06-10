@@ -2,6 +2,7 @@ import SwiftUI
 
 struct NotificationCenterView: View {
     @Environment(\.services) private var services
+    @Environment(AppState.self) private var appState
     @State private var notifications: [AppNotification] = []
     @State private var isLoading = true
     @State private var selectedFilter = "All"
@@ -38,9 +39,14 @@ struct NotificationCenterView: View {
                 } else {
                     List {
                         ForEach(filtered) { notification in
-                            NotificationRow(notification: notification) {
-                                markRead(notification)
-                            }
+                            NotificationRow(
+                                notification: notification,
+                                guildName: notification.guildId.flatMap { gid in
+                                    appState.guilds.first { $0.id == gid }?.name
+                                        ?? appState.botGuilds.first { $0.id == gid }?.name
+                                },
+                                onTap: { markRead(notification) }
+                            )
                             .swipeActions(edge: .leading) {
                                 Button {
                                     markRead(notification)
@@ -51,6 +57,7 @@ struct NotificationCenterView: View {
                             }
                             .swipeActions(edge: .trailing) {
                                 Button(role: .destructive) {
+                                    deleteNotification(notification)
                                 } label: {
                                     Label("削除", systemImage: "trash")
                                 }
@@ -86,10 +93,18 @@ struct NotificationCenterView: View {
             notifications[idx].read = true
         }
     }
+
+    private func deleteNotification(_ notification: AppNotification) {
+        Task { try? await services.notifications.delete(id: notification.id) }
+        withAnimation {
+            notifications.removeAll { $0.id == notification.id }
+        }
+    }
 }
 
 private struct NotificationRow: View {
     let notification: AppNotification
+    let guildName: String?
     let onTap: () -> Void
 
     private var typeIcon: String {
@@ -140,9 +155,8 @@ private struct NotificationRow: View {
                         .lineLimit(2)
 
                     HStack(spacing: .spacing8) {
-                        if let guildId = notification.guildId,
-                           let guildName = MockData.guilds.first(where: { $0.id == guildId })?.name {
-                            Text(guildName)
+                        if let name = guildName {
+                            Text(name)
                                 .font(.captionSmall)
                                 .foregroundStyle(Color.textTertiary)
                         }
@@ -160,5 +174,6 @@ private struct NotificationRow: View {
 
 #Preview {
     NotificationCenterView()
-        .environment(\.services, ServiceContainer.live())
+        .environment(\.services, ServiceContainer.mock())
+        .environment(AppState())
 }

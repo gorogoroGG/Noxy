@@ -6,6 +6,8 @@ struct MainTabView: View {
     @Environment(\.scenePhase)       private var scenePhase
     @Environment(AppState.self)      private var appState
 
+    @State private var selectedTab = 0
+
     var body: some View {
         Group {
             if !appState.isAppReady {
@@ -19,18 +21,22 @@ struct MainTabView: View {
                 .transition(.opacity)
             } else {
                 ZStack {
-                    TabView {
+                    TabView(selection: $selectedTab) {
                         DashboardView()
                             .tabItem { Label("ホーム", systemImage: "house.fill") }
+                            .tag(0)
 
                         ActionsTabView()
                             .tabItem { Label("アクション", systemImage: "bolt.fill") }
+                            .tag(1)
 
                         ManageTabView()
                             .tabItem { Label("管理", systemImage: "person.3.fill") }
+                            .tag(2)
 
                         MoreTabView()
                             .tabItem { Label("設定", systemImage: "gearshape.fill") }
+                            .tag(3)
                     }
                     .tint(Color.accentIndigo)
                     .mockBanner()
@@ -64,8 +70,15 @@ struct MainTabView: View {
 
     @MainActor
     private func loadInitialData() async {
-        // Bot が入っているサーバー一覧取得
-        let botGuilds = (try? await DiscordService().fetchBotGuilds()) ?? []
+        let userId = KeychainHelper.load(forKey: "discord_user_id") ?? ""
+
+        // Bot guilds・ユーザーguilds・サブスク・Botステータスを並列取得
+        async let botGuildsTask      = DiscordService().fetchBotGuilds()
+        async let userGuildsTask     = services.guilds.fetchAll()
+        async let subscriptionTask   = services.subscription.fetchStatus(discordUserId: userId)
+        async let botStatusTask      = services.bot.fetchStatus()
+
+        let botGuilds = (try? await botGuildsTask) ?? []
         appState.botGuilds = botGuilds
 
         // Bot がどのサーバーにも入っていない場合はここで早期リターン
@@ -77,7 +90,7 @@ struct MainTabView: View {
         }
 
         // ユーザーが管理できるサーバー一覧（Discord OAuth）
-        let fetchedGuilds = (try? await services.guilds.fetchAll()) ?? []
+        let fetchedGuilds = (try? await userGuildsTask) ?? []
         let botGuildIds = Set(botGuilds.map(\.id))
         appState.guilds = fetchedGuilds
 
@@ -91,13 +104,12 @@ struct MainTabView: View {
             appState.selectedGuild = g
         }
 
-        // サブスクリプション
-        let userId = KeychainHelper.load(forKey: "discord_user_id") ?? ""
-        let status = (try? await services.subscription.fetchStatus(discordUserId: userId)) ?? .inactive
+        // サブスクリプション（並列取得済み）
+        let status = (try? await subscriptionTask) ?? .inactive
         withAnimation { appState.subscriptionStatus = status }
 
-        // Bot ステータス
-        let botStatus = (try? await services.bot.fetchStatus())
+        // Bot ステータス（並列取得済み）
+        let botStatus = (try? await botStatusTask)
             ?? BotStatus(isOnline: false, latency: 0, uptime: 0, activeGuilds: 0, totalCommands: 0)
         withAnimation { appState.botStatus = botStatus }
 

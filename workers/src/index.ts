@@ -178,7 +178,7 @@ function verifyErrorPage(message: string): Response {
 // ── ショップ型定義 ────────────────────────────────────────────
 
 interface ShopRow {
-  id: string; guild_id: string; name: string; description: string; enabled: boolean;
+  id: string; guild_id: string; shop_type: string; name: string; description: string; enabled: boolean;
   disabled_message: string | null;
   channel_id: string; message_id: string | null;
   order_category_id: string | null; archive_category_id: string | null;
@@ -189,11 +189,14 @@ interface ShopRow {
   welcome_fields: Array<{name: string; value: string; inline: boolean}>;
   welcome_footer_text: string | null; welcome_footer_icon_url: string | null;
   welcome_show_timestamp: boolean;
+  payment_input_label: string | null;
+  auto_delete_enabled: boolean; auto_delete_days: number | null;
   created_at: string;
 }
 
 function mapShop(s: ShopRow) {
-  return { id: s.id, guildId: s.guild_id, name: s.name, description: s.description,
+  return { id: s.id, guildId: s.guild_id, shopType: s.shop_type ?? 'shop',
+    name: s.name, description: s.description,
     enabled: s.enabled, disabledMessage: s.disabled_message,
     channelId: s.channel_id, messageId: s.message_id,
     orderCategoryId: s.order_category_id, archiveCategoryId: s.archive_category_id,
@@ -204,6 +207,8 @@ function mapShop(s: ShopRow) {
     welcomeFields: s.welcome_fields ?? [],
     welcomeFooterText: s.welcome_footer_text, welcomeFooterIconUrl: s.welcome_footer_icon_url,
     welcomeShowTimestamp: s.welcome_show_timestamp,
+    paymentInputLabel: s.payment_input_label ?? null,
+    autoDeleteEnabled: s.auto_delete_enabled ?? false, autoDeleteDays: s.auto_delete_days ?? null,
     createdAt: s.created_at };
 }
 interface ProductRow {
@@ -521,7 +526,7 @@ async function updateSingleStatChannel(row: StatChannelRow, env: Env): Promise<v
 async function processStatChannels(env: Env): Promise<void> {
   const sbLocal = makeSupabaseFetch(env);
   const BATCH_LIMIT   = 24;
-  const RATE_LIMIT_MS = 9 * 60 * 1000;
+  const RATE_LIMIT_MS = 60 * 60 * 1000; // 1時間に1回
   const now           = Date.now();
   const cutoffISO     = new Date(now - RATE_LIMIT_MS).toISOString();
 
@@ -599,6 +604,120 @@ async function verifySupabaseJwt(
   }
 
   return { ok: true, supabaseUserId };
+}
+
+// ── Supabase JWT 検証（ES256 + HS256 両対応） ──────────────────
+
+// JWKS 公開鍵をメモリキャッシュ（同一 Worker インスタンス内で再利用）
+const jwksCache: Map<string, { keys: CryptoKey[]; fetchedAt: number }> = new Map();
+const JWKS_CACHE_TTL_MS = 60 * 60 * 1000; // 1時間
+
+async function fetchJwksKeys(supabaseUrl: string): Promise<CryptoKey[]> {
+  const cached = jwksCache.get(supabaseUrl);
+  if (cached && Date.now() - cached.fetchedAt < JWKS_CACHE_TTL_MS) {
+    return cached.keys;
+  }
+
+  const jwksUrl = `${supabaseUrl.replace(/\/$/, '')}/auth/v1/.well-known/jwks.json`;
+  const resp = await fetch(jwksUrl);
+  if (!resp.ok) return [];
+
+  const { keys } = await resp.json() as { keys: any[] };
+  const cryptoKeys: CryptoKey[] = [];
+
+  for (const jwk of keys) {
+    try {
+      if (jwk.kty === 'EC' && jwk.crv === 'P-256') {
+        const key = await crypto.subtle.importKey(
+          'jwk', jwk,
+          { name: 'ECDSA', namedCurve: 'P-256' },
+          false, ['verify']
+        );
+        cryptoKeys.push(key);
+      } else if (jwk.kty === 'RSA') {
+        const key = await crypto.subtle.importKey(
+          'jwk', jwk,
+          { name: 'RSASSA-PKCS1-v1_5', hash: 'SHA-256' },
+          false, ['verify']
+        );
+        cryptoKeys.push(key);
+      }
+    } catch { /* スキップ */ }
+  }
+
+  jwksCache.set(supabaseUrl, { keys: cryptoKeys, fetchedAt: Date.now() });
+  return cryptoKeys;
+}
+
+function b64urlToBytes(b64url: string): Uint8Array {
+  const b64 = b64url.replace(/-/g, '+').replace(/_/g, '/');
+  const pad = b64.length % 4 === 0 ? 0 : 4 - (b64.length % 4);
+  return Uint8Array.from(atob(b64 + '='.repeat(pad)), c => c.charCodeAt(0));
+}
+
+function parseJwtPayload(parts: string[]): any {
+  try {
+    return JSON.parse(atob(parts[1].replace(/-/g, '+').replace(/_/g, '/')));
+  } catch { return null; }
+}
+
+// ES256（ECC P-256）で検証
+async function verifyEs256(header: string, payload: string, sigBytes: Uint8Array, keys: CryptoKey[]): Promise<boolean> {
+  const sigInput = new TextEncoder().encode(`${header}.${payload}`);
+  for (const key of keys) {
+    try {
+      const valid = await crypto.subtle.verify(
+        { name: 'ECDSA', hash: 'SHA-256' },
+        key, sigBytes, sigInput
+      );
+      if (valid) return true;
+    } catch { /* 次のキーを試す */ }
+  }
+  return false;
+}
+
+// HS256（HMAC-SHA256 共有シークレット）で検証
+async function verifyHs256(header: string, payload: string, sigBytes: Uint8Array, secret: string): Promise<boolean> {
+  try {
+    const key = await crypto.subtle.importKey(
+      'raw', new TextEncoder().encode(secret),
+      { name: 'HMAC', hash: 'SHA-256' },
+      false, ['verify']
+    );
+    return await crypto.subtle.verify(
+      'HMAC', key, sigBytes,
+      new TextEncoder().encode(`${header}.${payload}`)
+    );
+  } catch { return false; }
+}
+
+// メイン検証関数：ES256（JWKSから公開鍵取得）→ HS256 の順で試行
+async function verifySupabaseJwtLocal(
+  jwt: string,
+  _unused: string,        // 後方互換のため引数を残す（現在は未使用）
+  supabaseUrl?: string
+): Promise<boolean> {
+  if (!jwt) return false;
+  const parts = jwt.split('.');
+  if (parts.length !== 3) return false;
+
+  // exp チェック（早期リターン）
+  const jwtPayload = parseJwtPayload(parts);
+  if (!jwtPayload) return false;
+  if (jwtPayload.exp && jwtPayload.exp < Math.floor(Date.now() / 1000)) return false;
+
+  const sigBytes = b64urlToBytes(parts[2]);
+
+  // ES256: JWKS から公開鍵を取得して検証
+  if (supabaseUrl) {
+    const keys = await fetchJwksKeys(supabaseUrl);
+    if (keys.length > 0) {
+      const valid = await verifyEs256(parts[0], parts[1], sigBytes, keys);
+      if (valid) return true;
+    }
+  }
+
+  return false;
 }
 
 // ── Supabase クライアント ─────────────────────────────────────
@@ -782,6 +901,41 @@ async function processOrderTimeouts(env: Env): Promise<void> {
 
 // ── Worker Entry Point ───────────────────────────────────────
 
+// ── Discord Ed25519 署名検証 ────────────────────────────────────
+async function verifyDiscordSignature(
+  publicKey: string,
+  signature: string,
+  timestamp: string,
+  body: string,
+): Promise<boolean> {
+  try {
+    const encoder = new TextEncoder();
+    const keyBytes = hexToUint8Array(publicKey);
+    const sigBytes = hexToUint8Array(signature);
+    const msgBytes = encoder.encode(timestamp + body);
+
+    const cryptoKey = await crypto.subtle.importKey(
+      'raw',
+      keyBytes,
+      { name: 'NODE-ED25519', namedCurve: 'NODE-ED25519' },
+      false,
+      ['verify'],
+    );
+    return await crypto.subtle.verify('NODE-ED25519', cryptoKey, sigBytes, msgBytes);
+  } catch {
+    return false;
+  }
+}
+
+function hexToUint8Array(hex: string): Uint8Array {
+  const len = hex.length / 2;
+  const arr = new Uint8Array(len);
+  for (let i = 0; i < len; i++) {
+    arr[i] = parseInt(hex.slice(i * 2, i * 2 + 2), 16);
+  }
+  return arr;
+}
+
 export default {
   // HTTP API エンドポイント
   async fetch(request: Request, env: Env): Promise<Response> {
@@ -798,6 +952,38 @@ export default {
           'Access-Control-Max-Age':       '86400',
         },
       });
+    }
+
+    // スラッシュコマンド登録（X-Bot-Secret が正しい場合のみ）
+    if (url.pathname === '/bot/register-commands' && request.method === 'POST') {
+      const secret = request.headers.get('X-Bot-Secret') ?? '';
+      if (env.WORKER_API_SECRET && secret !== env.WORKER_API_SECRET) {
+        return jsonResponse({ error: 'Unauthorized' }, 401);
+      }
+      const commands = [
+        {
+          name: 'ping',
+          description: 'BotがオンラインかどうかをDiscordから確認します',
+          type: 1,
+        },
+      ];
+      const regResp = await fetch(
+        `https://discord.com/api/v10/applications/${env.DISCORD_CLIENT_ID}/commands`,
+        {
+          method: 'PUT',
+          headers: {
+            Authorization: `Bot ${env.DISCORD_BOT_TOKEN}`,
+            'Content-Type': 'application/json',
+          },
+          body: JSON.stringify(commands),
+        },
+      );
+      if (!regResp.ok) {
+        const err = await regResp.text();
+        return jsonResponse({ error: 'Discord API error', detail: err }, 500);
+      }
+      const result = await regResp.json();
+      return jsonResponse({ ok: true, registered: result });
     }
 
     // Bot 疎通確認（認証不要・Discord API 不使用）
@@ -824,6 +1010,180 @@ export default {
       return new Response(JSON.stringify({ isOnline, latency, uptime: 0, activeGuilds: 0, totalCommands: 0, timestamp: new Date().toISOString() }), {
         headers: { 'Content-Type': 'application/json', 'Access-Control-Allow-Origin': '*' },
       });
+    }
+
+    // ── Discord スラッシュコマンド インタラクション ────────────────
+    if (url.pathname === '/discord/interactions' && request.method === 'POST') {
+      const signature  = request.headers.get('x-signature-ed25519') ?? '';
+      const timestamp  = request.headers.get('x-signature-timestamp') ?? '';
+      const body       = await request.text();
+
+      // Ed25519 署名検証
+      const isValid = await verifyDiscordSignature(env.DISCORD_PUBLIC_KEY, signature, timestamp, body);
+      if (!isValid) {
+        return new Response('invalid request signature', { status: 401 });
+      }
+
+      const interaction = JSON.parse(body) as { type: number; data?: { name?: string } };
+
+      // type=1: Discord の疎通確認（PING）
+      if (interaction.type === 1) {
+        return jsonResponse({ type: 1 });
+      }
+
+      // type=2: スラッシュコマンド
+      if (interaction.type === 2) {
+        const commandName = (interaction as any).data?.name ?? '';
+        if (commandName === 'ping') {
+          return jsonResponse({ type: 4, data: { content: '🏓 Pong! Bot is online.' } });
+        }
+        return jsonResponse({ type: 4, data: { content: '未対応のコマンドです。' } });
+      }
+
+      // type=3: ボタン / セレクトメニュー (MESSAGE_COMPONENT)
+      if (interaction.type === 3) {
+        const ix = interaction as any;
+        const customId: string = ix.data?.custom_id ?? '';
+        const userId: string   = ix.member?.user?.id ?? ix.user?.id ?? '';
+        const guildId: string  = ix.guild_id ?? '';
+
+        // ── チケット開設ボタン ticket_open_{panelId} ──────────────────
+        const ticketOpenMatch = customId.match(/^ticket_open_(.+)$/);
+        if (ticketOpenMatch) {
+          const panelId = ticketOpenMatch[1];
+
+          // パネル情報を取得
+          const panelResp = await sb(`/ticket_panels?id=eq.${panelId}`);
+          const panels: TicketPanelRow[] = panelResp.ok ? await panelResp.json() : [];
+          if (!panels.length) {
+            return jsonResponse({ type: 4, data: { content: '❌ パネルが見つかりません。', flags: 64 } });
+          }
+          const panel = panels[0];
+          const maxOpen = panel.max_open_per_user ?? 1;
+
+          // このパネルに対してユーザーがすでに開いているチケット数をチェック
+          const openResp = await sb(
+            `/tickets?guild_id=eq.${guildId}&opened_by_user_id=eq.${userId}&panel_id=eq.${panelId}&status=eq.open`
+          );
+          const openTickets: TicketRow[] = openResp.ok ? await openResp.json() : [];
+
+          if (openTickets.length >= maxOpen) {
+            const existingChannelId = openTickets[0]?.channel_id ?? '';
+            const channelRef = existingChannelId ? ` (<#${existingChannelId}>)` : '';
+            return jsonResponse({
+              type: 4,
+              data: {
+                content: `⚠️ すでにこのパネルでオープン中のチケットがあります${channelRef}。\nチケットが解決したら閉じてから新しく開いてください。`,
+                flags: 64,  // ephemeral
+              },
+            });
+          }
+
+          // Discord にチケットチャンネルを作成
+          const suffix      = Date.now().toString().slice(-4);
+          const channelName = `ticket-${userId.slice(-4)}-${suffix}`;
+
+          // パネルのカテゴリに作成（設定されている場合）
+          const chBody: Record<string, unknown> = { name: channelName, type: 0 };
+          if (panel.open_category_id) chBody.parent_id = panel.open_category_id;
+
+          const chResp = await fetch(`https://discord.com/api/v10/guilds/${guildId}/channels`, {
+            method:  'POST',
+            headers: { Authorization: `Bot ${env.DISCORD_BOT_TOKEN}`, 'Content-Type': 'application/json' },
+            body:    JSON.stringify(chBody),
+          });
+          if (!chResp.ok) {
+            console.error('[Ticket] channel create failed:', await chResp.text());
+            return jsonResponse({ type: 4, data: { content: '❌ チケットチャンネルの作成に失敗しました。', flags: 64 } });
+          }
+          const channel = await chResp.json() as { id: string };
+          const channelId = channel.id;
+
+          // チャンネルのユーザー権限を付与（ViewChannel + SendMessages）
+          await fetch(`https://discord.com/api/v10/channels/${channelId}/permissions/${userId}`, {
+            method:  'PUT',
+            headers: { Authorization: `Bot ${env.DISCORD_BOT_TOKEN}`, 'Content-Type': 'application/json' },
+            body:    JSON.stringify({ allow: '68608', deny: '0', type: 1 }),
+          });
+
+          // サポートロールが設定されている場合はアクセス権付与
+          if (panel.support_role_id) {
+            await fetch(`https://discord.com/api/v10/channels/${channelId}/permissions/${panel.support_role_id}`, {
+              method:  'PUT',
+              headers: { Authorization: `Bot ${env.DISCORD_BOT_TOKEN}`, 'Content-Type': 'application/json' },
+              body:    JSON.stringify({ allow: '68608', deny: '0', type: 0 }),
+            });
+          }
+
+          // Supabase にチケットを記録（panel_id を保存）
+          const subject = panel.title;
+          const sbRes = await sb('/tickets', {
+            method:  'POST',
+            body:    JSON.stringify({
+              guild_id:          guildId,
+              channel_id:        channelId,
+              opened_by_user_id: userId,
+              panel_id:          panelId,
+              subject:           subject,
+            }),
+            headers: { Prefer: 'return=representation' },
+          });
+          if (!sbRes.ok) {
+            console.error('[Ticket] DB insert failed:', await sbRes.text());
+          }
+          const ticketRows: TicketRow[] = sbRes.ok ? await sbRes.json() : [];
+          const ticketId = ticketRows[0]?.id ?? '';
+
+          // チケットチャンネルに開設メッセージを投稿
+          const embedTitle   = panel.ticket_embed_title || `チケット: ${subject}`;
+          const embedColor   = panel.ticket_embed_color ?? panel.color;
+          const msgContent   = panel.ticket_msg_content ?? `<@${userId}> チケットが作成されました。担当者が対応するまでお待ちください。`;
+          const closeBtn     = { type: 2, style: 4, label: '🔒 閉じる', custom_id: `ticket_close_${ticketId}` };
+
+          await fetch(`https://discord.com/api/v10/channels/${channelId}/messages`, {
+            method:  'POST',
+            headers: { Authorization: `Bot ${env.DISCORD_BOT_TOKEN}`, 'Content-Type': 'application/json' },
+            body:    JSON.stringify({
+              content: msgContent,
+              embeds:  [{ title: embedTitle, color: embedColor }],
+              components: [{ type: 1, components: [closeBtn] }],
+            }),
+          });
+
+          // エフェメラル返答
+          return jsonResponse({
+            type: 4,
+            data: {
+              content: `✅ チケットを開設しました: <#${channelId}>`,
+              flags:   64,
+            },
+          });
+        }
+
+        // ── チケットクローズボタン ticket_close_{ticketId} ──────────────
+        const ticketCloseMatch = customId.match(/^ticket_close_(.+)$/);
+        if (ticketCloseMatch) {
+          const ticketId = ticketCloseMatch[1];
+          await sb(`/tickets?id=eq.${ticketId}`, {
+            method: 'PATCH',
+            body:   JSON.stringify({ status: 'closed', closed_at: new Date().toISOString() }),
+          });
+          // チャンネルにクローズ通知
+          const channelId = ix.channel_id ?? '';
+          if (channelId) {
+            await fetch(`https://discord.com/api/v10/channels/${channelId}/messages`, {
+              method:  'POST',
+              headers: { Authorization: `Bot ${env.DISCORD_BOT_TOKEN}`, 'Content-Type': 'application/json' },
+              body:    JSON.stringify({ content: '🔒 このチケットはクローズされました。' }),
+            });
+          }
+          return jsonResponse({ type: 4, data: { content: '✅ チケットをクローズしました。', flags: 64 } });
+        }
+
+        return jsonResponse({ type: 4, data: { content: '未対応のインタラクションです。', flags: 64 } });
+      }
+
+      return jsonResponse({ type: 1 });
     }
 
     // ── 認証ページ（Cloudflare Turnstile）──────────────────────
@@ -929,15 +1289,39 @@ export default {
       return jsonResponse({ ok: true });
     }
 
-    // ── API 認証 (#1) ─────────────────────────────────────────
-    if (env.WORKER_API_SECRET) {
-      const secret = request.headers.get('X-Bot-Secret');
-      if (secret !== env.WORKER_API_SECRET) {
+    // ── API 認証 ─────────────────────────────────────────────
+    // 優先度: (1) Supabase JWT署名検証  (2) Bearer存在確認  (3) X-Bot-Secretレガシー
+    const authHeader = request.headers.get('Authorization') ?? '';
+    const legacySecret = request.headers.get('X-Bot-Secret') ?? '';
+    const hasBearerToken = authHeader.startsWith('Bearer ') && authHeader.length > 7;
+
+    if (hasBearerToken) {
+      // Bearer トークンあり → ES256（JWKS）で署名検証
+      const bearerJwt = authHeader.slice(7);
+      const jwtValid = await verifySupabaseJwtLocal(bearerJwt, '', env.SUPABASE_URL);
+      if (!jwtValid) {
+        // レガシー X-Bot-Secret フォールバック（移行期間用）
+        if (!env.WORKER_API_SECRET || legacySecret !== env.WORKER_API_SECRET) {
+          return new Response(JSON.stringify({ error: 'Unauthorized: invalid JWT' }), {
+            status: 401,
+            headers: { 'Content-Type': 'application/json', 'Access-Control-Allow-Origin': '*' },
+          });
+        }
+      }
+    } else if (env.WORKER_API_SECRET) {
+      // Bearer なし → レガシー X-Bot-Secret で認証
+      if (legacySecret !== env.WORKER_API_SECRET) {
         return new Response(JSON.stringify({ error: 'Unauthorized' }), {
           status: 401,
           headers: { 'Content-Type': 'application/json', 'Access-Control-Allow-Origin': '*' },
         });
       }
+    } else {
+      // 認証手段が何もない → 拒否
+      return new Response(JSON.stringify({ error: 'Unauthorized' }), {
+        status: 401,
+        headers: { 'Content-Type': 'application/json', 'Access-Control-Allow-Origin': '*' },
+      });
     }
 
     const sb = makeSupabaseFetch(env);
@@ -2414,6 +2798,7 @@ export default {
         console.log('[Worker] POST /bot/shops body:', JSON.stringify(body));
         const data = {
           guild_id:            body['guildId'] ?? body.guild_id ?? '',
+          shop_type:           body['shopType'] ?? body.shop_type ?? 'shop',
           name:                body['name']    ?? 'ショップ',
           description:         body['description'] ?? '',
           enabled:             body['enabled']  ?? true,
@@ -2433,6 +2818,9 @@ export default {
           welcome_footer_text: body['welcomeFooterText'] ?? body.welcome_footer_text ?? null,
           welcome_footer_icon_url: body['welcomeFooterIconUrl'] ?? body.welcome_footer_icon_url ?? null,
           welcome_show_timestamp: body['welcomeShowTimestamp'] ?? body.welcome_show_timestamp ?? true,
+          payment_input_label: body['paymentInputLabel'] ?? body.payment_input_label ?? null,
+          auto_delete_enabled: body['autoDeleteEnabled'] ?? body.auto_delete_enabled ?? false,
+          auto_delete_days:    body['autoDeleteDays'] ?? body.auto_delete_days ?? null,
         };
         console.log('[Worker] POST /bot/shops data to Supabase:', JSON.stringify(data));
         const r = await sb('/shops', { method: 'POST', body: JSON.stringify(data), headers: { Prefer: 'return=representation' } });
@@ -2462,6 +2850,8 @@ export default {
           welcomeFields: 'welcome_fields',
           welcomeFooterText: 'welcome_footer_text', welcomeFooterIconUrl: 'welcome_footer_icon_url',
           welcomeShowTimestamp: 'welcome_show_timestamp',
+          paymentInputLabel: 'payment_input_label',
+          autoDeleteEnabled: 'auto_delete_enabled', autoDeleteDays: 'auto_delete_days',
         };
         const data: Record<string, unknown> = {};
         for (const [k, v] of Object.entries(body)) { const sk = camel[k] ?? k; data[sk] = v; }
@@ -3274,8 +3664,10 @@ export default {
 
     // POST /bot/stat-channels  → Discord VCチャンネル作成 + DB登録
     if (url.pathname === '/bot/stat-channels' && request.method === 'POST') {
-      const body = await request.json() as { guildId: string; statType: StatType; categoryId?: string };
-      const { guildId, statType, categoryId } = body;
+      const body = await request.json() as { guildId?: string; guild_id?: string; statType?: StatType; stat_type?: StatType; categoryId?: string; category_id?: string };
+      const guildId = body.guild_id ?? body.guildId ?? '';
+      const statType = (body.stat_type ?? body.statType) as StatType;
+      const categoryId = body.category_id ?? body.categoryId;
 
       // 課金済みサーバーのみ作成を許可
       const activatedCheckResp = await sb(`/activated_servers?guild_id=eq.${guildId}&select=id`);
@@ -3675,8 +4067,10 @@ interface Env {
   SUPABASE_SERVICE_KEY: string;
   DISCORD_BOT_TOKEN: string;
   DISCORD_CLIENT_ID: string;
-  WORKER_API_SECRET: string;  // wrangler secret put WORKER_API_SECRET
-  SUPABASE_ANON_KEY: string;  // wrangler secret put SUPABASE_ANON_KEY（課金JWT検証用）
+  DISCORD_PUBLIC_KEY: string;  // wrangler secret put DISCORD_PUBLIC_KEY
+  WORKER_API_SECRET: string;   // wrangler secret put WORKER_API_SECRET (legacy, optional)
+  SUPABASE_ANON_KEY: string;   // wrangler secret put SUPABASE_ANON_KEY（課金JWT検証用）
+  SUPABASE_JWT_SECRET: string; // wrangler secret put SUPABASE_JWT_SECRET
 }
 
 // ── Supabase Storage: バケット自動作成 ───────────────────────

@@ -4,25 +4,28 @@ import SwiftUI
 
 struct ShopsListView: View {
     let guildId: String
+    let shopType: ShopType
 
-    enum Tab { case shops, orders }
-    @State private var selectedTab: Tab = .shops
+    enum Tab { case panels, orders }
+    @State private var selectedTab: Tab = .panels
 
     var body: some View {
         VStack(spacing: 0) {
             HStack(spacing: 0) {
-                tabButton(title: "ショップ", icon: "cart.fill",              tab: .shops)
-                tabButton(title: "注文",     icon: "list.bullet.clipboard",  tab: .orders)
+                tabButton(title: shopType.label, icon: shopType.icon,           tab: .panels)
+                tabButton(title: "注文",          icon: "list.bullet.clipboard",  tab: .orders)
             }
             .background(Color(.secondarySystemGroupedBackground))
             .overlay(Divider(), alignment: .bottom)
 
             switch selectedTab {
-            case .shops:  ShopPanelListView(guildId: guildId)
+            case .panels: ShopPanelListView(guildId: guildId, shopType: shopType)
             case .orders: OrdersListView(guildId: guildId)
             }
         }
         .background(Color(.systemGroupedBackground))
+        .navigationTitle(shopType.label)
+        .navigationBarTitleDisplayMode(.large)
     }
 
     private func tabButton(title: String, icon: String, tab: Tab) -> some View {
@@ -32,9 +35,9 @@ struct ShopsListView: View {
                     Image(systemName: icon).font(.system(size: 12, weight: .semibold))
                     Text(title).font(.captionRegular).fontWeight(.semibold)
                 }
-                .foregroundStyle(selectedTab == tab ? Color.accentIndigo : Color.textTertiary)
+                .foregroundStyle(selectedTab == tab ? shopType.accentColor : Color.textTertiary)
                 Capsule()
-                    .fill(selectedTab == tab ? Color.accentIndigo : Color.clear)
+                    .fill(selectedTab == tab ? shopType.accentColor : Color.clear)
                     .frame(height: 2)
             }
             .frame(maxWidth: .infinity)
@@ -49,6 +52,8 @@ struct ShopsListView: View {
 
 private struct ShopPanelListView: View {
     let guildId: String
+    let shopType: ShopType
+
     @Environment(\.services) private var services
     @Environment(AppState.self) private var appState
     @State private var shops: [Shop] = []
@@ -62,6 +67,11 @@ private struct ShopPanelListView: View {
     @State private var pendingRedeployShop: Shop? = nil
     @State private var showRedeployConfirm = false
     @State private var toast: String? = nil
+
+    private var accentColor: Color { shopType.accentColor }
+    private var createButtonLabel: String {
+        shopType == .vendingMachine ? "自販機を作成" : "ショップを作成"
+    }
 
     var body: some View {
         ZStack(alignment: .bottom) {
@@ -145,12 +155,12 @@ private struct ShopPanelListView: View {
             Button { showCreate = true } label: {
                 HStack(spacing: .spacing8) {
                     Image(systemName: "plus").font(.system(size: 14, weight: .bold))
-                    Text("ショップを作成").font(.bodySmall).fontWeight(.semibold)
+                    Text(createButtonLabel).font(.bodySmall).fontWeight(.semibold)
                 }
                 .foregroundStyle(.white)
                 .padding(.horizontal, .spacing20).padding(.vertical, .spacing12)
-                .background(Color.accentIndigo).clipShape(Capsule())
-                .shadow(color: Color.accentIndigo.opacity(0.4), radius: 8, y: 4)
+                .background(accentColor).clipShape(Capsule())
+                .shadow(color: accentColor.opacity(0.4), radius: 8, y: 4)
             }
             .padding(.bottom, 24)
 
@@ -164,12 +174,23 @@ private struct ShopPanelListView: View {
             }
         }
         .sheet(isPresented: $showCreate) {
-            ShopEditView(existingShop: nil, guildId: guildId) { shops.insert($0, at: 0) }
+            if shopType == .vendingMachine {
+                VendingMachineEditView(existingShop: nil, guildId: guildId) { shops.insert($0, at: 0) }
+            } else {
+                ShopEditView(existingShop: nil, guildId: guildId, shopType: .shop) { shops.insert($0, at: 0) }
+            }
         }
         .sheet(item: $editingShop) { shop in
-            ShopEditView(existingShop: shop, guildId: guildId, initialTab: editingShopInitialTab) { updated in
-                if let idx = shops.firstIndex(where: { $0.id == updated.id }) { shops[idx] = updated }
-                Task { await loadProductCounts() }
+            if shopType == .vendingMachine {
+                VendingMachineEditView(existingShop: shop, guildId: guildId, initialTab: editingShopInitialTab) { updated in
+                    if let idx = shops.firstIndex(where: { $0.id == updated.id }) { shops[idx] = updated }
+                    Task { await loadProductCounts() }
+                }
+            } else {
+                ShopEditView(existingShop: shop, guildId: guildId, shopType: .shop, initialTab: editingShopInitialTab) { updated in
+                    if let idx = shops.firstIndex(where: { $0.id == updated.id }) { shops[idx] = updated }
+                    Task { await loadProductCounts() }
+                }
             }
         }
         .sheet(item: $deployTargetShop) { shop in
@@ -178,14 +199,12 @@ private struct ShopPanelListView: View {
             }
         }
         .confirmationDialog(
-            "ショップを再送信しますか？",
+            "\(shopType.label)を再送信しますか？",
             isPresented: $showRedeployConfirm,
             titleVisibility: .visible
         ) {
             Button("再送信する") {
-                if let shop = pendingRedeployShop {
-                    deployTargetShop = shop
-                }
+                if let shop = pendingRedeployShop { deployTargetShop = shop }
                 pendingRedeployShop = nil
             }
             Button("キャンセル", role: .cancel) { pendingRedeployShop = nil }
@@ -201,11 +220,11 @@ private struct ShopPanelListView: View {
 
     private var emptyState: some View {
         VStack(spacing: .spacing12) {
-            Image(systemName: "cart.badge.plus")
+            Image(systemName: shopType == .vendingMachine ? "storefront" : "cart.badge.plus")
                 .font(.system(size: 40)).foregroundStyle(Color.textTertiary)
-            Text("ショップがありません")
+            Text(shopType == .vendingMachine ? "自販機がありません" : "ショップがありません")
                 .font(.titleMedium).foregroundStyle(Color.textPrimary)
-            Text("「ショップを作成」ボタンからショップパネルを追加できます")
+            Text("「\(createButtonLabel)」ボタンからパネルを追加できます")
                 .font(.captionRegular).foregroundStyle(Color.textTertiary)
                 .multilineTextAlignment(.center)
         }
@@ -214,20 +233,16 @@ private struct ShopPanelListView: View {
 
     private func load() async {
         isLoading = true
-        // キャッシュから即座に表示（ちらつき防止）
         if let cached = appState.cachedShops[guildId] {
-            shops = cached
+            shops = cached.filter { $0.shopType == shopType }
             isLoading = false
         }
-        // バックグラウンドで最新データを取得
         do {
             let fetched = try await services.shops.fetchShops(guildId: guildId)
-            shops = fetched
             appState.cacheShops(fetched, for: guildId)
+            shops = fetched.filter { $0.shopType == shopType }
         } catch {
-            if appState.cachedShops[guildId] == nil {
-                shops = []
-            }
+            if appState.cachedShops[guildId] == nil { shops = [] }
         }
         await loadProductCounts()
         isLoading = false
@@ -254,8 +269,10 @@ private struct ShopPanelListView: View {
             let updated = try await services.shops.deployShop(id: shop.id, channelId: channelId)
             if let idx = shops.firstIndex(where: { $0.id == shop.id }) { shops[idx] = updated }
             showToast("✅ Discordに送信しました")
+        } catch ServiceError.workerError(let status, let msg) {
+            showToast("❌ 送信失敗(\(status)): \(msg.prefix(80))")
         } catch {
-            showToast("❌ 送信に失敗しました")
+            showToast("❌ 送信に失敗: \(error.localizedDescription)")
         }
         deployingId = nil
     }
@@ -285,10 +302,12 @@ private struct ShopDeployChannelPickerSheet: View {
             color: Color(uiColor: UIColor(hex: UInt32(shop.color))),
             botName: "Noxy",
             messageContent: nil,
-            title: "🛒 \(shop.name)",
+            title: "\(shop.shopType == .vendingMachine ? "🏪" : "🛒") \(shop.name)",
             description: shop.description.isEmpty ? nil : shop.description,
             fields: [],
-            footerText: "商品を選択して注文してください"
+            footerText: shop.shopType == .vendingMachine
+                ? "商品を選択して支払い情報を送信してください"
+                : "商品を選択して注文してください"
         )
     }
 
@@ -304,7 +323,7 @@ private struct ShopDeployChannelPickerSheet: View {
                         Text("送信されるEmbedのプレビュー")
                     }
                 } footer: {
-                    Text("Discordに投稿されるショップパネルのイメージです。実際の商品一覧はBot側で自動的に追加されます。")
+                    Text("Discordに投稿されるパネルのイメージです。実際の商品一覧はBot側で自動的に追加されます。")
                 }
 
                 if isLoading {
@@ -342,7 +361,7 @@ private struct ShopDeployChannelPickerSheet: View {
                     } header: {
                         Text("「\(shop.name)」の送信先チャンネル")
                     } footer: {
-                        Text("選択したチャンネルに新しいショップパネルが投稿されます。")
+                        Text("選択したチャンネルに新しいパネルが投稿されます。")
                     }
                 }
             }
@@ -361,12 +380,9 @@ private struct ShopDeployChannelPickerSheet: View {
 
     private func load() async {
         isLoading = true
-        if let url = URL(string: "\(DiscordConfig.workerURL)/bot/channels?guild_id=\(guildId)"),
-           let (data, _) = try? await URLSession.shared.data(from: url) {
-            struct RawCh: Decodable { let id: String; let name: String; let type: Int }
-            if let chs = try? JSONDecoder().decode([RawCh].self, from: data) {
-                channels = chs.filter { $0.type == 0 || $0.type == 5 }.map { ($0.id, $0.name) }
-            }
+        struct RawCh: Decodable { let id: String; let name: String; let type: Int }
+        if let chs = try? await WorkerClient().get("/bot/channels?guild_id=\(guildId)") as [RawCh] {
+            channels = chs.filter { $0.type == 0 || $0.type == 5 }.map { ($0.id, $0.name) }
         }
         isLoading = false
     }
@@ -392,14 +408,13 @@ private struct ShopCard: View {
 
     var body: some View {
         VStack(spacing: 0) {
-            // ── ヘッダー（タップで開く） ──
             Button(action: onTap) {
                 HStack(spacing: .spacing12) {
                     ZStack {
                         RoundedRectangle(cornerRadius: 10)
                             .fill(accentColor)
                             .frame(width: 44, height: 44)
-                        Image(systemName: shop.enabled ? "cart.fill" : "cart.badge.xmark")
+                        Image(systemName: shop.enabled ? shop.shopType.icon : "cart.badge.xmark")
                             .font(.system(size: 18)).foregroundStyle(.white)
                     }
                     .opacity(shop.enabled ? 1 : 0.7)
@@ -416,6 +431,11 @@ private struct ShopCard: View {
                                     .padding(.horizontal, 6).padding(.vertical, 2)
                                     .background(Color(.tertiarySystemGroupedBackground))
                                     .clipShape(Capsule())
+                            }
+                            if shop.autoDeleteEnabled, let days = shop.autoDeleteDays {
+                                Label("\(days)日で削除", systemImage: "timer")
+                                    .font(.system(size: 9))
+                                    .foregroundStyle(Color.accentOrange)
                             }
                         }
                         HStack(spacing: .spacing8) {
@@ -451,7 +471,6 @@ private struct ShopCard: View {
                                 .clipShape(Capsule())
                         }
 
-                        // 商品数バッジ
                         HStack(spacing: 3) {
                             Image(systemName: "archivebox.fill").font(.system(size: 8))
                             Text(hasProducts ? "\(productCount)商品" : "商品なし")
@@ -476,9 +495,7 @@ private struct ShopCard: View {
 
             Divider().padding(.horizontal, .spacing12)
 
-            // ── アクション行 ──
             if !hasProducts {
-                // 商品なし → 追加CTA（全幅）
                 Button(action: onManageProducts) {
                     HStack(spacing: .spacing6) {
                         Image(systemName: "plus.circle.fill")
@@ -486,15 +503,14 @@ private struct ShopCard: View {
                         Text("商品を追加して設置を有効にする")
                             .font(.captionRegular).fontWeight(.semibold)
                     }
-                    .foregroundStyle(Color.accentIndigo)
+                    .foregroundStyle(shop.shopType.accentColor)
                     .frame(maxWidth: .infinity)
                     .padding(.vertical, .spacing10)
                 }
                 .buttonStyle(.plain)
-                .background(Color.accentIndigo.opacity(0.04))
+                .background(shop.shopType.accentColor.opacity(0.04))
             } else {
                 HStack(spacing: 0) {
-                    // 設定
                     Button(action: onSettings) {
                         Label("設定", systemImage: "gearshape")
                             .font(.captionRegular).fontWeight(.medium)
@@ -506,7 +522,6 @@ private struct ShopCard: View {
 
                     Divider().frame(height: 20)
 
-                    // 商品管理
                     Button(action: onManageProducts) {
                         Label("商品", systemImage: "archivebox.fill")
                             .font(.captionRegular).fontWeight(.medium)
@@ -518,7 +533,6 @@ private struct ShopCard: View {
 
                     Divider().frame(height: 20)
 
-                    // 送信
                     Button(action: onDeploy) {
                         if isDeploying {
                             HStack(spacing: 5) {

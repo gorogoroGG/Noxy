@@ -5,6 +5,7 @@ import SwiftUI
 struct ShopEditView: View {
     var existingShop: Shop?
     let guildId: String
+    let shopType: ShopType
     let initialTab: Int
     let onSave: (Shop) -> Void
 
@@ -13,15 +14,17 @@ struct ShopEditView: View {
 
     @State private var selectedTab: Int
 
-    init(existingShop: Shop? = nil, guildId: String, initialTab: Int = 0, onSave: @escaping (Shop) -> Void) {
+    init(existingShop: Shop? = nil, guildId: String, shopType: ShopType = .shop, initialTab: Int = 0, onSave: @escaping (Shop) -> Void) {
         self.existingShop = existingShop
         self.guildId = guildId
+        self.shopType = shopType
         self.initialTab = initialTab
         self.onSave = onSave
         _selectedTab = State(initialValue: initialTab)
     }
-    @State private var name = "ショップ"
-    @State private var description = "商品を選択して購入してください。"
+
+    @State private var name = ""
+    @State private var description = ""
     @State private var enabled = true
     @State private var disabledMessage = "このショップは現在準備中です。もうしばらくお待ちください。"
     @State private var supportRoleId = ""
@@ -34,6 +37,13 @@ struct ShopEditView: View {
     @State private var reviewEnabled = false
     @State private var reviewChannelId = ""
 
+    // 自販機固有
+    @State private var paymentInputLabel = ""
+
+    // 自動削除
+    @State private var autoDeleteEnabled = false
+    @State private var autoDeleteDays: Int = 7
+
     // Welcome embed
     @State private var welcomeImageUrl = ""
     @State private var welcomeThumbnailUrl = ""
@@ -42,7 +52,7 @@ struct ShopEditView: View {
     @State private var welcomeFooterIconUrl = ""
     @State private var welcomeShowTimestamp = true
 
-    // Products (for 商品 tab)
+    // Products
     @State private var products: [Product] = []
     @State private var showCreateProduct = false
     @State private var editingProduct: Product? = nil
@@ -54,6 +64,11 @@ struct ShopEditView: View {
     @State private var isSaving = false
     @State private var errorMessage: String? = nil
     @State private var showDiscardAlert = false
+
+    private let autoDeleteOptions: [(label: String, days: Int)] = [
+        ("1日", 1), ("2日", 2), ("3日", 3), ("5日", 5),
+        ("7日（1週間）", 7), ("14日（2週間）", 14), ("30日（1か月）", 30)
+    ]
 
     private var isNew: Bool { existingShop == nil }
     private var previewColor: Color { Color(uiColor: UIColor(hex: colorHex)) }
@@ -70,13 +85,14 @@ struct ShopEditView: View {
             reviewChannelId != (s.reviewChannelId ?? "") ||
             welcomeImageUrl != (s.welcomeImageUrl ?? "") || welcomeThumbnailUrl != (s.welcomeThumbnailUrl ?? "") ||
             welcomeFields != s.welcomeFields || welcomeFooterText != (s.welcomeFooterText ?? "") ||
-            welcomeFooterIconUrl != (s.welcomeFooterIconUrl ?? "") || welcomeShowTimestamp != s.welcomeShowTimestamp
+            welcomeFooterIconUrl != (s.welcomeFooterIconUrl ?? "") || welcomeShowTimestamp != s.welcomeShowTimestamp ||
+            paymentInputLabel != (s.paymentInputLabel ?? "") ||
+            autoDeleteEnabled != s.autoDeleteEnabled || (autoDeleteEnabled && autoDeleteDays != (s.autoDeleteDays ?? 7))
     }
 
     var body: some View {
         NavigationStack {
             VStack(spacing: 0) {
-                // Toolbar buttons
                 HStack {
                     Button("キャンセル") {
                         if hasChanges { showDiscardAlert = true } else { dismiss() }
@@ -84,20 +100,18 @@ struct ShopEditView: View {
                     Spacer()
                     Button(isSaving ? "保存中..." : "保存") { Task { await save() } }
                         .fontWeight(.semibold)
-                        .foregroundStyle(name.isEmpty ? Color.textTertiary : Color.accentIndigo)
+                        .foregroundStyle(name.isEmpty ? Color.textTertiary : shopType.accentColor)
                         .disabled(name.isEmpty || isSaving)
                 }
                 .padding(.horizontal, 16).padding(.vertical, 10)
                 .background(Color(.secondarySystemGroupedBackground))
                 .overlay(Divider(), alignment: .bottom)
 
-                // Tab bar
                 tabPicker
                     .padding(.horizontal, 16).padding(.vertical, 10)
                     .background(Color(.secondarySystemGroupedBackground))
                     .overlay(Divider(), alignment: .bottom)
 
-                // Content
                 TabView(selection: $selectedTab) {
                     panelSettingsTab.tag(0)
                     transactionTab.tag(1)
@@ -105,7 +119,7 @@ struct ShopEditView: View {
                 }
                 .tabViewStyle(.page(indexDisplayMode: .never))
             }
-            .navigationTitle(isNew ? "ショップを作成" : "ショップを編集")
+            .navigationTitle(isNew ? "\(shopType.label)を作成" : "\(shopType.label)を編集")
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
                 ToolbarItem(placement: .topBarLeading) {
@@ -141,7 +155,13 @@ struct ShopEditView: View {
             appearanceSection
             previewSection
             channelSettingsSection
-            timeoutSection
+            if shopType == .vendingMachine {
+                paymentInputLabelSection
+            }
+            autoDeleteSection
+            if shopType == .shop {
+                timeoutSection
+            }
             footerSection
 
             if let err = errorMessage {
@@ -157,7 +177,7 @@ struct ShopEditView: View {
 
     private var enabledToggleSection: some View {
         Section {
-            Toggle("ショップを有効にする", isOn: $enabled)
+            Toggle("\(shopType.label)を有効にする", isOn: $enabled)
             if !enabled {
                 VStack(alignment: .leading, spacing: 6) {
                     Text("無効時メッセージ").font(.captionSmall).foregroundStyle(Color.textTertiary)
@@ -178,7 +198,7 @@ struct ShopEditView: View {
     private var appearanceSection: some View {
         Section {
             LabeledContent("名前") {
-                TextField("ショップ", text: $name).multilineTextAlignment(.trailing)
+                TextField(shopType.label, text: $name).multilineTextAlignment(.trailing)
             }
             VStack(alignment: .leading, spacing: 6) {
                 Text("説明").font(.captionSmall).foregroundStyle(Color.textTertiary)
@@ -224,7 +244,8 @@ struct ShopEditView: View {
                 .clipShape(RoundedRectangle(cornerRadius: 8))
 
                 HStack(spacing: 6) {
-                    Text("🛒 商品を選択してください")
+                    let buttonLabel = shopType == .vendingMachine ? "🏪 商品を選択してください" : "🛒 商品を選択してください"
+                    Text(buttonLabel)
                         .font(.captionRegular).fontWeight(.semibold).foregroundStyle(.white)
                         .padding(.horizontal, 14).padding(.vertical, 8)
                         .background(previewColor)
@@ -244,7 +265,7 @@ struct ShopEditView: View {
                 Text("パネルのプレビュー")
             }
         } footer: {
-            Text("Discordに投稿されるショップパネルのイメージです。")
+            Text("Discordに投稿されるパネルのイメージです。")
         }
     }
 
@@ -274,6 +295,39 @@ struct ShopEditView: View {
           }
     }
 
+    private var paymentInputLabelSection: some View {
+        Section {
+            VStack(alignment: .leading, spacing: 6) {
+                Text("支払い入力欄の案内文").font(.captionSmall).foregroundStyle(Color.textTertiary)
+                TextEditor(text: $paymentInputLabel)
+                    .frame(minHeight: 60).scrollContentBackground(.hidden)
+            }
+        } header: { Text("支払い入力設定") }
+          footer: {
+              Text("購入者が商品を選択したとき、モーダルに表示される案内文です。例：「PayPayの受け取りURLを入力してください」「ギフトコードを入力してください」")
+          }
+    }
+
+    private var autoDeleteSection: some View {
+        Section {
+            Toggle("取引完了後に自動削除する", isOn: $autoDeleteEnabled)
+            if autoDeleteEnabled {
+                Picker("削除までの日数", selection: $autoDeleteDays) {
+                    ForEach(autoDeleteOptions, id: \.days) { option in
+                        Text(option.label).tag(option.days)
+                    }
+                }
+            }
+        } header: { Text("チケットの自動削除") }
+          footer: {
+              if autoDeleteEnabled {
+                  Text("取引完了から\(autoDeleteDays)日後にチケットチャンネルが完全に削除されます。取引開始時と完了時にチケット内へ削除日時が通知されます。")
+              } else {
+                  Text("有効にすると、取引完了から指定した日数が経過した時点でチケットチャンネルが自動的に削除されます。")
+              }
+          }
+    }
+
     private var timeoutSection: some View {
         Section {
             Toggle("タイムアウトを有効にする", isOn: $timeoutEnabled)
@@ -300,7 +354,7 @@ struct ShopEditView: View {
             }
         } header: { Text("フッター") }
           footer: {
-              Text("ショップパネルのフッターに表示されるテキストです。")
+              Text("パネルのフッターに表示されるテキストです。")
           }
     }
 
@@ -308,7 +362,9 @@ struct ShopEditView: View {
 
     private var transactionTab: some View {
         Form {
-            reviewSection
+            if shopType == .shop {
+                reviewSection
+            }
             welcomeEmbedSection
             welcomePreviewSection
             welcomeFieldsSection
@@ -352,7 +408,7 @@ struct ShopEditView: View {
             }
             Toggle("タイムスタンプを表示", isOn: $welcomeShowTimestamp)
         } header: { Text("ウェルカムメッセージ") }
-          footer: { Text("注文チャンネル作成時に送信されるメッセージのembed設定です。") }
+          footer: { Text("チケット作成時に送信されるメッセージのembed設定です。") }
     }
 
     private var welcomePreviewSection: some View {
@@ -455,9 +511,9 @@ struct ShopEditView: View {
                     VStack(spacing: .spacing12) {
                         Image(systemName: "archivebox.fill")
                             .font(.system(size: 40)).foregroundStyle(Color.textTertiary)
-                        Text("ショップを先に保存してください")
+                        Text("\(shopType.label)を先に保存してください")
                             .font(.titleMedium).foregroundStyle(Color.textPrimary)
-                        Text("ショップを保存した後、再度編集画面を開いて商品を追加できます。")
+                        Text("\(shopType.label)を保存した後、再度編集画面を開いて商品を追加できます。")
                             .font(.captionRegular).foregroundStyle(Color.textTertiary)
                             .multilineTextAlignment(.center)
                     }
@@ -507,8 +563,8 @@ struct ShopEditView: View {
                     }
                     .foregroundStyle(.white)
                     .padding(.horizontal, .spacing20).padding(.vertical, .spacing12)
-                    .background(Color.accentIndigo).clipShape(Capsule())
-                    .shadow(color: Color.accentIndigo.opacity(0.4), radius: 8, y: 4)
+                    .background(shopType.accentColor).clipShape(Capsule())
+                    .shadow(color: shopType.accentColor.opacity(0.4), radius: 8, y: 4)
                 }
                 .padding(.bottom, 24)
             }
@@ -537,13 +593,10 @@ struct ShopEditView: View {
     private func loadData() async {
         isLoading = true
 
-        if let url = URL(string: "\(DiscordConfig.workerURL)/bot/channels?guild_id=\(guildId)"),
-           let (data, _) = try? await URLSession.shared.data(from: url) {
-            struct RawCh: Decodable { let id: String; let name: String; let type: Int }
-            if let chs = try? JSONDecoder().decode([RawCh].self, from: data) {
-                categories = chs.filter { $0.type == 4 }.map { ($0.id, $0.name) }
-                textChannels = chs.filter { $0.type == 0 }.map { ($0.id, $0.name) }
-            }
+        struct RawCh: Decodable { let id: String; let name: String; let type: Int }
+        if let chs = try? await WorkerClient().get("/bot/channels?guild_id=\(guildId)") as [RawCh] {
+            categories   = chs.filter { $0.type == 4 }.map { ($0.id, $0.name) }
+            textChannels = chs.filter { $0.type == 0 }.map { ($0.id, $0.name) }
         }
 
         roles = (try? await DiscordService().fetchRoles(guildId: guildId)) ?? []
@@ -568,9 +621,16 @@ struct ShopEditView: View {
             welcomeFooterText = s.welcomeFooterText ?? ""
             welcomeFooterIconUrl = s.welcomeFooterIconUrl ?? ""
             welcomeShowTimestamp = s.welcomeShowTimestamp
-
-            // Load products
+            paymentInputLabel = s.paymentInputLabel ?? ""
+            autoDeleteEnabled = s.autoDeleteEnabled
+            autoDeleteDays = s.autoDeleteDays ?? 7
             products = (try? await services.shops.fetchProducts(shopId: s.id)) ?? []
+        } else {
+            let blank = Shop.blank(guildId: guildId, shopType: shopType)
+            name = blank.name
+            description = blank.description
+            colorHex = UInt32(blank.color)
+            paymentInputLabel = blank.paymentInputLabel ?? ""
         }
 
         isLoading = false
@@ -579,7 +639,7 @@ struct ShopEditView: View {
     private func save() async {
         isSaving = true; errorMessage = nil
         do {
-            var shop = existingShop ?? Shop.blank(guildId: guildId)
+            var shop = existingShop ?? Shop.blank(guildId: guildId, shopType: shopType)
             shop.name = name
             shop.description = description
             shop.enabled = enabled
@@ -588,9 +648,9 @@ struct ShopEditView: View {
             shop.supportRoleId = supportRoleId.isEmpty ? nil : supportRoleId
             shop.orderCategoryId = orderCategoryId.isEmpty ? nil : orderCategoryId
             shop.archiveCategoryId = archiveCategoryId.isEmpty ? nil : archiveCategoryId
-            shop.timeoutHours = timeoutEnabled ? (timeoutHours ?? 24) : nil
+            shop.timeoutHours = (shopType == .shop && timeoutEnabled) ? (timeoutHours ?? 24) : nil
             shop.footerText = footerText
-            shop.reviewEnabled = reviewEnabled
+            shop.reviewEnabled = shopType == .shop ? reviewEnabled : false
             shop.reviewChannelId = reviewChannelId.isEmpty ? nil : reviewChannelId
             shop.welcomeImageUrl = welcomeImageUrl.isEmpty ? nil : welcomeImageUrl
             shop.welcomeThumbnailUrl = welcomeThumbnailUrl.isEmpty ? nil : welcomeThumbnailUrl
@@ -598,25 +658,18 @@ struct ShopEditView: View {
             shop.welcomeFooterText = welcomeFooterText.isEmpty ? nil : welcomeFooterText
             shop.welcomeFooterIconUrl = welcomeFooterIconUrl.isEmpty ? nil : welcomeFooterIconUrl
             shop.welcomeShowTimestamp = welcomeShowTimestamp
-
-            #if DEBUG
-            print("[ShopEditView] save: isNew=\(isNew), shop.id=\(shop.id), guildId=\(shop.guildId)")
-            print("[ShopEditView] save: name=\(shop.name), color=\(shop.color), reviewEnabled=\(shop.reviewEnabled)")
-            #endif
+            shop.paymentInputLabel = (shopType == .vendingMachine && !paymentInputLabel.isEmpty)
+                ? paymentInputLabel : nil
+            shop.autoDeleteEnabled = autoDeleteEnabled
+            shop.autoDeleteDays = autoDeleteEnabled ? autoDeleteDays : nil
 
             let saved = isNew
                 ? try await services.shops.createShop(shop)
                 : try await services.shops.updateShop(shop)
 
-            #if DEBUG
-            print("[ShopEditView] save: success, returned id=\(saved.id)")
-            #endif
             onSave(saved)
             dismiss()
         } catch {
-            #if DEBUG
-            print("[ShopEditView] save: error=\(error)")
-            #endif
             errorMessage = "保存に失敗しました: \(error.localizedDescription)"
         }
         isSaving = false

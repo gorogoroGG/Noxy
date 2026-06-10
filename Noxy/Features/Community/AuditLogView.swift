@@ -39,6 +39,8 @@ struct AuditLogView: View {
                 }
             }
         }
+        .navigationTitle("監査ログ")
+        .navigationBarTitleDisplayMode(.large)
         .task { await load() }
     }
 

@@ -99,9 +99,13 @@ struct WorkerVerifyService: VerifyServiceProtocol {
         return d
     }()
 
+    private func authHeader() -> String? {
+        WorkerClient.bearerToken().map { "Bearer \($0)" }
+    }
+
     private func get<T: Decodable>(_ path: String) async throws -> T {
         var req = URLRequest(url: URL(string: DiscordConfig.workerURL + path)!, timeoutInterval: 15)
-        req.setValue(DiscordConfig.workerAPISecret, forHTTPHeaderField: "X-Bot-Secret")
+        if let auth = authHeader() { req.setValue(auth, forHTTPHeaderField: "Authorization") }
         let (data, resp) = try await session.data(for: req)
         guard let http = resp as? HTTPURLResponse, (200..<300).contains(http.statusCode) else { throw ServiceError.networkError }
         return try Self.decoder.decode(T.self, from: data)
@@ -109,7 +113,7 @@ struct WorkerVerifyService: VerifyServiceProtocol {
     private func delete(_ path: String) async throws {
         var req = URLRequest(url: URL(string: DiscordConfig.workerURL + path)!, timeoutInterval: 15)
         req.httpMethod = "DELETE"
-        req.setValue(DiscordConfig.workerAPISecret, forHTTPHeaderField: "X-Bot-Secret")
+        if let auth = authHeader() { req.setValue(auth, forHTTPHeaderField: "Authorization") }
         let (_, resp) = try await session.data(for: req)
         guard let http = resp as? HTTPURLResponse, (200..<300).contains(http.statusCode) else { throw ServiceError.networkError }
     }
@@ -117,7 +121,7 @@ struct WorkerVerifyService: VerifyServiceProtocol {
         var req = URLRequest(url: URL(string: DiscordConfig.workerURL + path)!, timeoutInterval: 15)
         req.httpMethod = "POST"
         req.setValue("application/json", forHTTPHeaderField: "Content-Type")
-        req.setValue(DiscordConfig.workerAPISecret, forHTTPHeaderField: "X-Bot-Secret")
+        if let auth = authHeader() { req.setValue(auth, forHTTPHeaderField: "Authorization") }
         req.httpBody = try JSONEncoder().encode(body)
         let (data, resp) = try await session.data(for: req)
         guard let http = resp as? HTTPURLResponse, (200..<300).contains(http.statusCode) else { throw ServiceError.networkError }
@@ -127,7 +131,7 @@ struct WorkerVerifyService: VerifyServiceProtocol {
         var req = URLRequest(url: URL(string: DiscordConfig.workerURL + path)!, timeoutInterval: 15)
         req.httpMethod = "PATCH"
         req.setValue("application/json", forHTTPHeaderField: "Content-Type")
-        req.setValue(DiscordConfig.workerAPISecret, forHTTPHeaderField: "X-Bot-Secret")
+        if let auth = authHeader() { req.setValue(auth, forHTTPHeaderField: "Authorization") }
         req.httpBody = try JSONEncoder().encode(body)
         let (data, resp) = try await session.data(for: req)
         guard let http = resp as? HTTPURLResponse, (200..<300).contains(http.statusCode) else { throw ServiceError.networkError }

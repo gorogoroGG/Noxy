@@ -46,7 +46,7 @@ struct TicketsCoordinatorView: View {
 
             switch selectedTab {
             case .setup:
-                TicketPanelListView(guildId: guildId, panels: $panels)
+                TicketPanelListView(guildId: guildId, panels: $panels, isLoading: $isLoadingPanels)
             case .respond:
                 if hasNoPanels {
                     // パネル0件時：対応タブは無効化してガイド表示
@@ -59,40 +59,15 @@ struct TicketsCoordinatorView: View {
             }
         }
         .background(Color(.systemGroupedBackground))
-        .task { await loadInitialData() }
+        .navigationTitle("チケット")
+        .navigationBarTitleDisplayMode(.large)
         .onChange(of: guildId) { _, _ in
             isLoadingPanels = true
             isLoadingTickets = true
-            Task { await loadInitialData() }
         }
     }
 
-    private func loadInitialData() async {
-        async let p = services.tickets.fetchPanels(guildId: guildId)
-        async let t = services.tickets.fetchAll(guildId: guildId)
-        do {
-            let fetchedPanels = try await p
-            panels = fetchedPanels
-            appState.cacheTicketPanels(fetchedPanels, for: guildId)
-            isLoadingPanels = false
-            // パネルが0件の場合のみ設置タブに誘導（現在のタブを上書きしない）
-            if fetchedPanels.isEmpty {
-                selectedTab = .setup
-            }
-        } catch {
-            isLoadingPanels = false
-            panels = []
-        }
-        do {
-            let fetchedTickets = try await t
-            tickets = fetchedTickets
-            appState.cacheTickets(fetchedTickets, for: guildId)
-            isLoadingTickets = false
-        } catch {
-            isLoadingTickets = false
-            tickets = []
-        }
-    }
+
 }
 
 // MARK: - PanelRequiredGuideView

@@ -43,7 +43,7 @@ struct StatChannelsView: View {
             }
         }
         .navigationTitle("ステータスチャンネル")
-        .navigationBarTitleDisplayMode(.inline)
+        .navigationBarTitleDisplayMode(.large)
         .toolbar {
             if isServerActivated {
                 ToolbarItem(placement: .topBarTrailing) {
@@ -54,9 +54,10 @@ struct StatChannelsView: View {
             }
         }
         .sheet(isPresented: $showAddSheet) {
-            StatChannelAddSheet(guildId: guildId) { newChannel in
-                channels.append(newChannel)
-                withAnimation { toast = "\(newChannel.statType.label)チャンネルを作成しました" }
+            StatChannelAddSheet(guildId: guildId) { newChannels in
+                channels.append(contentsOf: newChannels)
+                let names = newChannels.map { $0.statType.label }.joined(separator: "・")
+                withAnimation { toast = "\(names)チャンネルを作成しました" }
             }
         }
         .sheet(isPresented: $showSubscribe) {
@@ -468,17 +469,19 @@ private struct StatChannelRow: View {
     }
 }
 
-// MARK: - StatChannelAddSheet（既存、変更なし）
+// MARK: - StatChannelAddSheet（複数選択対応）
 
 private struct StatChannelAddSheet: View {
     let guildId: String
-    let onCreated: (StatChannel) -> Void
+    let onCreated: ([StatChannel]) -> Void
 
     @Environment(\.dismiss)  private var dismiss
     @Environment(\.services) private var services
-    @State private var selectedType: StatType = .members
+    @State private var selectedTypes: Set<StatType> = []
     @State private var isCreating   = false
     @State private var errorMessage: String? = nil
+
+    private var canCreate: Bool { !selectedTypes.isEmpty && !isCreating }
 
     var body: some View {
         NavigationStack {
@@ -492,12 +495,26 @@ private struct StatChannelAddSheet: View {
                         }
                     }
                     .padding(.vertical, .spacing4)
-                } header: { Text("統計の種類を選択") }
+                } header: {
+                    HStack {
+                        Text("統計の種類を選択")
+                        Spacer()
+                        if !selectedTypes.isEmpty {
+                            Text("\(selectedTypes.count)件選択中")
+                                .font(.captionSmall)
+                                .foregroundStyle(Color.accentIndigo)
+                        }
+                    }
+                }
 
                 Section {
                     ForEach(StatType.allCases) { type in
                         Button {
-                            selectedType = type
+                            if selectedTypes.contains(type) {
+                                selectedTypes.remove(type)
+                            } else {
+                                selectedTypes.insert(type)
+                            }
                         } label: {
                             HStack(spacing: .spacing12) {
                                 ZStack {
@@ -510,10 +527,10 @@ private struct StatChannelAddSheet: View {
                                     Text(type.description).font(.captionRegular).foregroundStyle(Color.textSecondary)
                                 }
                                 Spacer()
-                                if selectedType == type {
-                                    Image(systemName: "checkmark.circle.fill")
-                                        .foregroundStyle(Color.accentIndigo).font(.system(size: 20))
-                                }
+                                Image(systemName: selectedTypes.contains(type) ? "checkmark.circle.fill" : "circle")
+                                    .foregroundStyle(selectedTypes.contains(type) ? Color.accentIndigo : Color.textTertiary)
+                                    .font(.system(size: 20))
+                                    .animation(.easeInOut(duration: 0.15), value: selectedTypes.contains(type))
                             }
                             .padding(.vertical, .spacing4).contentShape(Rectangle())
                         }
@@ -539,7 +556,9 @@ private struct StatChannelAddSheet: View {
                     if isCreating { ProgressView() }
                     else {
                         Button("作成") { Task { await create() } }
-                            .fontWeight(.semibold).foregroundStyle(Color.accentIndigo)
+                            .fontWeight(.semibold)
+                            .foregroundStyle(canCreate ? Color.accentIndigo : Color.textTertiary)
+                            .disabled(!canCreate)
                     }
                 }
             }
@@ -558,11 +577,38 @@ private struct StatChannelAddSheet: View {
 
     private func create() async {
         isCreating = true; errorMessage = nil
-        do {
-            let channel = try await services.statChannels.create(guildId: guildId, statType: selectedType, categoryId: nil)
-            onCreated(channel); dismiss()
-        } catch {
-            errorMessage = "作成に失敗しました。Botの権限を確認してください。"
+        var created: [StatChannel] = []
+        var failed: [String] = []
+
+        for type in StatType.allCases where selectedTypes.contains(type) {
+            do {
+                let ch = try await services.statChannels.create(guildId: guildId, statType: type, categoryId: nil)
+                created.append(ch)
+            } catch let e as ServiceError {
+                switch e {
+                case .workerError(let status, let message):
+                    if status == 402 {
+                        failed.append("\(type.label): サーバーが有効化されていません")
+                    } else {
+                        failed.append("\(type.label): \(message)")
+                    }
+                default:
+                    failed.append("\(type.label): 作成失敗")
+                }
+            } catch {
+                failed.append("\(type.label): \(error.localizedDescription)")
+            }
+        }
+
+        if !created.isEmpty {
+            onCreated(created)
+            if failed.isEmpty {
+                dismiss()
+            } else {
+                errorMessage = "一部失敗: " + failed.joined(separator: "、")
+            }
+        } else if !failed.isEmpty {
+            errorMessage = failed.joined(separator: "\n")
         }
         isCreating = false
     }

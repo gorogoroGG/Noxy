@@ -265,7 +265,6 @@ struct DashboardView: View {
                             onDismiss: {
                                 withAnimation(.spring(duration: 0.3)) {
                                     DismissedNotifsStore.shared.dismiss(notif.id)
-                                    notifications = notifications
                                 }
                                 UIImpactFeedbackGenerator(style: .light).impactOccurred()
                             }
@@ -339,9 +338,9 @@ struct DashboardView: View {
             Group {
                 switch action {
                 case .embedCreate:
-                    EmbedListView().navigationTitle("Embed")
+                    EmbedListView().navigationTitle("Embedメッセージ")
                 case .tickets:
-                    TicketsCoordinatorView(guildId: guildId).navigationTitle("チケット一覧")
+                    TicketsCoordinatorView(guildId: guildId).navigationTitle("チケット")
                 case .members:
                     MembersListView(guildId: guildId).navigationTitle("メンバー")
                 case .moderation:
@@ -353,7 +352,9 @@ struct DashboardView: View {
                 case .giveaways:
                     LockedFeaturePlaceholder(title: "ギブアウェイ", icon: "gift.fill", color: .accentPink)
                 case .shop:
-                    ShopsListView(guildId: guildId)
+                    ShopsListView(guildId: guildId, shopType: .shop)
+                case .vendingMachine:
+                    ShopsListView(guildId: guildId, shopType: .vendingMachine)
                 case .analytics:
                     AnalyticsView(guildId: guildId)
                 case .monitor:
@@ -363,7 +364,7 @@ struct DashboardView: View {
                 case .statChannels:
                     StatChannelsView(guildId: guildId)
                 case .roles:
-                    RolesListView(guildId: guildId).navigationTitle("ロール")
+                    RolesListView(guildId: guildId).navigationTitle("ロール管理")
                 case .auditLog:
                     AuditLogView(guildId: guildId)
                 }
@@ -467,7 +468,7 @@ struct DashboardView: View {
         isLoading = false
         isBotStatusLoading = true
         isNotifLoading = true
-        botStatus = nil
+        // botStatus はリセットしない（fetch失敗時も前回の値を維持してオフライン誤表示を防ぐ）
 
         let targetGuildId = appState.selectedGuildId
 

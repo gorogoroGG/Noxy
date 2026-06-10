@@ -10,15 +10,12 @@ struct WorkerBotService: BotServiceProtocol {
 
     func fetchStatus() async throws -> BotStatus {
         let workerURL = DiscordConfig.workerURL
-        let apiSecret = DiscordConfig.workerAPISecret
 
         guard let statusURL = URL(string: "\(workerURL)/bot/status") else {
             throw ServiceError.networkError
         }
-        var req = URLRequest(url: statusURL, timeoutInterval: 10)
-        if !apiSecret.isEmpty {
-            req.setValue(apiSecret, forHTTPHeaderField: "X-Bot-Secret")
-        }
+        // /bot/status は認証不要エンドポイント
+        let req = URLRequest(url: statusURL, timeoutInterval: 10)
         let start = Date()
         do {
             let (data, resp) = try await URLSession.shared.data(for: req)
@@ -54,18 +51,7 @@ struct WorkerBotService: BotServiceProtocol {
     }
 
     func restart() async throws {
-        guard let url = URL(string: DiscordConfig.workerURL + "/bot/restart") else {
-            throw ServiceError.networkError
-        }
-        var req = URLRequest(url: url)
-        req.httpMethod = "POST"
-        if !DiscordConfig.workerAPISecret.isEmpty {
-            req.setValue(DiscordConfig.workerAPISecret, forHTTPHeaderField: "X-Bot-Secret")
-        }
-        let (_, resp) = try await URLSession.shared.data(for: req)
-        guard (resp as? HTTPURLResponse)?.statusCode == 200 else {
-            throw ServiceError.networkError
-        }
+        try await client.post("/bot/restart")
     }
 
     func fetchCommands() async throws -> [SlashCommand] {

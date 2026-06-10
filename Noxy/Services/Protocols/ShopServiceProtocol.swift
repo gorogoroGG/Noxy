@@ -19,4 +19,5 @@ protocol ShopServiceProtocol: Sendable {
     func fetchOrder(id: String) async throws -> Order
     func confirmPayment(orderId: String) async throws -> Order
     func completeOrder(orderId: String, party: String) async throws -> Order
+    func archiveOrder(orderId: String) async throws -> Order
 }

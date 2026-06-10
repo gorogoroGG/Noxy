@@ -16,6 +16,7 @@ struct WorkerShopService: ShopServiceProtocol {
     func createShop(_ shop: Shop) async throws -> Shop {
         struct Body: Encodable {
             let guildId: String
+            let shopType: String
             let name: String
             let description: String
             let enabled: Bool
@@ -35,9 +36,13 @@ struct WorkerShopService: ShopServiceProtocol {
             let welcomeFooterText: String?
             let welcomeFooterIconUrl: String?
             let welcomeShowTimestamp: Bool
+            let paymentInputLabel: String?
+            let autoDeleteEnabled: Bool
+            let autoDeleteDays: Int?
         }
         let body = Body(
-            guildId: shop.guildId, name: shop.name, description: shop.description,
+            guildId: shop.guildId, shopType: shop.shopType.rawValue,
+            name: shop.name, description: shop.description,
             enabled: shop.enabled, disabledMessage: shop.disabledMessage,
             channelId: shop.channelId,
             orderCategoryId: shop.orderCategoryId, archiveCategoryId: shop.archiveCategoryId,
@@ -47,7 +52,9 @@ struct WorkerShopService: ShopServiceProtocol {
             welcomeImageUrl: shop.welcomeImageUrl, welcomeThumbnailUrl: shop.welcomeThumbnailUrl,
             welcomeFields: shop.welcomeFields,
             welcomeFooterText: shop.welcomeFooterText, welcomeFooterIconUrl: shop.welcomeFooterIconUrl,
-            welcomeShowTimestamp: shop.welcomeShowTimestamp
+            welcomeShowTimestamp: shop.welcomeShowTimestamp,
+            paymentInputLabel: shop.paymentInputLabel,
+            autoDeleteEnabled: shop.autoDeleteEnabled, autoDeleteDays: shop.autoDeleteDays
         )
         let jsonData = try JSONEncoder().encode(body)
         #if DEBUG
@@ -79,6 +86,9 @@ struct WorkerShopService: ShopServiceProtocol {
             let welcomeFooterText: String?
             let welcomeFooterIconUrl: String?
             let welcomeShowTimestamp: Bool
+            let paymentInputLabel: String?
+            let autoDeleteEnabled: Bool
+            let autoDeleteDays: Int?
         }
         let body = Body(
             name: shop.name, description: shop.description, enabled: shop.enabled,
@@ -90,7 +100,9 @@ struct WorkerShopService: ShopServiceProtocol {
             welcomeImageUrl: shop.welcomeImageUrl, welcomeThumbnailUrl: shop.welcomeThumbnailUrl,
             welcomeFields: shop.welcomeFields,
             welcomeFooterText: shop.welcomeFooterText, welcomeFooterIconUrl: shop.welcomeFooterIconUrl,
-            welcomeShowTimestamp: shop.welcomeShowTimestamp
+            welcomeShowTimestamp: shop.welcomeShowTimestamp,
+            paymentInputLabel: shop.paymentInputLabel,
+            autoDeleteEnabled: shop.autoDeleteEnabled, autoDeleteDays: shop.autoDeleteDays
         )
         return try await patchReturning("/bot/shops/\(shop.id)", body: body)
     }
@@ -181,6 +193,10 @@ struct WorkerShopService: ShopServiceProtocol {
     func completeOrder(orderId: String, party: String) async throws -> Order {
         struct Body: Encodable { let party: String }
         return try await postReturning("/bot/orders/\(orderId)/complete", body: Body(party: party))
+    }
+
+    func archiveOrder(orderId: String) async throws -> Order {
+        try await postReturning("/bot/orders/\(orderId)/archive", body: EmptyBody())
     }
 
     // MARK: - HTTP helpers

@@ -128,17 +128,19 @@ export function mapPanel(p: TicketPanelRow) {
 // ── Shop / Order ──────────────────────────────────────────────
 
 export interface ShopRow {
-  id: string; guild_id: string; name: string; description: string; enabled: boolean;
+  id: string; guild_id: string; shop_type: string; name: string; description: string; enabled: boolean;
   disabled_message: string | null;
   channel_id: string; message_id: string | null;
   order_category_id: string | null; archive_category_id: string | null;
   support_role_id: string | null; timeout_hours: number | null;
   color: number; footer_text: string;
-  payment_flow: string; auto_deliver: boolean;
+  review_enabled: boolean; review_channel_id: string | null;
   welcome_image_url: string | null; welcome_thumbnail_url: string | null;
   welcome_fields: Array<{name: string; value: string; inline: boolean}>;
   welcome_footer_text: string | null; welcome_footer_icon_url: string | null;
   welcome_show_timestamp: boolean;
+  payment_input_label: string | null;
+  auto_delete_enabled: boolean; auto_delete_days: number | null;
   created_at: string;
 }
 
@@ -163,17 +165,21 @@ export interface OrderRow {
 
 export function mapShop(s: ShopRow) {
   return {
-    id: s.id, guildId: s.guild_id, name: s.name, description: s.description,
+    id: s.id, guildId: s.guild_id, shopType: s.shop_type ?? 'shop',
+    name: s.name, description: s.description,
     enabled: s.enabled, disabledMessage: s.disabled_message,
     channelId: s.channel_id, messageId: s.message_id,
     orderCategoryId: s.order_category_id, archiveCategoryId: s.archive_category_id,
     supportRoleId: s.support_role_id, timeoutHours: s.timeout_hours,
     color: s.color, footerText: s.footer_text,
-    paymentFlow: s.payment_flow, autoDeliver: s.auto_deliver,
+    reviewEnabled: s.review_enabled ?? false, reviewChannelId: s.review_channel_id ?? null,
     welcomeImageUrl: s.welcome_image_url, welcomeThumbnailUrl: s.welcome_thumbnail_url,
     welcomeFields: s.welcome_fields ?? [],
     welcomeFooterText: s.welcome_footer_text, welcomeFooterIconUrl: s.welcome_footer_icon_url,
-    welcomeShowTimestamp: s.welcome_show_timestamp, createdAt: s.created_at,
+    welcomeShowTimestamp: s.welcome_show_timestamp,
+    paymentInputLabel: s.payment_input_label ?? null,
+    autoDeleteEnabled: s.auto_delete_enabled ?? false, autoDeleteDays: s.auto_delete_days ?? null,
+    createdAt: s.created_at,
   };
 }
 

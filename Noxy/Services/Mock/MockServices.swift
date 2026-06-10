@@ -359,6 +359,11 @@ actor MockNotificationService: NotificationServiceProtocol {
             notifications[idx].read = true
         }
     }
+
+    func delete(id: String) async throws {
+        try await mockDelay()
+        notifications.removeAll { $0.id == id }
+    }
 }
 
 // MARK: - Analytics
@@ -376,16 +381,11 @@ actor MockBotService: BotServiceProtocol {
 
     func fetchStatus() async throws -> BotStatus {
         let workerURL = await MainActor.run { DiscordConfig.workerURL }
-        let apiSecret = await MainActor.run { DiscordConfig.workerAPISecret }
-
         // /bot/status（認証不要・Discord API 不使用）で疎通確認
         guard let statusURL = URL(string: "\(workerURL)/bot/status") else {
             return BotStatus(isOnline: false, latency: 0, uptime: 0, activeGuilds: 0, totalCommands: 0)
         }
-        var req = URLRequest(url: statusURL, timeoutInterval: 10)
-        if !apiSecret.isEmpty {
-            req.setValue(apiSecret, forHTTPHeaderField: "X-Bot-Secret")
-        }
+        let req = URLRequest(url: statusURL, timeoutInterval: 10)
         let start = Date()
         do {
             let (data, resp) = try await URLSession.shared.data(for: req)
@@ -545,19 +545,23 @@ actor MockShopService: ShopServiceProtocol {
     func confirmPayment(orderId: String) async throws -> Order {
         try await mockDelay()
         guard let idx = orders.firstIndex(where: { $0.id == orderId }) else { throw ServiceError.notFound }
-        orders[idx].status = .delivered
+        orders[idx].status = .completed
         orders[idx].paidAt = .now
-        orders[idx].deliveredAt = .now
+        orders[idx].completedAt = .now
         return orders[idx]
     }
     func completeOrder(orderId: String, party: String) async throws -> Order {
         try await mockDelay()
         guard let idx = orders.firstIndex(where: { $0.id == orderId }) else { throw ServiceError.notFound }
-        if party == "buyer" {
-            orders[idx].buyerConfirmed = true
-            orders[idx].status = .completed
-            orders[idx].completedAt = .now
-        }
+        orders[idx].status = .completed
+        orders[idx].completedAt = .now
+        return orders[idx]
+    }
+    func archiveOrder(orderId: String) async throws -> Order {
+        try await mockDelay()
+        guard let idx = orders.firstIndex(where: { $0.id == orderId }) else { throw ServiceError.notFound }
+        orders[idx].status = .archived
+        orders[idx].archivedAt = .now
         return orders[idx]
     }
 }

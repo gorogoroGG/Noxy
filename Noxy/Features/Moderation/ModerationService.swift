@@ -116,8 +116,10 @@ struct ModerationService {
     private func makeRequest(_ path: String, method: String = "GET") -> URLRequest {
         var req = URLRequest(url: URL(string: DiscordConfig.workerURL + path)!, timeoutInterval: 15)
         req.httpMethod = method
-        // #1: 認証ヘッダーを追加
-        req.setValue(DiscordConfig.workerAPISecret, forHTTPHeaderField: "X-Bot-Secret")
+        // Bearer トークンで認証（WorkerClient と同じ方式）
+        if let token = WorkerClient.bearerToken() {
+            req.setValue("Bearer \(token)", forHTTPHeaderField: "Authorization")
+        }
         return req
     }
 

@@ -13,6 +13,14 @@ struct WorkerClient: Sendable {
         self.session = session
     }
 
+    // MARK: - Auth helper
+
+    /// Supabase アクセストークンを Authorization ヘッダー用に返す
+    static func bearerToken() -> String? {
+        guard let t = KeychainHelper.load(forKey: "supabase_access_token"), !t.isEmpty else { return nil }
+        return t
+    }
+
     // MARK: - Static shared decoder（#9: JSONDecoder を毎回生成しない）
 
     static let decoder: JSONDecoder = {
@@ -42,9 +50,8 @@ struct WorkerClient: Sendable {
     private func makeRequest(url: URL, method: String = "GET", body: Data? = nil) -> URLRequest {
         var req = URLRequest(url: url, timeoutInterval: 15)
         req.httpMethod = method
-        // #1: 認証ヘッダーを全リクエストに自動付与（未設定時は送信しない）
-        if !DiscordConfig.workerAPISecret.isEmpty {
-            req.setValue(DiscordConfig.workerAPISecret, forHTTPHeaderField: "X-Bot-Secret")
+        if let token = Self.bearerToken() {
+            req.setValue("Bearer \(token)", forHTTPHeaderField: "Authorization")
         }
         if body != nil {
             req.setValue("application/json", forHTTPHeaderField: "Content-Type")
@@ -56,62 +63,100 @@ struct WorkerClient: Sendable {
     // MARK: - HTTP Methods
 
     func get<T: Decodable>(_ path: String) async throws -> T {
-        guard let url = URL(string: DiscordConfig.workerURL + path) else {
-            throw ServiceError.networkError
+        try await withRetry {
+            guard let url = URL(string: DiscordConfig.workerURL + path) else {
+                throw ServiceError.networkError
+            }
+            let (data, response) = try await self.session.data(for: self.makeRequest(url: url))
+            try self.validate(response, data: data)
+            return try Self.decoder.decode(T.self, from: data)
         }
-        let (data, response) = try await session.data(for: makeRequest(url: url))
-        try validate(response, data: data)
-        return try Self.decoder.decode(T.self, from: data)
     }
 
     func post(_ path: String) async throws {
-        guard let url = URL(string: DiscordConfig.workerURL + path) else {
-            throw ServiceError.networkError
+        try await withRetry {
+            guard let url = URL(string: DiscordConfig.workerURL + path) else {
+                throw ServiceError.networkError
+            }
+            let req = self.makeRequest(url: url, method: "POST")
+            let (data, response) = try await self.session.data(for: req)
+            try self.validate(response, data: data)
         }
-        let req = makeRequest(url: url, method: "POST")
-        let (data, response) = try await session.data(for: req)
-        try validate(response, data: data)
     }
 
     func post<B: Encodable, T: Decodable>(_ path: String, body: B) async throws -> T {
-        guard let url = URL(string: DiscordConfig.workerURL + path) else {
-            throw ServiceError.networkError
-        }
         let bodyData = try Self.encoder.encode(body)
-        let req = makeRequest(url: url, method: "POST", body: bodyData)
-        let (data, response) = try await session.data(for: req)
-        try validate(response, data: data)
-        return try Self.decoder.decode(T.self, from: data)
+        return try await withRetry {
+            guard let url = URL(string: DiscordConfig.workerURL + path) else {
+                throw ServiceError.networkError
+            }
+            let req = self.makeRequest(url: url, method: "POST", body: bodyData)
+            let (data, response) = try await self.session.data(for: req)
+            try self.validate(response, data: data)
+            return try Self.decoder.decode(T.self, from: data)
+        }
     }
 
     func postVoid<B: Encodable>(_ path: String, body: B) async throws {
-        guard let url = URL(string: DiscordConfig.workerURL + path) else {
-            throw ServiceError.networkError
-        }
         let bodyData = try Self.encoder.encode(body)
-        let req = makeRequest(url: url, method: "POST", body: bodyData)
-        let (data, response) = try await session.data(for: req)
-        try validate(response, data: data)
+        try await withRetry {
+            guard let url = URL(string: DiscordConfig.workerURL + path) else {
+                throw ServiceError.networkError
+            }
+            let req = self.makeRequest(url: url, method: "POST", body: bodyData)
+            let (data, response) = try await self.session.data(for: req)
+            try self.validate(response, data: data)
+        }
     }
 
     func patch<B: Encodable, T: Decodable>(_ path: String, body: B) async throws -> T {
-        guard let url = URL(string: DiscordConfig.workerURL + path) else {
-            throw ServiceError.networkError
-        }
         let bodyData = try Self.encoder.encode(body)
-        let req = makeRequest(url: url, method: "PATCH", body: bodyData)
-        let (data, response) = try await session.data(for: req)
-        try validate(response, data: data)
-        return try Self.decoder.decode(T.self, from: data)
+        return try await withRetry {
+            guard let url = URL(string: DiscordConfig.workerURL + path) else {
+                throw ServiceError.networkError
+            }
+            let req = self.makeRequest(url: url, method: "PATCH", body: bodyData)
+            let (data, response) = try await self.session.data(for: req)
+            try self.validate(response, data: data)
+            return try Self.decoder.decode(T.self, from: data)
+        }
     }
 
     func delete(_ path: String) async throws {
-        guard let url = URL(string: DiscordConfig.workerURL + path) else {
-            throw ServiceError.networkError
+        try await withRetry {
+            guard let url = URL(string: DiscordConfig.workerURL + path) else {
+                throw ServiceError.networkError
+            }
+            let req = self.makeRequest(url: url, method: "DELETE")
+            let (data, response) = try await self.session.data(for: req)
+            try self.validate(response, data: data)
         }
-        let req = makeRequest(url: url, method: "DELETE")
-        let (data, response) = try await session.data(for: req)
-        try validate(response, data: data)
+    }
+
+    // MARK: - Retry
+
+    /// 最初のリクエストが失敗した場合に1回だけ自動リトライする。
+    /// 401/404 など確定エラーはリトライしない（同じ結果になるため）。
+    private func withRetry<T>(attempts: Int = 2, delay: UInt64 = 800_000_000, operation: () async throws -> T) async throws -> T {
+        var lastError: Error?
+        for attempt in 0..<attempts {
+            do {
+                return try await operation()
+            } catch let error as ServiceError {
+                switch error {
+                case .unauthorizedWithDetail, .notFound:
+                    throw error  // 確定エラーはリトライしない
+                default:
+                    lastError = error
+                }
+            } catch {
+                lastError = error
+            }
+            if attempt < attempts - 1 {
+                try? await Task.sleep(nanoseconds: delay)
+            }
+        }
+        throw lastError ?? ServiceError.networkError
     }
 
     // MARK: - Helpers

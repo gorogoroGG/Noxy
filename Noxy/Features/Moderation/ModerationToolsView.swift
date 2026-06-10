@@ -43,7 +43,7 @@ struct ModerationCenterView: View {
         }
         .background(Color.bgPrimary)
         .navigationTitle("モデレーション")
-        .navigationBarTitleDisplayMode(.inline)
+        .navigationBarTitleDisplayMode(.large)
     }
 
     // MARK: - Tab Bar（常に固定）

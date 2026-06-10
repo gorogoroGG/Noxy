@@ -170,9 +170,8 @@ private class AuthPresentationContextProvider: NSObject, ASWebAuthenticationPres
 
     func presentationAnchor(for session: ASWebAuthenticationSession) -> ASPresentationAnchor {
         #if canImport(UIKit)
-        let scenes = UIApplication.shared.connectedScenes
-        if let windowScene = scenes.first as? UIWindowScene,
-           let window = windowScene.windows.first(where: \.isKeyWindow) {
+        if let windowScene = UIApplication.shared.connectedScenes.first(where: { $0.activationState == .foregroundActive }) as? UIWindowScene,
+           let window = windowScene.windows.first {
             return window
         }
         return ASPresentationAnchor()

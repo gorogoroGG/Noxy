@@ -25,6 +25,8 @@ struct AnalyticsView: View {
             }
         }
         .background(Color.bgPrimary)
+        .navigationTitle("アナリティクス")
+        .navigationBarTitleDisplayMode(.large)
         .task { await load() }
         .onChange(of: selectedPeriod) { Task { await load() } }
     }

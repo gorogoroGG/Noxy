@@ -97,14 +97,19 @@ struct HorizontalChipBar: UIViewRepresentable {
     }
 
     private func makeChipButton(title: String, tag: Int, color: UIColor, coordinator: Coordinator) -> UIButton {
-        let btn = UIButton(type: .custom)
-        btn.setTitle(title, for: .normal)
+        var config = UIButton.Configuration.plain()
+        config.title = title
+        config.titleTextAttributesTransformer = UIConfigurationTextAttributesTransformer { attrs in
+            var a = attrs
+            a.font = UIFont.systemFont(ofSize: 12, weight: .semibold)
+            return a
+        }
+        config.baseForegroundColor = color
+        config.background.backgroundColor = color.withAlphaComponent(0.1)
+        config.background.cornerRadius = 12
+        config.contentInsets = NSDirectionalEdgeInsets(top: 5, leading: 10, bottom: 5, trailing: 10)
+        let btn = UIButton(configuration: config)
         btn.tag = tag
-        btn.titleLabel?.font = UIFont.systemFont(ofSize: 12, weight: .semibold)
-        btn.setTitleColor(color, for: .normal)
-        btn.backgroundColor = color.withAlphaComponent(0.1)
-        btn.layer.cornerRadius = 12
-        btn.contentEdgeInsets = UIEdgeInsets(top: 5, left: 10, bottom: 5, right: 10)
         btn.addTarget(coordinator, action: #selector(Coordinator.chipTapped(_:)), for: .touchUpInside)
         return btn
     }
