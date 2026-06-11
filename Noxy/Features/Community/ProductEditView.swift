@@ -78,12 +78,12 @@ struct ProductManagementView: View {
                 }
             }
             .sheet(isPresented: $showCreate) {
-                ProductEditView(shopId: shop.id, guildId: guildId, existingProduct: nil) {
+                ProductEditView(shopId: shop.id, guildId: guildId, shopType: shop.shopType, existingProduct: nil) {
                     products.insert($0, at: products.count)
                 }
             }
             .sheet(item: $editingProduct) { product in
-                ProductEditView(shopId: shop.id, guildId: guildId, existingProduct: product) { updated in
+                ProductEditView(shopId: shop.id, guildId: guildId, shopType: shop.shopType, existingProduct: product) { updated in
                     if let idx = products.firstIndex(where: { $0.id == updated.id }) { products[idx] = updated }
                 }
             }
@@ -218,6 +218,7 @@ private struct ProductCard: View {
 struct ProductEditView: View {
     let shopId: String
     let guildId: String
+    let shopType: ShopType
     var existingProduct: Product?
     let onSave: (Product) -> Void
 
@@ -226,8 +227,7 @@ struct ProductEditView: View {
 
     @State private var name = ""
     @State private var description = ""
-    @State private var priceDisplay = "要相談"
-    @State private var imageUrl = ""
+    @State private var priceDisplay = ""
     @State private var stockEnabled = false
     @State private var stockValue: Int = 1
     @State private var rewardType: RewardType = .text
@@ -247,7 +247,7 @@ struct ProductEditView: View {
     private var hasChanges: Bool {
         guard let p = existingProduct else { return true }
         return name != p.name || description != p.description || priceDisplay != p.priceDisplay ||
-            imageUrl != (p.imageUrl ?? "") || stockEnabled != (p.stock != nil) ||
+            stockEnabled != (p.stock != nil) ||
             (stockEnabled && stockValue != p.stock) || rewardType != p.rewardType ||
             rewardContent != (p.rewardContent ?? "") || rewardRoleId != (p.rewardRoleId ?? "") ||
             rewardDmContent != (p.rewardDmContent ?? "") || enabled != p.enabled
@@ -311,13 +311,13 @@ struct ProductEditView: View {
                 TextEditor(text: $description)
                     .frame(minHeight: 60).scrollContentBackground(.hidden)
             }
-            LabeledContent("価格表示") {
-                TextField("要相談", text: $priceDisplay).multilineTextAlignment(.trailing)
-            }
-            LabeledContent("画像URL（任意）") {
-                TextField("https://...", text: $imageUrl).multilineTextAlignment(.trailing)
+            LabeledContent("価格（円）") {
+                TextField("0", text: $priceDisplay)
+                    .multilineTextAlignment(.trailing)
+                    .keyboardType(.numberPad)
             }
         } header: { Text("基本情報") }
+          footer: { Text("価格は数字のみ入力してください（例：500）。") }
     }
 
     private var stockSection: some View {
@@ -333,9 +333,12 @@ struct ProductEditView: View {
     }
 
     private var rewardSection: some View {
-        Section {
+        let availableRewardTypes = shopType == .vendingMachine
+            ? RewardType.allCases.filter { $0 != .manual }
+            : RewardType.allCases
+        return Section {
             Picker("対価タイプ", selection: $rewardType) {
-                ForEach(RewardType.allCases, id: \.self) { type in
+                ForEach(availableRewardTypes, id: \.self) { type in
                     Label(type.label, systemImage: type.icon).tag(type)
                 }
             }
@@ -474,7 +477,6 @@ struct ProductEditView: View {
             name = p.name
             description = p.description
             priceDisplay = p.priceDisplay
-            imageUrl = p.imageUrl ?? ""
             stockEnabled = p.stock != nil
             stockValue = p.stock ?? 1
             rewardType = p.rewardType
@@ -491,14 +493,15 @@ struct ProductEditView: View {
         do {
             var product = existingProduct ?? Product(
                 id: UUID().uuidString, shopId: shopId, name: name, description: description,
-                priceDisplay: priceDisplay, imageUrl: nil, stock: nil, rewardType: .text,
+                priceDisplay: priceDisplay.isEmpty ? "要相談" : priceDisplay,
+                imageUrl: nil, stock: nil, rewardType: .text,
                 rewardContent: nil, rewardRoleId: nil, rewardDmContent: nil,
                 position: 0, enabled: true, createdAt: .now
             )
             product.name = name
             product.description = description
-            product.priceDisplay = priceDisplay
-            product.imageUrl = imageUrl.isEmpty ? nil : imageUrl
+            product.priceDisplay = priceDisplay.isEmpty ? "要相談" : priceDisplay
+            product.imageUrl = nil
             product.stock = stockEnabled ? stockValue : nil
             product.rewardType = rewardType
             product.rewardContent = rewardContent.isEmpty ? nil : rewardContent

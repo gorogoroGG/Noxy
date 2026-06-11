@@ -18,9 +18,10 @@ struct ShopEditView: View {
         self.existingShop = existingShop
         self.guildId = guildId
         self.shopType = shopType
-        self.initialTab = initialTab
+        // 商品タブ(2)は使わないので 0 or 1 に丸める
+        self.initialTab = min(initialTab, 1)
         self.onSave = onSave
-        _selectedTab = State(initialValue: initialTab)
+        _selectedTab = State(initialValue: min(initialTab, 1))
     }
 
     @State private var name = ""
@@ -52,11 +53,6 @@ struct ShopEditView: View {
     @State private var welcomeFooterIconUrl = ""
     @State private var welcomeShowTimestamp = true
 
-    // Products
-    @State private var products: [Product] = []
-    @State private var showCreateProduct = false
-    @State private var editingProduct: Product? = nil
-
     @State private var roles: [DiscordRole] = []
     @State private var categories: [(id: String, name: String)] = []
     @State private var textChannels: [(id: String, name: String)] = []
@@ -65,10 +61,7 @@ struct ShopEditView: View {
     @State private var errorMessage: String? = nil
     @State private var showDiscardAlert = false
 
-    private let autoDeleteOptions: [(label: String, days: Int)] = [
-        ("1日", 1), ("2日", 2), ("3日", 3), ("5日", 5),
-        ("7日（1週間）", 7), ("14日（2週間）", 14), ("30日（1か月）", 30)
-    ]
+    private let autoDeleteDayOptions: [Int] = [1, 2, 3, 5, 7, 14, 30]
 
     private var isNew: Bool { existingShop == nil }
     private var previewColor: Color { Color(uiColor: UIColor(hex: colorHex)) }
@@ -115,7 +108,6 @@ struct ShopEditView: View {
                 TabView(selection: $selectedTab) {
                     panelSettingsTab.tag(0)
                     transactionTab.tag(1)
-                    productsTab.tag(2)
                 }
                 .tabViewStyle(.page(indexDisplayMode: .never))
             }
@@ -142,7 +134,6 @@ struct ShopEditView: View {
         Picker("タブ", selection: $selectedTab) {
             Text("パネル設定").tag(0)
             Text("取引").tag(1)
-            Text("商品").tag(2)
         }
         .pickerStyle(.segmented)
     }
@@ -154,7 +145,7 @@ struct ShopEditView: View {
             enabledToggleSection
             appearanceSection
             previewSection
-            channelSettingsSection
+            serverSettingsSection
             if shopType == .vendingMachine {
                 paymentInputLabelSection
             }
@@ -251,11 +242,6 @@ struct ShopEditView: View {
                         .background(previewColor)
                         .clipShape(RoundedRectangle(cornerRadius: 6))
                     Spacer()
-                    Text("⚠️ 異議を申し立てる")
-                        .font(.captionRegular).fontWeight(.semibold).foregroundStyle(.white)
-                        .padding(.horizontal, 14).padding(.vertical, 8)
-                        .background(Color.red)
-                        .clipShape(RoundedRectangle(cornerRadius: 6))
                 }
             }
             .padding(.vertical, 4)
@@ -269,30 +255,120 @@ struct ShopEditView: View {
         }
     }
 
-    private var channelSettingsSection: some View {
+    // MARK: - サーバー設定（リデザイン）
+
+    private var serverSettingsSection: some View {
         Section {
             if isLoading {
                 HStack { Spacer(); ProgressView().scaleEffect(0.8); Spacer() }
             } else {
-                Picker("サポートロール", selection: $supportRoleId) {
-                    Text("なし").tag("")
-                    ForEach(roles.filter { !$0.managed && $0.name != "@everyone" }) {
-                        Text("@\($0.name)").tag($0.id)
+                // サポートロール
+                serverSettingRow(
+                    icon: "shield.lefthalf.filled",
+                    iconColor: .accentIndigo,
+                    title: "サポートロール",
+                    subtitle: "注文チャンネルに追加するロール"
+                ) {
+                    Menu {
+                        Button("なし") { supportRoleId = "" }
+                        Divider()
+                        ForEach(roles.filter { !$0.managed && $0.name != "@everyone" }) { role in
+                            Button("@\(role.name)") { supportRoleId = role.id }
+                        }
+                    } label: {
+                        HStack(spacing: 4) {
+                            Text(roles.first(where: { $0.id == supportRoleId })
+                                    .map { "@\($0.name)" } ?? "なし")
+                                .font(.captionRegular)
+                                .foregroundStyle(supportRoleId.isEmpty ? Color.textTertiary : .accentIndigo)
+                            Image(systemName: "chevron.up.chevron.down")
+                                .font(.system(size: 9, weight: .semibold))
+                                .foregroundStyle(Color.textTertiary)
+                        }
                     }
                 }
-                Picker("注文カテゴリ", selection: $orderCategoryId) {
-                    Text("なし（デフォルト）").tag("")
-                    ForEach(categories, id: \.id) { Text($0.name).tag($0.id) }
+
+                // オープンカテゴリ
+                serverSettingRow(
+                    icon: "folder.badge.plus",
+                    iconColor: .accentGreen,
+                    title: "オープンカテゴリ",
+                    subtitle: "注文チャンネルを作成する場所"
+                ) {
+                    Menu {
+                        Button("なし（デフォルト）") { orderCategoryId = "" }
+                        Divider()
+                        ForEach(categories, id: \.id) { cat in
+                            Button(cat.name) { orderCategoryId = cat.id }
+                        }
+                    } label: {
+                        HStack(spacing: 4) {
+                            Text(categories.first(where: { $0.id == orderCategoryId })?.name ?? "なし")
+                                .font(.captionRegular)
+                                .foregroundStyle(orderCategoryId.isEmpty ? Color.textTertiary : .accentGreen)
+                            Image(systemName: "chevron.up.chevron.down")
+                                .font(.system(size: 9, weight: .semibold))
+                                .foregroundStyle(Color.textTertiary)
+                        }
+                    }
                 }
-                Picker("アーカイブカテゴリ", selection: $archiveCategoryId) {
-                    Text("なし（そのまま）").tag("")
-                    ForEach(categories, id: \.id) { Text($0.name).tag($0.id) }
+
+                // クローズカテゴリ
+                serverSettingRow(
+                    icon: "archivebox.fill",
+                    iconColor: .accentOrange,
+                    title: "クローズカテゴリ",
+                    subtitle: "完了・キャンセル後に移動する場所"
+                ) {
+                    Menu {
+                        Button("なし（そのまま）") { archiveCategoryId = "" }
+                        Divider()
+                        ForEach(categories, id: \.id) { cat in
+                            Button(cat.name) { archiveCategoryId = cat.id }
+                        }
+                    } label: {
+                        HStack(spacing: 4) {
+                            Text(categories.first(where: { $0.id == archiveCategoryId })?.name ?? "なし")
+                                .font(.captionRegular)
+                                .foregroundStyle(archiveCategoryId.isEmpty ? Color.textTertiary : .accentOrange)
+                            Image(systemName: "chevron.up.chevron.down")
+                                .font(.system(size: 9, weight: .semibold))
+                                .foregroundStyle(Color.textTertiary)
+                        }
+                    }
                 }
             }
-        } header: { Text("チャンネル設定") }
+        } header: { Text("Discord サーバー設定") }
           footer: {
-              Text("サポートロール：注文チャンネルに追加されるロール。\n注文カテゴリ：注文チャンネルを作成するカテゴリ。\nアーカイブカテゴリ：完了・キャンセル後にチャンネルを移動するカテゴリ。")
+              Text("オープンカテゴリに注文チャンネルが作成され、取引完了後はクローズカテゴリに移動します。")
           }
+    }
+
+    @ViewBuilder
+    private func serverSettingRow<T: View>(
+        icon: String,
+        iconColor: Color,
+        title: String,
+        subtitle: String,
+        @ViewBuilder trailing: () -> T
+    ) -> some View {
+        HStack(spacing: .spacing12) {
+            ZStack {
+                RoundedRectangle(cornerRadius: 7)
+                    .fill(iconColor.opacity(0.12))
+                    .frame(width: 32, height: 32)
+                Image(systemName: icon)
+                    .font(.system(size: 14))
+                    .foregroundStyle(iconColor)
+            }
+            VStack(alignment: .leading, spacing: 2) {
+                Text(title).font(.bodySmall).foregroundStyle(Color.textPrimary)
+                Text(subtitle).font(.captionSmall).foregroundStyle(Color.textTertiary)
+            }
+            Spacer()
+            trailing()
+        }
+        .padding(.vertical, 2)
     }
 
     private var paymentInputLabelSection: some View {
@@ -308,20 +384,49 @@ struct ShopEditView: View {
           }
     }
 
+    // MARK: - 自動削除（チップセレクター）
+
     private var autoDeleteSection: some View {
         Section {
-            Toggle("取引完了後に自動削除する", isOn: $autoDeleteEnabled)
+            Toggle("取引完了後に自動削除する", isOn: $autoDeleteEnabled.animation())
             if autoDeleteEnabled {
-                Picker("削除までの日数", selection: $autoDeleteDays) {
-                    ForEach(autoDeleteOptions, id: \.days) { option in
-                        Text(option.label).tag(option.days)
+                VStack(alignment: .leading, spacing: 10) {
+                    Text("削除するまでの日数").font(.captionSmall).foregroundStyle(Color.textTertiary)
+                    LazyVGrid(columns: Array(repeating: GridItem(.flexible(), spacing: 8), count: 4), spacing: 8) {
+                        ForEach(autoDeleteDayOptions, id: \.self) { days in
+                            Button {
+                                withAnimation(.easeInOut(duration: 0.15)) { autoDeleteDays = days }
+                            } label: {
+                                VStack(spacing: 2) {
+                                    Text("\(days)")
+                                        .font(.system(size: 16, weight: .bold))
+                                    Text("日")
+                                        .font(.system(size: 10))
+                                }
+                                .frame(maxWidth: .infinity)
+                                .padding(.vertical, 10)
+                                .background(
+                                    autoDeleteDays == days
+                                        ? shopType.accentColor
+                                        : Color(.tertiarySystemGroupedBackground)
+                                )
+                                .foregroundStyle(autoDeleteDays == days ? .white : Color.textSecondary)
+                                .clipShape(RoundedRectangle(cornerRadius: 10))
+                                .overlay(
+                                    RoundedRectangle(cornerRadius: 10)
+                                        .stroke(autoDeleteDays == days ? shopType.accentColor : Color.clear, lineWidth: 1.5)
+                                )
+                            }
+                            .buttonStyle(.plain)
+                        }
                     }
+                    .padding(.top, 2)
                 }
             }
         } header: { Text("チケットの自動削除") }
           footer: {
               if autoDeleteEnabled {
-                  Text("取引完了から\(autoDeleteDays)日後にチケットチャンネルが完全に削除されます。取引開始時と完了時にチケット内へ削除日時が通知されます。")
+                  Text("取引完了から \(autoDeleteDays) 日後にチケットチャンネルが自動削除されます。取引開始時・完了時にチャンネル内へ削除予定日が通知されます。")
               } else {
                   Text("有効にすると、取引完了から指定した日数が経過した時点でチケットチャンネルが自動的に削除されます。")
               }
@@ -381,13 +486,39 @@ struct ShopEditView: View {
         .background(Color(.systemGroupedBackground))
     }
 
+    // MARK: - レビュー設定（通知チャンネル含む）
+
     private var reviewSection: some View {
         Section {
-            Toggle("レビュー機能を有効にする", isOn: $reviewEnabled)
+            Toggle("レビュー機能を有効にする", isOn: $reviewEnabled.animation())
             if reviewEnabled {
-                Picker("レビュー投稿チャンネル", selection: $reviewChannelId) {
-                    Text("未選択").tag("")
-                    ForEach(textChannels, id: \.id) { Text("#\($0.name)").tag($0.id) }
+                if isLoading {
+                    HStack { Spacer(); ProgressView().scaleEffect(0.8); Spacer() }
+                } else {
+                    serverSettingRow(
+                        icon: "bell.fill",
+                        iconColor: .accentIndigo,
+                        title: "通知チャンネル",
+                        subtitle: "レビューを投稿するチャンネル"
+                    ) {
+                        Menu {
+                            Button("未選択") { reviewChannelId = "" }
+                            Divider()
+                            ForEach(textChannels, id: \.id) { ch in
+                                Button("#\(ch.name)") { reviewChannelId = ch.id }
+                            }
+                        } label: {
+                            HStack(spacing: 4) {
+                                Text(textChannels.first(where: { $0.id == reviewChannelId })
+                                        .map { "#\($0.name)" } ?? "未選択")
+                                    .font(.captionRegular)
+                                    .foregroundStyle(reviewChannelId.isEmpty ? Color.textTertiary : .accentIndigo)
+                                Image(systemName: "chevron.up.chevron.down")
+                                    .font(.system(size: 9, weight: .semibold))
+                                    .foregroundStyle(Color.textTertiary)
+                            }
+                        }
+                    }
                 }
             }
         } header: { Text("レビュー設定") }
@@ -502,92 +633,6 @@ struct ShopEditView: View {
           footer: { Text("空白の場合はパネルのフッターが使用されます。") }
     }
 
-    // MARK: - 商品
-
-    private var productsTab: some View {
-        ZStack(alignment: .bottom) {
-            List {
-                if isNew {
-                    VStack(spacing: .spacing12) {
-                        Image(systemName: "archivebox.fill")
-                            .font(.system(size: 40)).foregroundStyle(Color.textTertiary)
-                        Text("\(shopType.label)を先に保存してください")
-                            .font(.titleMedium).foregroundStyle(Color.textPrimary)
-                        Text("\(shopType.label)を保存した後、再度編集画面を開いて商品を追加できます。")
-                            .font(.captionRegular).foregroundStyle(Color.textTertiary)
-                            .multilineTextAlignment(.center)
-                    }
-                    .frame(maxWidth: .infinity).padding(.top, 60)
-                    .listRowBackground(Color(.systemGroupedBackground))
-                    .listRowSeparator(.hidden)
-                } else if isLoading {
-                    HStack { Spacer(); ProgressView(); Spacer() }
-                        .listRowBackground(Color(.systemGroupedBackground))
-                        .listRowSeparator(.hidden).padding(.top, 40)
-                } else if products.isEmpty {
-                    VStack(spacing: .spacing12) {
-                        Image(systemName: "archivebox.fill")
-                            .font(.system(size: 40)).foregroundStyle(Color.textTertiary)
-                        Text("商品がありません")
-                            .font(.titleMedium).foregroundStyle(Color.textPrimary)
-                        Text("「商品を追加」ボタンから販売する商品を作成できます")
-                            .font(.captionRegular).foregroundStyle(Color.textTertiary)
-                            .multilineTextAlignment(.center)
-                    }
-                    .frame(maxWidth: .infinity).padding(.top, 60)
-                    .listRowBackground(Color(.systemGroupedBackground))
-                    .listRowSeparator(.hidden)
-                } else {
-                    ForEach(Array(products.enumerated()), id: \.element.id) { index, product in
-                        ProductCard(product: product, index: index, onEdit: { editingProduct = product })
-                            .listRowInsets(EdgeInsets(top: 4, leading: 16, bottom: 4, trailing: 16))
-                            .listRowBackground(Color(.systemGroupedBackground))
-                            .listRowSeparator(.hidden)
-                    }
-                    .onMove { indices, newOffset in
-                        products.move(fromOffsets: indices, toOffset: newOffset)
-                        Task { await updatePositions() }
-                    }
-                }
-                Color.clear.frame(height: 80)
-                    .listRowBackground(Color(.systemGroupedBackground)).listRowSeparator(.hidden)
-            }
-            .listStyle(.plain)
-            .background(Color(.systemGroupedBackground))
-
-            if !isNew {
-                Button { showCreateProduct = true } label: {
-                    HStack(spacing: .spacing8) {
-                        Image(systemName: "plus").font(.system(size: 14, weight: .bold))
-                        Text("商品を追加").font(.bodySmall).fontWeight(.semibold)
-                    }
-                    .foregroundStyle(.white)
-                    .padding(.horizontal, .spacing20).padding(.vertical, .spacing12)
-                    .background(shopType.accentColor).clipShape(Capsule())
-                    .shadow(color: shopType.accentColor.opacity(0.4), radius: 8, y: 4)
-                }
-                .padding(.bottom, 24)
-            }
-        }
-        .sheet(isPresented: $showCreateProduct) {
-            ProductEditView(shopId: existingShop?.id ?? "", guildId: guildId, existingProduct: nil) {
-                products.insert($0, at: products.count)
-            }
-        }
-        .sheet(item: $editingProduct) { product in
-            ProductEditView(shopId: product.shopId, guildId: guildId, existingProduct: product) { updated in
-                if let idx = products.firstIndex(where: { $0.id == updated.id }) { products[idx] = updated }
-            }
-        }
-    }
-
-    private func updatePositions() async {
-        for (index, var product) in products.enumerated() {
-            product.position = index
-            _ = try? await services.shops.updateProduct(product)
-        }
-    }
-
     // MARK: - Load & Save
 
     private func loadData() async {
@@ -624,7 +669,6 @@ struct ShopEditView: View {
             paymentInputLabel = s.paymentInputLabel ?? ""
             autoDeleteEnabled = s.autoDeleteEnabled
             autoDeleteDays = s.autoDeleteDays ?? 7
-            products = (try? await services.shops.fetchProducts(shopId: s.id)) ?? []
         } else {
             let blank = Shop.blank(guildId: guildId, shopType: shopType)
             name = blank.name
@@ -676,83 +720,3 @@ struct ShopEditView: View {
     }
 }
 
-// MARK: - ProductCard (inline for products tab)
-
-private struct ProductCard: View {
-    let product: Product
-    let index: Int
-    let onEdit: () -> Void
-
-    var body: some View {
-        VStack(spacing: 0) {
-            HStack(spacing: .spacing12) {
-                ZStack {
-                    Circle().fill(product.enabled ? Color.accentPurple.opacity(0.15) : Color.gray.opacity(0.45))
-                        .frame(width: 36, height: 36)
-                    Text("\(index + 1)").font(.system(size: 14, weight: .bold))
-                        .foregroundStyle(product.enabled ? Color.accentPurple : Color.textTertiary)
-                }
-                .opacity(product.enabled ? 1 : 0.6)
-
-                VStack(alignment: .leading, spacing: 3) {
-                    HStack(spacing: 6) {
-                        Text(product.name)
-                            .font(.bodySmall).fontWeight(.semibold)
-                            .foregroundStyle(product.enabled ? Color.textPrimary : Color.textTertiary)
-                        if product.isSoldOut {
-                            Text("売り切れ")
-                                .font(.system(size: 9, weight: .semibold))
-                                .foregroundStyle(.red)
-                                .padding(.horizontal, 6).padding(.vertical, 2)
-                                .background(Color.red.opacity(0.12))
-                                .clipShape(Capsule())
-                        }
-                        if !product.enabled {
-                            Text("無効")
-                                .font(.system(size: 9, weight: .semibold))
-                                .foregroundStyle(Color.textTertiary)
-                                .padding(.horizontal, 6).padding(.vertical, 2)
-                                .background(Color(.tertiarySystemGroupedBackground))
-                                .clipShape(Capsule())
-                        }
-                    }
-                    HStack(spacing: .spacing12) {
-                        Label(product.priceDisplay, systemImage: "tag.fill")
-                            .font(.captionSmall).foregroundStyle(Color.textTertiary)
-                        if let stock = product.stock {
-                            Label("残り\(stock)個", systemImage: "cube.box.fill")
-                                .font(.captionSmall).foregroundStyle(stock > 0 ? Color.accentGreen : .red)
-                        } else {
-                            Label("無制限", systemImage: "infinity")
-                                .font(.captionSmall).foregroundStyle(Color.textTertiary)
-                        }
-                    }
-                }
-
-                Spacer()
-
-                Label(product.rewardType.label, systemImage: product.rewardType.icon)
-                    .font(.system(size: 10, weight: .semibold))
-                    .foregroundStyle(product.enabled ? Color.accentPurple : Color.textTertiary)
-                    .padding(.horizontal, 8).padding(.vertical, 4)
-                    .background(product.enabled ? Color.accentPurple.opacity(0.12) : Color(.tertiarySystemGroupedBackground))
-                    .clipShape(Capsule())
-            }
-            .padding(.spacing12)
-            .opacity(product.enabled ? 1 : 0.7)
-
-            Divider().padding(.horizontal, .spacing12)
-
-            Button(action: onEdit) {
-                Label("編集", systemImage: "pencil")
-                    .font(.captionRegular).fontWeight(.medium)
-                    .foregroundStyle(Color.accentIndigo)
-                    .frame(maxWidth: .infinity).padding(.vertical, .spacing10)
-            }
-            .buttonStyle(.plain)
-            .background(Color(.tertiarySystemGroupedBackground))
-        }
-        .background(product.enabled ? Color(.secondarySystemGroupedBackground) : Color(.tertiarySystemGroupedBackground))
-        .clipShape(RoundedRectangle(cornerRadius: 14))
-    }
-}

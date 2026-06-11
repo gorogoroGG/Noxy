@@ -20,10 +20,12 @@ struct VendingMachineEditView: View {
         self.initialTab = initialTab
         self.onSave = onSave
         _selectedTab = State(initialValue: initialTab)
+        // チラツキ防止：既存ショップの enabled を初期値として使う
+        _enabled = State(initialValue: existingShop?.enabled ?? true)
     }
 
     // ── 基本 ──
-    @State private var enabled = true
+    @State private var enabled: Bool
     @State private var disabledMessage = "この自販機は現在準備中です。もうしばらくお待ちください。"
 
     // ── パネルEmbed ──
@@ -44,17 +46,12 @@ struct VendingMachineEditView: View {
     @State private var autoDeleteDays: Int = 7
 
     // ── 取引Embed（ウェルカムメッセージ） ──
-    @State private var welcomeDescription = "販売者が支払いを確認するのをお待ちください。確認でき次第、商品が引き渡されます。"
+    @State private var welcomeDescription = "支払いが確認できるまでお待ちください。確認でき次第、商品をお渡しします。"
     @State private var welcomeColorHex: UInt32 = 0x10b981
     @State private var welcomeImageUrl = ""
     @State private var welcomeThumbnailUrl = ""
     @State private var welcomeFields: [EmbedFieldModel] = []
     @State private var welcomeShowTimestamp = true
-
-    // ── 商品 ──
-    @State private var products: [Product] = []
-    @State private var showCreateProduct = false
-    @State private var editingProduct: Product? = nil
 
     // ── Discord data ──
     @State private var roles: [DiscordRole] = []
@@ -95,26 +92,10 @@ struct VendingMachineEditView: View {
     var body: some View {
         NavigationStack {
             VStack(spacing: 0) {
-                // ── ツールバー ──
-                HStack {
-                    Button("キャンセル") {
-                        if hasChanges { showDiscardAlert = true } else { dismiss() }
-                    }.foregroundStyle(Color.textSecondary)
-                    Spacer()
-                    Button(isSaving ? "保存中..." : "保存") { Task { await save() } }
-                        .fontWeight(.semibold)
-                        .foregroundStyle(panelTitle.isEmpty ? Color.textTertiary : Color.accentGreen)
-                        .disabled(panelTitle.isEmpty || isSaving)
-                }
-                .padding(.horizontal, 16).padding(.vertical, 10)
-                .background(Color(.secondarySystemGroupedBackground))
-                .overlay(Divider(), alignment: .bottom)
-
                 // ── タブ ──
                 Picker("タブ", selection: $selectedTab) {
                     Text("パネル設定").tag(0)
                     Text("取引").tag(1)
-                    Text("商品").tag(2)
                 }
                 .pickerStyle(.segmented)
                 .padding(.horizontal, 16).padding(.vertical, 10)
@@ -124,7 +105,6 @@ struct VendingMachineEditView: View {
                 TabView(selection: $selectedTab) {
                     panelTab.tag(0)
                     transactionTab.tag(1)
-                    productsTab.tag(2)
                 }
                 .tabViewStyle(.page(indexDisplayMode: .never))
             }
@@ -135,6 +115,12 @@ struct VendingMachineEditView: View {
                     Button("閉じる") {
                         if hasChanges { showDiscardAlert = true } else { dismiss() }
                     }.foregroundStyle(Color.textSecondary)
+                }
+                ToolbarItem(placement: .topBarTrailing) {
+                    Button(isSaving ? "保存中..." : "保存") { Task { await save() } }
+                        .fontWeight(.semibold)
+                        .foregroundStyle(panelTitle.isEmpty ? Color.textTertiary : Color.accentGreen)
+                        .disabled(panelTitle.isEmpty || isSaving)
                 }
                 keyboardToolbar
             }
@@ -213,8 +199,26 @@ struct VendingMachineEditView: View {
         VStack(alignment: .leading, spacing: .spacing8) {
             sectionHeader("有効 / 無効")
 
+            if !enabled {
+                HStack(spacing: .spacing10) {
+                    Image(systemName: "exclamationmark.triangle.fill")
+                        .font(.system(size: 16)).foregroundStyle(.orange)
+                    VStack(alignment: .leading, spacing: 2) {
+                        Text("この自販機は現在無効です")
+                            .font(.bodySmall).fontWeight(.semibold).foregroundStyle(.orange)
+                        Text("Discordのパネルで商品を選択できない状態です")
+                            .font(.captionSmall).foregroundStyle(Color.textTertiary)
+                    }
+                    Spacer()
+                }
+                .padding(.spacing12)
+                .background(Color.orange.opacity(0.1))
+                .clipShape(RoundedRectangle(cornerRadius: 12))
+                .overlay(RoundedRectangle(cornerRadius: 12).stroke(Color.orange.opacity(0.3), lineWidth: 1))
+            }
+
             VStack(spacing: 0) {
-                Toggle("自販機を有効にする", isOn: $enabled)
+                Toggle("自販機を有効にする", isOn: $enabled.animation())
                     .padding(.spacing12)
                     .background(Color(.secondarySystemGroupedBackground))
 
@@ -315,6 +319,22 @@ struct VendingMachineEditView: View {
             .background(Color.bgSurface)
             .clipShape(RoundedRectangle(cornerRadius: 12))
 
+            // 画像URL入力
+            VStack(spacing: 0) {
+                HStack(spacing: .spacing10) {
+                    Image(systemName: "photo").font(.system(size: 13)).foregroundStyle(Color.textTertiary)
+                    TextField("画像URL（任意）", text: $welcomeImageUrl)
+                        .font(.captionRegular)
+                        .foregroundStyle(Color.textPrimary)
+                        .autocorrectionDisabled()
+                        .keyboardType(.URL)
+                        .textInputAutocapitalization(.never)
+                }
+                .padding(.spacing12)
+                .background(Color(.secondarySystemGroupedBackground))
+                .clipShape(RoundedRectangle(cornerRadius: 12))
+            }
+
             Text("左のカラーバーをタップするとカラーを変更できます")
                 .font(.captionSmall).foregroundStyle(Color.textTertiary)
                 .padding(.horizontal, 4)
@@ -333,28 +353,61 @@ struct VendingMachineEditView: View {
                         .padding(.spacing16)
                         .background(Color(.secondarySystemGroupedBackground))
                 } else {
-                    Group {
-                        pickerRow(
-                            label: "サポートロール",
-                            selection: $supportRoleId,
-                            noneLabel: "なし",
-                            options: roles.filter { !$0.managed && $0.name != "@everyone" }
-                                .map { ($0.id, "@\($0.name)") }
-                        )
-                        Divider()
-                        pickerRow(
-                            label: "注文カテゴリ",
-                            selection: $orderCategoryId,
-                            noneLabel: "なし（デフォルト）",
-                            options: categories.map { ($0.id, $0.name) }
-                        )
-                        Divider()
-                        pickerRow(
-                            label: "アーカイブカテゴリ",
-                            selection: $archiveCategoryId,
-                            noneLabel: "なし（そのまま）",
-                            options: categories.map { ($0.id, $0.name) }
-                        )
+                    // サポートロール
+                    serverSettingRow(
+                        icon: "shield.lefthalf.filled", iconColor: .accentIndigo,
+                        title: "サポートロール", subtitle: "注文チャンネルに追加するロール"
+                    ) {
+                        Menu {
+                            Button("なし") { supportRoleId = "" }
+                            Divider()
+                            ForEach(roles.filter { !$0.managed && $0.name != "@everyone" }) { role in
+                                Button("@\(role.name)") { supportRoleId = role.id }
+                            }
+                        } label: {
+                            menuLabel(
+                                roles.first(where: { $0.id == supportRoleId }).map { "@\($0.name)" } ?? "なし",
+                                accent: .accentIndigo, isEmpty: supportRoleId.isEmpty
+                            )
+                        }
+                    }
+                    Divider().padding(.leading, 56)
+                    // 注文カテゴリ
+                    serverSettingRow(
+                        icon: "folder.badge.plus", iconColor: .accentGreen,
+                        title: "注文カテゴリ", subtitle: "チケットチャンネルを作成する場所"
+                    ) {
+                        Menu {
+                            Button("なし（デフォルト）") { orderCategoryId = "" }
+                            Divider()
+                            ForEach(categories, id: \.id) { cat in
+                                Button(cat.name) { orderCategoryId = cat.id }
+                            }
+                        } label: {
+                            menuLabel(
+                                categories.first(where: { $0.id == orderCategoryId })?.name ?? "なし",
+                                accent: .accentGreen, isEmpty: orderCategoryId.isEmpty
+                            )
+                        }
+                    }
+                    Divider().padding(.leading, 56)
+                    // アーカイブカテゴリ
+                    serverSettingRow(
+                        icon: "archivebox.fill", iconColor: .accentOrange,
+                        title: "アーカイブカテゴリ", subtitle: "完了後に移動する場所"
+                    ) {
+                        Menu {
+                            Button("なし（そのまま）") { archiveCategoryId = "" }
+                            Divider()
+                            ForEach(categories, id: \.id) { cat in
+                                Button(cat.name) { archiveCategoryId = cat.id }
+                            }
+                        } label: {
+                            menuLabel(
+                                categories.first(where: { $0.id == archiveCategoryId })?.name ?? "なし",
+                                accent: .accentOrange, isEmpty: archiveCategoryId.isEmpty
+                            )
+                        }
                     }
                 }
             }
@@ -366,14 +419,37 @@ struct VendingMachineEditView: View {
         }
     }
 
-    private func pickerRow(label: String, selection: Binding<String>, noneLabel: String, options: [(id: String, name: String)]) -> some View {
-        Picker(label, selection: selection) {
-            Text(noneLabel).tag("")
-            ForEach(options, id: \.id) { Text($0.name).tag($0.id) }
+    @ViewBuilder
+    private func serverSettingRow<T: View>(
+        icon: String, iconColor: Color, title: String, subtitle: String,
+        @ViewBuilder trailing: () -> T
+    ) -> some View {
+        HStack(spacing: .spacing12) {
+            ZStack {
+                RoundedRectangle(cornerRadius: 7).fill(iconColor.opacity(0.12)).frame(width: 32, height: 32)
+                Image(systemName: icon).font(.system(size: 14)).foregroundStyle(iconColor)
+            }
+            VStack(alignment: .leading, spacing: 2) {
+                Text(title).font(.bodySmall).foregroundStyle(Color.textPrimary)
+                Text(subtitle).font(.captionSmall).foregroundStyle(Color.textTertiary)
+            }
+            Spacer()
+            trailing()
         }
+        .padding(.vertical, .spacing12)
         .padding(.horizontal, .spacing12)
-        .padding(.vertical, .spacing4)
         .background(Color(.secondarySystemGroupedBackground))
+    }
+
+    private func menuLabel(_ text: String, accent: Color, isEmpty: Bool) -> some View {
+        HStack(spacing: 4) {
+            Text(text)
+                .font(.captionRegular)
+                .foregroundStyle(isEmpty ? Color.textTertiary : accent)
+            Image(systemName: "chevron.up.chevron.down")
+                .font(.system(size: 9, weight: .semibold))
+                .foregroundStyle(Color.textTertiary)
+        }
     }
 
     // ── 支払い入力設定（Discord モーダル風） ──
@@ -469,26 +545,50 @@ struct VendingMachineEditView: View {
             sectionHeader("チケットの自動削除")
 
             VStack(spacing: 0) {
-                Toggle("取引完了後に自動削除する", isOn: $autoDeleteEnabled)
+                Toggle("取引完了後に自動削除する", isOn: $autoDeleteEnabled.animation())
                     .padding(.spacing12)
                     .background(Color(.secondarySystemGroupedBackground))
 
                 if autoDeleteEnabled {
                     Divider()
-                    Picker("削除までの日数", selection: $autoDeleteDays) {
-                        ForEach(autoDeleteOptions, id: \.days) { opt in
-                            Text(opt.label).tag(opt.days)
+                    VStack(alignment: .leading, spacing: 10) {
+                        Text("削除するまでの日数")
+                            .font(.captionSmall).foregroundStyle(Color.textTertiary)
+                        LazyVGrid(
+                            columns: Array(repeating: GridItem(.flexible(), spacing: 8), count: 4),
+                            spacing: 8
+                        ) {
+                            ForEach(autoDeleteOptions, id: \.days) { opt in
+                                Button {
+                                    withAnimation(.easeInOut(duration: 0.15)) { autoDeleteDays = opt.days }
+                                } label: {
+                                    VStack(spacing: 2) {
+                                        Text("\(opt.days)").font(.system(size: 16, weight: .bold))
+                                        Text("日").font(.system(size: 10))
+                                    }
+                                    .frame(maxWidth: .infinity)
+                                    .padding(.vertical, 10)
+                                    .background(autoDeleteDays == opt.days ? Color.accentGreen : Color(.tertiarySystemGroupedBackground))
+                                    .foregroundStyle(autoDeleteDays == opt.days ? .white : Color.textSecondary)
+                                    .clipShape(RoundedRectangle(cornerRadius: 10))
+                                    .overlay(
+                                        RoundedRectangle(cornerRadius: 10)
+                                            .stroke(autoDeleteDays == opt.days ? Color.accentGreen : Color.clear, lineWidth: 1.5)
+                                    )
+                                }
+                                .buttonStyle(.plain)
+                            }
                         }
+                        .padding(.top, 2)
                     }
-                    .padding(.horizontal, .spacing12)
-                    .padding(.vertical, .spacing4)
+                    .padding(.spacing12)
                     .background(Color(.secondarySystemGroupedBackground))
                 }
             }
             .clipShape(RoundedRectangle(cornerRadius: 12))
 
             Text(autoDeleteEnabled
-                 ? "取引完了から\(autoDeleteDays)日後にチケットチャンネルが自動削除されます。取引開始時・完了時にチケット内で通知されます。"
+                 ? "取引完了から \(autoDeleteDays) 日後にチケットチャンネルが自動削除されます。取引開始時・完了時にチャンネル内へ削除予定日が通知されます。"
                  : "有効にすると、取引完了から指定した日数が経過した時点でチケットが自動的に削除されます。")
                 .font(.captionSmall).foregroundStyle(Color.textTertiary)
                 .padding(.horizontal, 4)
@@ -658,84 +758,6 @@ struct VendingMachineEditView: View {
         .id("wf-\(fieldId)")
     }
 
-    // MARK: - 商品タブ
-
-    private var productsTab: some View {
-        ZStack(alignment: .bottom) {
-            List {
-                if isNew {
-                    VStack(spacing: .spacing12) {
-                        Image(systemName: "archivebox.fill")
-                            .font(.system(size: 40)).foregroundStyle(Color.textTertiary)
-                        Text("自販機を先に保存してください")
-                            .font(.titleMedium).foregroundStyle(Color.textPrimary)
-                        Text("自販機を保存した後、再度編集画面を開いて商品を追加できます。")
-                            .font(.captionRegular).foregroundStyle(Color.textTertiary)
-                            .multilineTextAlignment(.center)
-                    }
-                    .frame(maxWidth: .infinity).padding(.top, 60)
-                    .listRowBackground(Color(.systemGroupedBackground))
-                    .listRowSeparator(.hidden)
-                } else if isLoading {
-                    HStack { Spacer(); ProgressView(); Spacer() }
-                        .listRowBackground(Color(.systemGroupedBackground))
-                        .listRowSeparator(.hidden).padding(.top, 40)
-                } else if products.isEmpty {
-                    VStack(spacing: .spacing12) {
-                        Image(systemName: "archivebox.fill")
-                            .font(.system(size: 40)).foregroundStyle(Color.textTertiary)
-                        Text("商品がありません")
-                            .font(.titleMedium).foregroundStyle(Color.textPrimary)
-                        Text("「商品を追加」ボタンから販売する商品を作成できます")
-                            .font(.captionRegular).foregroundStyle(Color.textTertiary)
-                            .multilineTextAlignment(.center)
-                    }
-                    .frame(maxWidth: .infinity).padding(.top, 60)
-                    .listRowBackground(Color(.systemGroupedBackground))
-                    .listRowSeparator(.hidden)
-                } else {
-                    ForEach(Array(products.enumerated()), id: \.element.id) { idx, product in
-                        VendingProductCard(product: product, index: idx, onEdit: { editingProduct = product })
-                            .listRowInsets(EdgeInsets(top: 4, leading: 16, bottom: 4, trailing: 16))
-                            .listRowBackground(Color(.systemGroupedBackground))
-                            .listRowSeparator(.hidden)
-                    }
-                    .onMove { indices, newOffset in
-                        products.move(fromOffsets: indices, toOffset: newOffset)
-                        Task { await updatePositions() }
-                    }
-                }
-                Color.clear.frame(height: 80)
-                    .listRowBackground(Color(.systemGroupedBackground)).listRowSeparator(.hidden)
-            }
-            .listStyle(.plain)
-            .background(Color(.systemGroupedBackground))
-
-            if !isNew {
-                Button { showCreateProduct = true } label: {
-                    HStack(spacing: .spacing8) {
-                        Image(systemName: "plus").font(.system(size: 14, weight: .bold))
-                        Text("商品を追加").font(.bodySmall).fontWeight(.semibold)
-                    }
-                    .foregroundStyle(.white)
-                    .padding(.horizontal, .spacing20).padding(.vertical, .spacing12)
-                    .background(Color.accentGreen).clipShape(Capsule())
-                    .shadow(color: Color.accentGreen.opacity(0.4), radius: 8, y: 4)
-                }
-                .padding(.bottom, 24)
-            }
-        }
-        .sheet(isPresented: $showCreateProduct) {
-            ProductEditView(shopId: existingShop?.id ?? "", guildId: guildId, existingProduct: nil) {
-                products.insert($0, at: products.count)
-            }
-        }
-        .sheet(item: $editingProduct) { product in
-            ProductEditView(shopId: product.shopId, guildId: guildId, existingProduct: product) { updated in
-                if let idx = products.firstIndex(where: { $0.id == updated.id }) { products[idx] = updated }
-            }
-        }
-    }
 
     // MARK: - Helpers
 
@@ -777,14 +799,19 @@ struct VendingMachineEditView: View {
             autoDeleteEnabled = s.autoDeleteEnabled
             autoDeleteDays = s.autoDeleteDays ?? 7
             welcomeColorHex = UInt32(s.color)
-            welcomeDescription = s.welcomeFields.first(where: { $0.name == "__desc__" })?.value
-                ?? s.description
+            let newDefault = "支払いが確認できるまでお待ちください。確認でき次第、商品をお渡しします。"
+            let oldDefaults: Set<String> = [
+                "商品を選択し、支払い情報を送信してください。",
+                "商品を選択し、支払い情報を送信してください",
+            ]
+            let loaded = s.welcomeFields.first(where: { $0.name == "__desc__" })?.value
+                ?? s.welcomeFooterText
+            welcomeDescription = (loaded == nil || oldDefaults.contains(loaded!)) ? newDefault : loaded!
             // 既存フィールドから __desc__ 以外を取得
             welcomeFields = s.welcomeFields.filter { $0.name != "__desc__" }
             welcomeImageUrl = s.welcomeImageUrl ?? ""
             welcomeThumbnailUrl = s.welcomeThumbnailUrl ?? ""
             welcomeShowTimestamp = s.welcomeShowTimestamp
-            products = (try? await services.shops.fetchProducts(shopId: s.id)) ?? []
         }
 
         isLoading = false
@@ -828,75 +855,4 @@ struct VendingMachineEditView: View {
         isSaving = false
     }
 
-    private func updatePositions() async {
-        for (index, var product) in products.enumerated() {
-            product.position = index
-            _ = try? await services.shops.updateProduct(product)
-        }
-    }
-}
-
-// MARK: - VendingProductCard
-
-private struct VendingProductCard: View {
-    let product: Product
-    let index: Int
-    let onEdit: () -> Void
-
-    var body: some View {
-        VStack(spacing: 0) {
-            HStack(spacing: .spacing12) {
-                ZStack {
-                    Circle()
-                        .fill(product.enabled ? Color.accentGreen.opacity(0.15) : Color.gray.opacity(0.45))
-                        .frame(width: 36, height: 36)
-                    Text("\(index + 1)")
-                        .font(.system(size: 14, weight: .bold))
-                        .foregroundStyle(product.enabled ? Color.accentGreen : Color.textTertiary)
-                }
-                .opacity(product.enabled ? 1 : 0.6)
-
-                VStack(alignment: .leading, spacing: 3) {
-                    HStack(spacing: 6) {
-                        Text(product.name)
-                            .font(.bodySmall).fontWeight(.semibold)
-                            .foregroundStyle(product.enabled ? Color.textPrimary : Color.textTertiary)
-                        if product.isSoldOut {
-                            Text("売り切れ")
-                                .font(.system(size: 9, weight: .semibold)).foregroundStyle(.red)
-                                .padding(.horizontal, 6).padding(.vertical, 2)
-                                .background(Color.red.opacity(0.12)).clipShape(Capsule())
-                        }
-                    }
-                    Label(product.priceDisplay, systemImage: "tag.fill")
-                        .font(.captionSmall).foregroundStyle(Color.textTertiary)
-                }
-
-                Spacer()
-
-                Label(product.rewardType.label, systemImage: product.rewardType.icon)
-                    .font(.system(size: 10, weight: .semibold))
-                    .foregroundStyle(product.enabled ? Color.accentGreen : Color.textTertiary)
-                    .padding(.horizontal, 8).padding(.vertical, 4)
-                    .background(product.enabled ? Color.accentGreen.opacity(0.12) : Color(.tertiarySystemGroupedBackground))
-                    .clipShape(Capsule())
-            }
-            .padding(.spacing12)
-
-            Divider().padding(.horizontal, .spacing12)
-
-            Button(action: onEdit) {
-                Label("編集", systemImage: "pencil")
-                    .font(.captionRegular).fontWeight(.medium)
-                    .foregroundStyle(Color.accentGreen)
-                    .frame(maxWidth: .infinity).padding(.vertical, .spacing10)
-            }
-            .buttonStyle(.plain)
-            .background(Color(.tertiarySystemGroupedBackground))
-        }
-        .background(product.enabled
-            ? Color(.secondarySystemGroupedBackground)
-            : Color(.tertiarySystemGroupedBackground))
-        .clipShape(RoundedRectangle(cornerRadius: 14))
-    }
 }

@@ -37,6 +37,12 @@ struct MainTabView: View {
                         MoreTabView()
                             .tabItem { Label("設定", systemImage: "gearshape.fill") }
                             .tag(3)
+
+                        #if DEBUG
+                        ComponentLibraryView()
+                            .tabItem { Label("Dev", systemImage: "hammer.fill") }
+                            .tag(4)
+                        #endif
                     }
                     .tint(Color.accentIndigo)
                     .mockBanner()
