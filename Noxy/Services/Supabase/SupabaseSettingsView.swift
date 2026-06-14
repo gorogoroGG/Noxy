@@ -9,9 +9,9 @@ struct SupabaseSettingsView: View {
 
     var body: some View {
         ScrollView {
-            VStack(spacing: .spacing16) {
+            VStack(spacing: Theme.Spacing.md) {
                 FormSection("Supabase", icon: "server.rack", footer: "Project Settings → API から取得") {
-                    VStack(spacing: .spacing12) {
+                    VStack(spacing: Theme.Spacing.sm) {
                         FormField.text(label: "Project URL", text: $supabaseURL)
                             .keyboardType(.URL)
                             .autocorrectionDisabled()
@@ -27,7 +27,7 @@ struct SupabaseSettingsView: View {
                 }
 
                 Card {
-                    VStack(spacing: .spacing12) {
+                    VStack(spacing: Theme.Spacing.sm) {
                         Button {
                             Task { await testConnection() }
                         } label: {
@@ -36,7 +36,7 @@ struct SupabaseSettingsView: View {
                                     ProgressView().scaleEffect(0.8)
                                 }
                                 Text(isTesting ? "接続中..." : "接続テスト")
-                                    .font(.bodySmall)
+                                    .font(Theme.Font.bodySmall)
                                     .fontWeight(.semibold)
                             }
                         }
@@ -45,27 +45,31 @@ struct SupabaseSettingsView: View {
 
                         if let result = testResult {
                             Text(result)
-                                .font(.caption)
-                                .foregroundStyle(result.hasPrefix("✅") ? .green : .red)
+                                .font(Theme.Font.caption)
+                                .foregroundStyle(result.hasPrefix("✅") ? Theme.Color.statusOK : Theme.Color.statusBad)
                         }
                     }
                 }
 
                 Card {
-                    Button("ログアウト", role: .destructive) {
+                    Button {
                         Task {
                             try? await SupabaseAuthService().logout()
                         }
+                    } label: {
+                        Text("ログアウト")
+                            .font(Theme.Font.bodySmall)
+                            .fontWeight(.semibold)
+                            .foregroundStyle(Theme.Color.statusBad)
+                            .frame(maxWidth: .infinity)
                     }
-                    .font(.bodySmall)
-                    .fontWeight(.semibold)
-                    .frame(maxWidth: .infinity)
+                    .buttonStyle(.plain)
                 }
             }
-            .padding(.spacing16)
+            .padding(Theme.Spacing.md)
             .padding(.bottom, 24)
         }
-        .background(Color.bgPrimary)
+        .background(Theme.Color.bg)
         .navigationTitle("設定")
         .navigationBarTitleDisplayMode(.inline)
     }
@@ -88,4 +92,18 @@ struct SupabaseSettingsView: View {
     NavigationStack {
         SupabaseSettingsView()
     }
+}
+
+#Preview("Dark") {
+    NavigationStack {
+        SupabaseSettingsView()
+    }
+    .preferredColorScheme(.dark)
+}
+
+#Preview("Light") {
+    NavigationStack {
+        SupabaseSettingsView()
+    }
+    .preferredColorScheme(.light)
 }

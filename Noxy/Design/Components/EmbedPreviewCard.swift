@@ -12,7 +12,7 @@ struct EmbedField: Identifiable, Equatable {
 // MARK: - EmbedData
 
 struct EmbedData: Equatable {
-    var color: Color = .accentIndigo
+    var color: Color = Theme.Color.accent
     var botName: String = "Noxy"
     var timestamp: Date? = nil
     var messageContent: String? = nil
@@ -41,67 +41,60 @@ struct EmbedData: Equatable {
 }
 
 // MARK: - DiscordMessagePreview
-// Discordチャット画面上に表示されているような見た目。
-// アプリ外観設定（ライト/ダーク）に追従する。
+// Noxy Design Language に従い、カラー・タイポグラフィ・ボーダーを統一。
 
 struct DiscordMessagePreview: View {
     let embed: EmbedData
     var isCompact = false
 
     var body: some View {
-        HStack(alignment: .top, spacing: .spacing12) {
+        HStack(alignment: .top, spacing:         Theme.Spacing.sm) {
             // Bot アバター
             ZStack {
                 Circle()
-                    .fill(
-                        LinearGradient(
-                            colors: [Color.accentIndigo, Color.accentPink],
-                            startPoint: .topLeading,
-                            endPoint: .bottomTrailing
-                        )
-                    )
+                    .fill(Theme.Color.accent)
                     .frame(width: isCompact ? 32 : 40, height: isCompact ? 32 : 40)
                 Image(systemName: "bubble.left.and.bubble.right.fill")
                     .font(.system(size: isCompact ? 14 : 16, weight: .semibold))
-                    .foregroundStyle(.white)
+                    .foregroundStyle(Theme.Color.accentInk)
             }
 
-            VStack(alignment: .leading, spacing: .spacing4) {
-                // ヘッダー: 名前 + BOTバッジ + タイムスタンプ
-                HStack(spacing: .spacing6) {
+            VStack(alignment: .leading, spacing:         Theme.Spacing.xs) {
+                // ヘッダー
+                HStack(spacing:         Theme.Spacing.xs) {
                     Text(embed.botName)
-                        .font(.system(size: isCompact ? 13 : 14, weight: .semibold))
-                        .foregroundStyle(Color.accentIndigo)
+                        .font(Theme.Font.bodyMedium)
+                        .foregroundStyle(Theme.Color.accent)
 
-                    Text("BOT")
-                        .font(.system(size: 9, weight: .bold))
-                        .foregroundStyle(.white)
-                        .padding(.horizontal, 4)
-                        .padding(.vertical, 1)
-                        .background(Color.accentIndigo)
-                        .clipShape(RoundedRectangle(cornerRadius: 3))
+                    Badge(text: "BOT", color: Theme.Color.accent, style: .filled)
 
                     if let ts = embed.timestamp {
                         Text("今日 ") + Text(ts, style: .time)
-                            .font(.captionSmall)
-                            .foregroundStyle(Color.textTertiary)
+                            .font(Theme.Font.caption2)
+                            .foregroundStyle(Theme.Color.textTertiary)
                     }
 
                     Spacer()
                 }
 
-                // メッセージ本文（Embed外）
+                // メッセージ本文
                 if let content = embed.messageContent, !content.isEmpty {
                     Text(content)
-                        .font(.system(size: isCompact ? 13 : 14))
-                        .foregroundStyle(Color.textPrimary)
+                        .font(Theme.Font.body)
+                        .foregroundStyle(Theme.Color.textPrimary)
                 }
 
                 // Embed
                 embedBlock
             }
         }
-        .padding(.spacing12)
+        .padding(        Theme.Spacing.sm)
+        .background(Theme.Color.surface)
+        .clipShape(RoundedRectangle(cornerRadius: Theme.Radius.card, style: .continuous))
+        .overlay(
+            RoundedRectangle(cornerRadius: Theme.Radius.card, style: .continuous)
+                .stroke(Theme.Color.line, lineWidth: 1)
+        )
     }
 
     // MARK: - Embed Block
@@ -113,17 +106,17 @@ struct DiscordMessagePreview: View {
                 .fill(embed.color)
                 .frame(width: 4)
 
-            VStack(alignment: .leading, spacing: .spacing8) {
+            VStack(alignment: .leading, spacing:         Theme.Spacing.xs) {
                 // Title
                 if let title = embed.title, !title.isEmpty {
                     Text(title)
-                        .font(.system(size: isCompact ? 14 : 15, weight: .semibold))
+                        .font(Theme.Font.bodyMedium)
                         .foregroundStyle(embed.color)
                 }
 
                 // Description
                 if let desc = embed.description, !desc.isEmpty {
-                    Text(discordMarkdownAttributed(desc, baseColor: Color.textSecondary))
+                    Text(discordMarkdownAttributed(desc, baseColor: Theme.Color.textSecondary))
                         .lineLimit(isCompact ? 3 : 5)
                 }
 
@@ -150,7 +143,7 @@ struct DiscordMessagePreview: View {
 
                 // Footer
                 if let footer = embed.footerText, !footer.isEmpty {
-                    HStack(spacing: .spacing4) {
+                    HStack(spacing:         Theme.Spacing.xs) {
                         if let icon = embed.footerIconUrl, !icon.isEmpty,
                            let url = URL(string: icon) {
                             AsyncImage(url: url) { phase in
@@ -158,33 +151,33 @@ struct DiscordMessagePreview: View {
                                 case .success(let image):
                                     image.resizable().scaledToFill()
                                 default:
-                                    Circle().fill(Color.bgElevated)
+                                    Circle().fill(Theme.Color.surfaceRaised)
                                 }
                             }
                             .frame(width: 14, height: 14)
                             .clipShape(Circle())
                         }
                         Text(footer)
-                            .font(.captionSmall)
-                            .foregroundStyle(Color.textTertiary)
+                            .font(Theme.Font.caption2)
+                            .foregroundStyle(Theme.Color.textTertiary)
                     }
                 }
             }
-            .padding(.spacing10)
-            .background(Color.bgSurface)
+            .padding(        Theme.Spacing.xs)
+            .background(Theme.Color.surface)
         }
-        .background(Color.bgSurface)
+        .background(Theme.Color.surface)
         .clipShape(RoundedRectangle(cornerRadius: 4))
     }
 
     private var placeholderImage: some View {
         RoundedRectangle(cornerRadius: 4)
-            .fill(Color.bgElevated)
+            .fill(Theme.Color.surfaceRaised)
             .frame(maxWidth: .infinity)
             .frame(height: isCompact ? 80 : 140)
             .overlay {
                 Image(systemName: "photo")
-                    .foregroundStyle(Color.textTertiary)
+                    .foregroundStyle(Theme.Color.textTertiary)
             }
     }
 
@@ -193,12 +186,12 @@ struct DiscordMessagePreview: View {
         let inlineFields = embed.fields.filter(\.inline)
         let blockFields  = embed.fields.filter { !$0.inline }
 
-        VStack(alignment: .leading, spacing: .spacing8) {
+        VStack(alignment: .leading, spacing:         Theme.Spacing.xs) {
             if !inlineFields.isEmpty {
                 let cols = min(inlineFields.count, 3)
                 LazyVGrid(
-                    columns: Array(repeating: GridItem(.flexible(), spacing: .spacing8), count: cols),
-                    spacing: .spacing8
+                    columns: Array(repeating: GridItem(.flexible(), spacing:         Theme.Spacing.xs), count: cols),
+                    spacing:         Theme.Spacing.xs
                 ) {
                     ForEach(inlineFields) { field in
                         EmbedFieldView(field: field, compact: isCompact)
@@ -223,30 +216,30 @@ struct CompactEmbedPreview: View {
                 .fill(embed.color)
                 .frame(width: 3)
 
-            VStack(alignment: .leading, spacing: .spacing4) {
+            VStack(alignment: .leading, spacing:         Theme.Spacing.xs) {
                 if let title = embed.title, !title.isEmpty {
                     Text(title)
-                        .font(.captionRegular)
+                        .font(Theme.Font.caption)
                         .fontWeight(.semibold)
                         .foregroundStyle(embed.color)
                         .lineLimit(1)
                 }
                 if let desc = embed.description, !desc.isEmpty {
                     Text(desc)
-                        .font(.captionSmall)
-                        .foregroundStyle(Color.textSecondary)
+                        .font(Theme.Font.caption2)
+                        .foregroundStyle(Theme.Color.textSecondary)
                         .lineLimit(2)
                 }
                 if !embed.fields.isEmpty {
                     Text("\(embed.fields.count) フィールド")
-                        .font(.captionSmall)
-                        .foregroundStyle(Color.textTertiary)
+                        .font(Theme.Font.caption2)
+                        .foregroundStyle(Theme.Color.textTertiary)
                 }
             }
-            .padding(.spacing6)
-            .background(Color.bgSurface)
+            .padding(        Theme.Spacing.xs)
+            .background(Theme.Color.surface)
         }
-        .background(Color.bgSurface)
+        .background(Theme.Color.surface)
         .clipShape(RoundedRectangle(cornerRadius: 4))
     }
 }
@@ -260,11 +253,12 @@ private struct EmbedFieldView: View {
     var body: some View {
         VStack(alignment: .leading, spacing: 1) {
             Text(field.name)
-                .font(.system(size: compact ? 11 : 12, weight: .semibold))
-                .foregroundStyle(Color.textPrimary)
+                .font(Theme.Font.caption)
+                .fontWeight(.semibold)
+                .foregroundStyle(Theme.Color.textPrimary)
             Text(field.value)
-                .font(.system(size: compact ? 12 : 13))
-                .foregroundStyle(Color.textSecondary)
+                .font(Theme.Font.body)
+                .foregroundStyle(Theme.Color.textSecondary)
                 .lineLimit(3)
         }
     }
@@ -285,18 +279,18 @@ extension EmbedField {
 private func discordMarkdownAttributed(_ text: String, baseColor: Color) -> AttributedString {
     let mutable = NSMutableAttributedString(string: text, attributes: [
         .foregroundColor: UIColor(baseColor),
-        .font: UIFont.systemFont(ofSize: 13, weight: .regular)
+        .font: UIFont.preferredFont(forTextStyle: .body)
     ])
 
     applyPattern(mutable, pattern: "\\*\\*(.+?)\\*\\*") { mutable, range in
-        mutable.addAttribute(.font, value: UIFont.systemFont(ofSize: 13, weight: .bold), range: range)
+        mutable.addAttribute(.font, value: UIFont.preferredFont(forTextStyle: .headline), range: range)
     }
 
     applyPattern(mutable, pattern: "\\*(.+?)\\*") { mutable, range in
         let italic = UIFontDescriptor.preferredFontDescriptor(withTextStyle: .body)
             .withDesign(.default)?
             .withSymbolicTraits(.traitItalic) ?? UIFontDescriptor.preferredFontDescriptor(withTextStyle: .body)
-        mutable.addAttribute(.font, value: UIFont(descriptor: italic, size: 13), range: range)
+        mutable.addAttribute(.font, value: UIFont(descriptor: italic, size: 0), range: range)
     }
 
     applyPattern(mutable, pattern: "__(.+?)__") { mutable, range in
@@ -308,8 +302,8 @@ private func discordMarkdownAttributed(_ text: String, baseColor: Color) -> Attr
     }
 
     applyPattern(mutable, pattern: "`(.+?)`") { mutable, range in
-        mutable.addAttribute(.font, value: UIFont.monospacedSystemFont(ofSize: 12, weight: .regular), range: range)
-        mutable.addAttribute(.backgroundColor, value: UIColor(Color.bgElevated), range: range)
+        mutable.addAttribute(.font, value: UIFont.preferredFont(forTextStyle: .callout), range: range)
+        mutable.addAttribute(.backgroundColor, value: UIColor(Theme.Color.surfaceRaised), range: range)
     }
 
     return AttributedString(mutable)
@@ -331,9 +325,9 @@ private func applyPattern(
 
 #Preview {
     ScrollView {
-        VStack(spacing: .spacing16) {
+        VStack(spacing:         Theme.Spacing.md) {
             DiscordMessagePreview(embed: EmbedData(
-                color: .accentPurple,
+                color: Theme.Color.accent,
                 timestamp: .now,
                 messageContent: "@everyone 新しいお知らせです！",
                 title: "サーバーへようこそ！",
@@ -347,7 +341,7 @@ private func applyPattern(
             ))
 
             DiscordMessagePreview(embed: EmbedData(
-                color: .accentGreen,
+                color: Theme.Color.statusOK,
                 title: "週次レポート",
                 description: "今週の活動サマリーです。",
                 fields: [
@@ -359,5 +353,5 @@ private func applyPattern(
         }
         .padding()
     }
-    .background(Color.bgPrimary)
+    .background(Theme.Color.bg)
 }

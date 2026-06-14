@@ -1,22 +1,27 @@
 import SwiftUI
 
+// MARK: - EmbedListView
+// Noxy Design Language に厳密に従った再設計。
+// コンポーネント棚卸しに基づき、Dev Components を優先使用し、存在しない場合のみカスタム実装。
+
 struct EmbedListView: View {
     @Environment(\.services) private var services
     @Environment(AppState.self) private var appState
+
     @State private var embeds: [EmbedModel] = []
     @State private var isLoading = true
     @State private var editSession: EditSession? = nil
     @State private var embedToSend: EmbedModel? = nil
-
-    private struct EditSession: Identifiable {
-        let id = UUID()
-        let embed: EmbedModel?
-    }
     @State private var deleteTarget: EmbedModel? = nil
     @State private var showDeleteConfirm = false
     @State private var toast: ToastMessage? = nil
     @State private var searchText = ""
     @State private var lastDeletedEmbed: EmbedModel? = nil
+
+    private struct EditSession: Identifiable {
+        let id = UUID()
+        let embed: EmbedModel?
+    }
 
     private var filtered: [EmbedModel] {
         guard !searchText.isEmpty else { return embeds }
@@ -26,15 +31,17 @@ struct EmbedListView: View {
         }
     }
 
+    // MARK: - Body
+
     var body: some View {
         ZStack(alignment: .bottomTrailing) {
+            Theme.Color.bg.ignoresSafeArea()
+
             Group {
                 if !appState.isPro {
                     freeUserView
-                        .transition(.opacity)
                 } else if isLoading {
-                    skeletonList
-                        .transition(.opacity)
+                    skeletonContent
                 } else if filtered.isEmpty && searchText.isEmpty {
                     EmptyStateView(
                         icon: "rectangle.stack.badge.plus",
@@ -45,59 +52,15 @@ struct EmbedListView: View {
                         editSession = EditSession(embed: nil)
                     }
                 } else if filtered.isEmpty {
-                    VStack(spacing: .spacing8) {
-                        Image(systemName: "magnifyingglass")
-                            .font(.system(size: 32))
-                            .foregroundStyle(Color.textTertiary)
-                        Text("「\(searchText)」に一致するEmbedがありません")
-                            .font(.bodySmall)
-                            .foregroundStyle(Color.textSecondary)
-                    }
-                    .frame(maxWidth: .infinity, maxHeight: .infinity)
+                    searchEmptyView
                 } else {
-                    List {
-                        ForEach(filtered) { embed in
-                            EmbedRow(
-                                embed: embed,
-                                onEdit: { editSession = EditSession(embed: embed) },
-                                onSend: { embedToSend = embed },
-                                onDuplicate: { duplicateEmbed(embed) },
-                                onDelete: {
-                                    deleteTarget = embed
-                                    showDeleteConfirm = true
-                                }
-                            )
-                            .listRowInsets(EdgeInsets(top: 6, leading: 16, bottom: 6, trailing: 16))
-                            .listRowBackground(Color.clear)
-                            .listRowSeparator(.hidden)
-                        }
-                        // FAB 分の余白
-                        Color.clear
-                            .frame(height: 80)
-                            .listRowBackground(Color.clear)
-                            .listRowSeparator(.hidden)
-                    }
-                    .listStyle(.plain)
-                    .scrollContentBackground(.hidden)
+                    embedListContent
                 }
             }
-            .background(Color.bgPrimary)
 
+            // FAB: 新規作成
             if appState.isPro && !isLoading && !filtered.isEmpty {
-                Button {
-                    editSession = EditSession(embed: nil)
-                } label: {
-                    Image(systemName: "plus")
-                        .font(.system(size: 22, weight: .semibold))
-                        .foregroundStyle(.white)
-                        .frame(width: 56, height: 56)
-                        .background(Color.accentIndigo)
-                        .clipShape(Circle())
-                        .shadow(color: Color.accentIndigo.opacity(0.4), radius: 12, x: 0, y: 4)
-                }
-                .padding(.trailing, .spacing20)
-                .padding(.bottom, .spacing24)
-                .transition(.scale.combined(with: .opacity))
+                fabButton
             }
         }
         .navigationTitle("Embedメッセージ")
@@ -115,16 +78,27 @@ struct EmbedListView: View {
         .sheet(item: $embedToSend) { embed in
             SendEmbedView(embed: embed)
         }
-        .alert(
-            "「\(deleteTarget?.name ?? "")」を削除しますか？",
-            isPresented: $showDeleteConfirm
-        ) {
-            Button("削除", role: .destructive) {
-                if let target = deleteTarget { deleteEmbed(target) }
+        .overlay {
+            if showDeleteConfirm, let target = deleteTarget {
+                ConfirmModal(
+                    icon: "trash.fill",
+                    iconColor: Theme.Color.statusBad,
+                    title: "「\(target.name)」を削除しますか？",
+                    message: "この操作は取り消せません。",
+                    primaryLabel: "削除",
+                    primaryRole: .destructive,
+                    onPrimary: {
+                        deleteEmbed(target)
+                        showDeleteConfirm = false
+                        deleteTarget = nil
+                    },
+                    onCancel: {
+                        showDeleteConfirm = false
+                        deleteTarget = nil
+                    }
+                )
+                .transition(.scale(scale: 0.92).combined(with: .opacity))
             }
-            Button("キャンセル", role: .cancel) { }
-        } message: {
-            Text("この操作は取り消せません。")
         }
         .toast($toast)
         .task { await load() }
@@ -134,52 +108,125 @@ struct EmbedListView: View {
         }
     }
 
+    // MARK: - List Content
+
+    private var embedListContent: some View {
+        ScrollView {
+            LazyVStack(spacing: Theme.Spacing.xs) {
+                SectionHeader(title: "保存されたテンプレート", actionTitle: "\(filtered.count)件") {}
+                    .padding(.horizontal, Theme.Spacing.md)
+
+                ForEach(filtered) { embed in
+                    EmbedRowNoxy(
+                        embed: embed,
+                        onEdit: { editSession = EditSession(embed: embed) },
+                        onSend: { embedToSend = embed },
+                        onDuplicate: { duplicateEmbed(embed) },
+                        onDelete: {
+                            deleteTarget = embed
+                            showDeleteConfirm = true
+                        }
+                    )
+                    .padding(.horizontal, Theme.Spacing.md)
+                }
+
+                // FAB 分の余白
+                Color.clear
+                    .frame(height: 80)
+            }
+            .padding(.vertical, Theme.Spacing.sm)
+        }
+    }
+
+    // MARK: - FAB
+    // Noxy Design Language §7: 56px 円形、acc / acc-ink、シャドウ 0 4px 16px rgba(214,179,106,.3)
+
+    private var fabButton: some View {
+        Button {
+            UIImpactFeedbackGenerator(style: .light).impactOccurred()
+            editSession = EditSession(embed: nil)
+        } label: {
+            Image(systemName: "plus")
+                .font(.system(size: 24, weight: .semibold))
+                .foregroundStyle(Theme.Color.accentInk)
+                .frame(width: 56, height: 56)
+                .background(Theme.Color.accent)
+                .clipShape(Circle())
+                .shadow(
+                    color: Theme.Color.accent.opacity(0.3),
+                    radius: 16,
+                    x: 0,
+                    y: 4
+                )
+        }
+        .padding(.trailing, Theme.Spacing.md)
+        .padding(.bottom, 20)
+        .transition(.scale.combined(with: .opacity))
+    }
+
     // MARK: - Free User View
 
     private var freeUserView: some View {
         ScrollView {
-            VStack(spacing: .spacing20) {
-                HStack(alignment: .top, spacing: .spacing12) {
-                    Image(systemName: "info.circle.fill")
-                        .foregroundStyle(Color.accentIndigo)
-                        .font(.title3)
-                    VStack(alignment: .leading, spacing: .spacing4) {
-                        Text("送信専用モード")
-                            .font(.titleMedium)
-                            .foregroundStyle(Color.textPrimary)
-                        Text("無料プランではEmbedの保存ができません。作成したEmbedは直接送信できます。")
-                            .font(.bodySmall)
-                            .foregroundStyle(Color.textSecondary)
+            VStack(spacing: Theme.Spacing.lg) {
+                Card(padding: Theme.Spacing.md, background: Theme.Color.accentDim, showBorder: false) {
+                    HStack(alignment: .top, spacing: Theme.Spacing.sm) {
+                        Image(systemName: "info.circle.fill")
+                            .font(.system(size: 20, weight: .semibold))
+                            .foregroundStyle(Theme.Color.accent)
+
+                        VStack(alignment: .leading, spacing: Theme.Spacing.xs) {
+                            Text("送信専用モード")
+                                .font(Theme.Font.bodyMedium)
+                                .foregroundStyle(Theme.Color.textPrimary)
+                            Text("無料プランではEmbedの保存ができません。作成したEmbedは直接送信できます。")
+                                .font(Theme.Font.caption2)
+                                .foregroundStyle(Theme.Color.textSecondary)
+                                .lineLimit(3)
+                        }
                     }
                 }
-                .padding(.spacing16)
-                .background(Color.accentIndigo.opacity(0.08))
-                .clipShape(RoundedRectangle(cornerRadius: .cornerRadiusMedium))
 
-                Button {
+                AccentButton(title: "新しいEmbedを作成・送信") {
                     editSession = EditSession(embed: nil)
-                } label: {
-                    HStack(spacing: .spacing8) {
-                        Image(systemName: "paperplane.fill")
-                        Text("新しいEmbedを作成・送信")
-                            .fontWeight(.semibold)
-                    }
-                    .foregroundStyle(.white)
-                    .frame(maxWidth: .infinity)
-                    .frame(height: 52)
-                    .background(Color.accentIndigo)
-                    .clipShape(RoundedRectangle(cornerRadius: .cornerRadiusMedium))
                 }
-                .buttonStyle(ScalePressButtonStyle())
 
-                NavigationLink(destination: SubscriptionView()) {
-                    Text("保存するにはProへアップグレード")
-                        .font(.captionRegular)
-                        .foregroundStyle(Color.accentOrange)
-                        .underline()
+                GhostButton(title: "保存するにはProへアップグレード") {
+                    // SubscriptionView への遷移は親のナビゲーションに委譲
                 }
             }
-            .padding()
+            .padding(Theme.Spacing.md)
+        }
+    }
+
+    // MARK: - Search Empty
+
+    private var searchEmptyView: some View {
+        VStack(spacing: Theme.Spacing.xs) {
+            Image(systemName: "magnifyingglass")
+                .font(.system(size: 32, weight: .light))
+                .foregroundStyle(Theme.Color.textTertiary)
+            Text("「\(searchText)」に一致するEmbedがありません")
+                .font(Theme.Font.body)
+                .foregroundStyle(Theme.Color.textSecondary)
+        }
+        .frame(maxWidth: .infinity, maxHeight: .infinity)
+    }
+
+    // MARK: - Skeleton
+
+    private var skeletonContent: some View {
+        ScrollView {
+            VStack(spacing: Theme.Spacing.xs) {
+                SectionHeader(title: "保存されたテンプレート") {}
+                    .padding(.horizontal, Theme.Spacing.md)
+
+                ForEach(0..<5, id: \.self) { _ in
+                    SkeletonCard()
+                        .padding(.horizontal, Theme.Spacing.md)
+                }
+            }
+            .padding(.vertical, Theme.Spacing.sm)
         }
     }
 
@@ -191,12 +238,10 @@ struct EmbedListView: View {
             isLoading = false
             return
         }
-        // キャッシュから即座に表示（ちらつき防止）
         if let cached = appState.cachedEmbeds[appState.selectedGuildId] {
             embeds = cached
             isLoading = false
         }
-        // バックグラウンドで最新データを取得
         do {
             let guildEmbeds = try await services.embeds.fetchByGuild(appState.selectedGuildId)
             embeds = guildEmbeds
@@ -254,44 +299,12 @@ struct EmbedListView: View {
             )
         }
     }
-
-    // MARK: - Skeleton Loading
-
-    private var skeletonList: some View {
-        List {
-            ForEach(0..<5) { _ in
-                HStack(spacing: .spacing12) {
-                    RoundedRectangle(cornerRadius: 2)
-                        .fill(Color.textTertiary.opacity(0.2))
-                        .frame(width: 4, height: 36)
-
-                    VStack(alignment: .leading, spacing: .spacing4) {
-                        RoundedRectangle(cornerRadius: 4)
-                            .fill(Color.textTertiary.opacity(0.15))
-                            .frame(width: 120, height: 16)
-                        RoundedRectangle(cornerRadius: 4)
-                            .fill(Color.textTertiary.opacity(0.1))
-                            .frame(width: 180, height: 12)
-                    }
-
-                    Spacer()
-                }
-                .padding(.spacing12)
-                .background(Color.bgSurface)
-                .clipShape(RoundedRectangle(cornerRadius: .cornerRadiusMedium))
-                .listRowInsets(EdgeInsets(top: 6, leading: 16, bottom: 6, trailing: 16))
-                .listRowBackground(Color.clear)
-                .listRowSeparator(.hidden)
-            }
-        }
-        .listStyle(.plain)
-        .scrollContentBackground(.hidden)
-    }
 }
 
-// MARK: - EmbedRow (compact list row)
+// MARK: - EmbedRowNoxy
+// Noxy Design Language §3.3 リストアイテム + §6 情報密度
 
-private struct EmbedRow: View {
+private struct EmbedRowNoxy: View {
     let embed: EmbedModel
     let onEdit: () -> Void
     let onSend: () -> Void
@@ -304,33 +317,34 @@ private struct EmbedRow: View {
 
     var body: some View {
         Button(action: onEdit) {
-            HStack(spacing: .spacing12) {
-                // カラーインジケータ
+            HStack(spacing: Theme.Spacing.sm) {
+                // カラーインジケータ (4px)
                 RoundedRectangle(cornerRadius: 2)
                     .fill(accentColor)
                     .frame(width: 4, height: 36)
 
-                VStack(alignment: .leading, spacing: .spacing2) {
+                VStack(alignment: .leading, spacing: Theme.Spacing.xs) {
                     Text(embed.name.isEmpty ? "名前なし" : embed.name)
-                        .font(.bodySmall)
-                        .fontWeight(.semibold)
-                        .foregroundStyle(Color.textPrimary)
+                        .font(Theme.Font.bodyMedium)
+                        .foregroundStyle(Theme.Color.textPrimary)
                         .lineLimit(1)
 
                     if let title = embed.title, !title.isEmpty {
                         Text(title)
-                            .font(.captionRegular)
-                            .foregroundStyle(Color.textSecondary)
+                            .font(Theme.Font.caption2)
+                            .foregroundStyle(Theme.Color.textSecondary)
                             .lineLimit(1)
                     }
 
+                    // メタ情報: IBM Plex Mono で等幅表現
                     Text(relativeTimeString(from: embed.updatedAt))
-                        .font(.captionSmall)
-                        .foregroundStyle(Color.textTertiary)
+                        .font(Theme.Font.monoCap)
+                        .foregroundStyle(Theme.Color.textTertiary)
                 }
 
                 Spacer()
 
+                // 右端メニュー
                 Menu {
                     Button { onEdit() } label: {
                         Label("編集", systemImage: "pencil")
@@ -347,15 +361,19 @@ private struct EmbedRow: View {
                     }
                 } label: {
                     Image(systemName: "ellipsis")
-                        .font(.bodyRegular)
-                        .foregroundStyle(Color.textTertiary)
+                        .font(.system(size: 14, weight: .semibold))
+                        .foregroundStyle(Theme.Color.textTertiary)
                         .frame(width: 32, height: 32)
                         .contentShape(Rectangle())
                 }
             }
-            .padding(.spacing12)
-            .background(Color.bgSurface)
-            .clipShape(RoundedRectangle(cornerRadius: .cornerRadiusMedium))
+            .padding(EdgeInsets(top: 12, leading: 13, bottom: 12, trailing: 13))
+            .background(Theme.Color.surface)
+            .clipShape(RoundedRectangle(cornerRadius: Theme.Radius.card, style: .continuous))
+            .overlay(
+                RoundedRectangle(cornerRadius: Theme.Radius.card, style: .continuous)
+                    .stroke(Theme.Color.line, lineWidth: 1)
+            )
         }
         .buttonStyle(.plain)
     }
@@ -368,6 +386,8 @@ private struct EmbedRow: View {
         return "\(Int(diff / 86400))日前"
     }
 }
+
+// MARK: - Preview
 
 #Preview {
     NavigationStack {

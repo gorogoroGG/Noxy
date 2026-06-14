@@ -5,12 +5,12 @@ struct SkeletonView: View {
 
     var body: some View {
         GeometryReader { geo in
-            Color.bgElevated
+            Theme.Color.surfaceRaised
                 .overlay(alignment: .leading) {
                     Rectangle()
                         .fill(
                             LinearGradient(
-                                colors: [Color.clear, Color.white.opacity(0.05), Color.clear],
+                                colors: [Color.clear, Theme.Color.textPrimary.opacity(0.05), Color.clear],
                                 startPoint: .leading,
                                 endPoint: .trailing
                             )
@@ -30,12 +30,12 @@ struct SkeletonView: View {
 
 struct SkeletonRow: View {
     var body: some View {
-        HStack(spacing: .spacing12) {
+        HStack(spacing: Theme.Spacing.sm) {
             SkeletonView()
                 .frame(width: 40, height: 40)
                 .clipShape(Circle())
 
-            VStack(alignment: .leading, spacing: .spacing8) {
+            VStack(alignment: .leading, spacing: Theme.Spacing.xs) {
                 SkeletonView()
                     .frame(width: 120, height: 14)
                     .clipShape(RoundedRectangle(cornerRadius: 4))
@@ -46,13 +46,13 @@ struct SkeletonRow: View {
 
             Spacer()
         }
-        .padding(.vertical, .spacing8)
+        .padding(.vertical, Theme.Spacing.xs)
     }
 }
 
 struct SkeletonCard: View {
     var body: some View {
-        VStack(alignment: .leading, spacing: .spacing12) {
+        VStack(alignment: .leading, spacing: Theme.Spacing.sm) {
             SkeletonView()
                 .frame(height: 20)
                 .clipShape(RoundedRectangle(cornerRadius: 4))
@@ -60,9 +60,9 @@ struct SkeletonCard: View {
                 .frame(height: 60)
                 .clipShape(RoundedRectangle(cornerRadius: 8))
         }
-        .padding(.spacing16)
-        .background(Color.bgSurface)
-        .clipShape(RoundedRectangle(cornerRadius: .cornerRadiusMedium))
+        .padding(Theme.Spacing.md)
+        .background(Theme.Color.surface)
+        .clipShape(RoundedRectangle(cornerRadius: Theme.Radius.card))
     }
 }
 

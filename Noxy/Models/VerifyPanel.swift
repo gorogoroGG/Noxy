@@ -37,10 +37,10 @@ enum VerifyType: String, Codable, CaseIterable {
 
     var accentColor: Color {
         switch self {
-        case .captcha:  .accentIndigo
-        case .reaction: .accentOrange
-        case .manual:   .accentPurple
-        case .button:   .accentGreen
+        case .captcha:  Theme.Color.accent
+        case .reaction: Theme.Color.statusWarn
+        case .manual:   Theme.Color.accent
+        case .button:   Theme.Color.statusOK
         }
     }
 }
@@ -77,7 +77,7 @@ struct VerifyPanel: Identifiable, Codable, Hashable, Sendable {
             roleId: "",
             color: 0x10b981,
             footerText: "",
-            buttonLabel: "✅ 認証する",
+            buttonLabel: "認証する",
             enabled: true,
             verifyType: .captcha,
             reactionEmoji: "✅",
@@ -104,9 +104,9 @@ enum VerifyRequestStatus: String, Codable {
 
     var color: Color {
         switch self {
-        case .pending:  .accentOrange
-        case .approved: .accentGreen
-        case .denied:   .red
+        case .pending:  Theme.Color.statusWarn
+        case .approved: Theme.Color.statusOK
+        case .denied:   Theme.Color.statusBad
         }
     }
 }

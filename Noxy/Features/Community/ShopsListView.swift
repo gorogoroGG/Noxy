@@ -12,18 +12,18 @@ struct ShopsListView: View {
     var body: some View {
         VStack(spacing: 0) {
             HStack(spacing: 0) {
-                tabButton(title: shopType.label, icon: shopType.icon,           tab: .panels)
-                tabButton(title: "注文",          icon: "list.bullet.clipboard",  tab: .orders)
+                tabButton(title: shopType.label, icon: shopType.icon, tab: .panels)
+                tabButton(title: "注文", icon: "list.bullet.clipboard", tab: .orders)
             }
-            .background(Color(.secondarySystemGroupedBackground))
-            .overlay(Divider(), alignment: .bottom)
+            .background(Theme.Color.surface)
+            .overlay(Divider().background(Theme.Color.line), alignment: .bottom)
 
             switch selectedTab {
             case .panels: ShopPanelListView(guildId: guildId, shopType: shopType)
             case .orders: OrdersListView(guildId: guildId)
             }
         }
-        .background(Color(.systemGroupedBackground))
+        .background(Theme.Color.bg)
         .navigationTitle(shopType.label)
         .navigationBarTitleDisplayMode(.inline)
     }
@@ -33,15 +33,15 @@ struct ShopsListView: View {
             VStack(spacing: 4) {
                 HStack(spacing: 5) {
                     Image(systemName: icon).font(.system(size: 12, weight: .semibold))
-                    Text(title).font(.captionRegular).fontWeight(.semibold)
+                    Text(title).font(Theme.Font.caption).fontWeight(.semibold)
                 }
-                .foregroundStyle(selectedTab == tab ? shopType.accentColor : Color.textTertiary)
+                .foregroundStyle(selectedTab == tab ? Theme.Color.accent : Theme.Color.textTertiary)
                 Capsule()
-                    .fill(selectedTab == tab ? shopType.accentColor : Color.clear)
+                    .fill(selectedTab == tab ? Theme.Color.accent : Color.clear)
                     .frame(height: 2)
             }
             .frame(maxWidth: .infinity)
-            .padding(.vertical, .spacing8)
+            .padding(.vertical, Theme.Spacing.xs)
             .contentShape(Rectangle())
         }
         .buttonStyle(.plain)
@@ -56,9 +56,17 @@ private struct ShopPanelListView: View {
 
     @Environment(\.services) private var services
     @Environment(AppState.self) private var appState
+    enum ShopFilter: String, CaseIterable {
+        case all     = "すべて"
+        case deployed = "設置済み"
+        case pending  = "未設置"
+        case disabled = "無効"
+    }
+
     @State private var shops: [Shop] = []
     @State private var productCounts: [String: Int] = [:]
     @State private var isLoading = true
+    @State private var selectedFilter: ShopFilter = .all
     @State private var showCreate = false
     @State private var settingsShop: Shop? = nil
     @State private var productsShop: Shop? = nil
@@ -68,79 +76,145 @@ private struct ShopPanelListView: View {
     @State private var showRedeployConfirm = false
     @State private var deployingId: String? = nil
     @State private var toast: String? = nil
+    @State private var deletingShop: Shop? = nil
+    @State private var showDeleteConfirm = false
 
-    private var accentColor: Color { shopType.accentColor }
+    private var filteredShops: [Shop] {
+        let sorted = shops.sorted {
+            // 設置済み → 未設置 → 無効
+            if $0.isDeployed != $1.isDeployed { return $0.isDeployed }
+            if $0.enabled != $1.enabled { return $0.enabled }
+            return false
+        }
+        switch selectedFilter {
+        case .all:      return sorted
+        case .deployed: return sorted.filter { $0.isDeployed && $0.enabled }
+        case .pending:  return sorted.filter { !$0.isDeployed && $0.enabled }
+        case .disabled: return sorted.filter { !$0.enabled }
+        }
+    }
 
     var body: some View {
         ZStack(alignment: .bottom) {
-            List {
-                if isLoading {
-                    ForEach(0..<3) { _ in skeletonCard }
-                        .transition(.opacity)
-                } else if shops.isEmpty {
-                    emptyState
-                        .listRowBackground(Color(.systemGroupedBackground))
-                        .listRowSeparator(.hidden)
-                        .transition(.opacity)
-                } else {
-                    ForEach(shops) { shop in
-                        ShopCard(
-                            shop: shop,
-                            productCount: productCounts[shop.id] ?? 0,
-                            isDeploying: deployingId == shop.id,
-                            onStatusTap: { statusShop = shop },
-                            onSettings:  { settingsShop = shop },
-                            onProducts:  { productsShop = shop },
-                            onDeploy: {
-                                if shop.isDeployed {
-                                    pendingRedeployShop = shop
-                                    showRedeployConfirm = true
-                                } else {
-                                    deployTargetShop = shop
+            VStack(spacing: 0) {
+                // サブタブ（フィルター）
+                if !isLoading && !shops.isEmpty {
+                    ScrollView(.horizontal, showsIndicators: false) {
+                        HStack(spacing: 0) {
+                            ForEach(ShopFilter.allCases, id: \.self) { filter in
+                                let count = countForFilter(filter)
+                                Button {
+                                    withAnimation(.easeInOut(duration: 0.18)) { selectedFilter = filter }
+                                } label: {
+                                    HStack(spacing: 4) {
+                                        Text(filter.rawValue)
+                                            .font(Theme.Font.caption)
+                                            .fontWeight(selectedFilter == filter ? .semibold : .regular)
+                                            .foregroundStyle(selectedFilter == filter ? Theme.Color.accent : Theme.Color.textTertiary)
+                                        if filter != .all {
+                                            Text("\(count)")
+                                                .font(.system(size: 10, weight: .bold))
+                                                .foregroundStyle(selectedFilter == filter ? Theme.Color.accent : Theme.Color.textTertiary)
+                                                .padding(.horizontal, 5)
+                                                .padding(.vertical, 1)
+                                                .background(selectedFilter == filter ? Theme.Color.accentDim : Theme.Color.surfaceRaised)
+                                                .clipShape(Capsule())
+                                        }
+                                    }
+                                    .padding(.horizontal, Theme.Spacing.sm)
+                                    .padding(.vertical, Theme.Spacing.xs)
+                                    .overlay(alignment: .bottom) {
+                                        if selectedFilter == filter {
+                                            Capsule().fill(Theme.Color.accent).frame(height: 2)
+                                        }
+                                    }
+                                    .contentShape(Rectangle())
+                                }
+                                .buttonStyle(.plain)
+                            }
+                        }
+                        .padding(.horizontal, Theme.Spacing.sm)
+                    }
+                    .background(Theme.Color.surface)
+                    .overlay(Divider().background(Theme.Color.line), alignment: .bottom)
+                }
+
+                ScrollView {
+                    LazyVStack(spacing: Theme.Spacing.md) {
+                        if isLoading {
+                            ForEach(0..<3) { _ in skeletonCard }
+                                .transition(.opacity)
+                        } else if filteredShops.isEmpty {
+                            emptyState
+                                .transition(.opacity)
+                        } else {
+                            SectionLabel(title: "\(shopType.label)リスト")
+                                .padding(.horizontal, Theme.Spacing.md)
+
+                            VStack(spacing: Theme.Spacing.sm) {
+                                ForEach(filteredShops) { shop in
+                                    ShopRow(
+                                        shop: shop,
+                                        productCount: productCounts[shop.id] ?? 0,
+                                        isDeploying: deployingId == shop.id,
+                                        onStatusTap: { statusShop = shop },
+                                        onSettings:  { settingsShop = shop },
+                                        onProducts:  { productsShop = shop },
+                                        onDeploy: {
+                                            if shop.isDeployed {
+                                                pendingRedeployShop = shop
+                                                showRedeployConfirm = true
+                                            } else {
+                                                deployTargetShop = shop
+                                            }
+                                        },
+                                        onDelete: {
+                                            deletingShop = shop
+                                            showDeleteConfirm = true
+                                        }
+                                    )
+                                    .background(Theme.Color.surface)
+                                    .clipShape(RoundedRectangle(cornerRadius: Theme.Radius.card))
                                 }
                             }
-                        )
-                        .listRowInsets(EdgeInsets(top: 4, leading: 16, bottom: 4, trailing: 16))
-                        .listRowBackground(Color(.systemGroupedBackground))
-                        .listRowSeparator(.hidden)
-                    }
-                    .onDelete { offsets in
-                        let toDelete = offsets.map { shops[$0] }
-                        Task {
-                            for s in toDelete { try? await services.shops.deleteShop(id: s.id) }
-                            shops.remove(atOffsets: offsets)
+                            .padding(.horizontal, Theme.Spacing.md)
+
+                            bottomPad
                         }
                     }
+                    .padding(.top, Theme.Spacing.md)
                 }
-                Color.clear.frame(height: 80)
-                    .listRowBackground(Color(.systemGroupedBackground)).listRowSeparator(.hidden)
             }
-            .listStyle(.plain)
-            .background(Color(.systemGroupedBackground))
-            .refreshable { await load() }
 
             Button { showCreate = true } label: {
-                HStack(spacing: .spacing8) {
+                HStack(spacing: Theme.Spacing.xs) {
                     Image(systemName: "plus").font(.system(size: 14, weight: .bold))
                     Text(shopType == .vendingMachine ? "自販機を作成" : "ショップを作成")
-                        .font(.bodySmall).fontWeight(.semibold)
+                        .font(Theme.Font.bodySmall).fontWeight(.semibold)
                 }
-                .foregroundStyle(.white)
-                .padding(.horizontal, .spacing20).padding(.vertical, .spacing12)
-                .background(accentColor).clipShape(Capsule())
-                .shadow(color: accentColor.opacity(0.4), radius: 8, y: 4)
+                .foregroundStyle(Theme.Color.accentInk)
+                .padding(.horizontal, Theme.Spacing.lg)
+                .padding(.vertical, Theme.Spacing.sm)
+                .background(Theme.Color.accent)
+                .clipShape(Capsule())
             }
-            .padding(.bottom, 24)
+            .padding(.bottom, Theme.Spacing.xl)
 
             if let toast {
                 Text(toast)
-                    .font(.captionRegular).fontWeight(.medium).foregroundStyle(.white)
-                    .padding(.horizontal, .spacing16).padding(.vertical, .spacing10)
-                    .background(Color.gray.opacity(0.25)).clipShape(Capsule())
-                    .padding(.bottom, 80)
+                    .font(Theme.Font.caption)
+                    .fontWeight(.medium)
+                    .foregroundStyle(Theme.Color.textPrimary)
+                    .padding(.horizontal, Theme.Spacing.md)
+                    .padding(.vertical, Theme.Spacing.sm)
+                    .background(Theme.Color.surface)
+                    .clipShape(Capsule())
+                    .overlay(Capsule().stroke(Theme.Color.lineStrong, lineWidth: 1))
+                    .padding(.bottom, Theme.Spacing.xxl)
                     .transition(.move(edge: .bottom).combined(with: .opacity))
             }
         }
+        .animation(.spring(duration: 0.3), value: toast != nil)
         .sheet(isPresented: $showCreate) {
             if shopType == .vendingMachine {
                 VendingMachineEditView(existingShop: nil, guildId: guildId) { saved in
@@ -197,6 +271,30 @@ private struct ShopPanelListView: View {
         } message: {
             Text("新しいメッセージとしてDiscordに投稿されます。既存のパネルは更新されません。")
         }
+        .overlay {
+            if showDeleteConfirm, let shop = deletingShop {
+                ConfirmModal(
+                    icon: "trash.fill",
+                    iconColor: Theme.Color.statusBad,
+                    title: "削除しますか？",
+                    message: "「\(shop.name)」を削除します。この操作は元に戻せません。",
+                    primaryLabel: "削除する",
+                    primaryRole: .destructive,
+                    onPrimary: {
+                        Task {
+                            try? await services.shops.deleteShop(id: shop.id)
+                            shops.removeAll { $0.id == shop.id }
+                            deletingShop = nil
+                            showDeleteConfirm = false
+                        }
+                    },
+                    onCancel: {
+                        deletingShop = nil
+                        showDeleteConfirm = false
+                    }
+                )
+            }
+        }
         .task { await load() }
         .onChange(of: guildId) { _, _ in
             isLoading = true
@@ -205,32 +303,41 @@ private struct ShopPanelListView: View {
     }
 
     private var skeletonCard: some View {
-        VStack(alignment: .leading, spacing: .spacing8) {
-            HStack(spacing: .spacing8) {
-                RoundedRectangle(cornerRadius: 4).fill(Color.textTertiary.opacity(0.2)).frame(width: 100, height: 18)
+        VStack(alignment: .leading, spacing: Theme.Spacing.xs) {
+            HStack(spacing: Theme.Spacing.xs) {
+                RoundedRectangle(cornerRadius: 4)
+                    .fill(Theme.Color.textTertiary.opacity(0.2))
+                    .frame(width: 100, height: 18)
                 Spacer()
-                RoundedRectangle(cornerRadius: 4).fill(Color.textTertiary.opacity(0.15)).frame(width: 50, height: 14)
+                RoundedRectangle(cornerRadius: 4)
+                    .fill(Theme.Color.textTertiary.opacity(0.15))
+                    .frame(width: 50, height: 14)
             }
-            RoundedRectangle(cornerRadius: 4).fill(Color.textTertiary.opacity(0.1)).frame(width: 180, height: 12)
+            RoundedRectangle(cornerRadius: 4)
+                .fill(Theme.Color.textTertiary.opacity(0.1))
+                .frame(width: 180, height: 12)
         }
-        .padding(.spacing12)
-        .background(Color.bgSurface)
-        .clipShape(RoundedRectangle(cornerRadius: .cornerRadiusMedium))
-        .listRowBackground(Color(.systemGroupedBackground))
-        .listRowSeparator(.hidden)
-        .padding(.top, 8)
+        .padding(Theme.Spacing.sm)
+        .background(Theme.Color.surface)
+        .clipShape(RoundedRectangle(cornerRadius: Theme.Radius.card))
+        .padding(.horizontal, Theme.Spacing.md)
+        .padding(.top, Theme.Spacing.xs)
     }
 
     private var emptyState: some View {
-        VStack(spacing: .spacing12) {
+        VStack(spacing: Theme.Spacing.sm) {
             Image(systemName: shopType == .vendingMachine ? "storefront" : "cart.badge.plus")
-                .font(.system(size: 40)).foregroundStyle(Color.textTertiary)
+                .font(.system(size: 40))
+                .foregroundStyle(Theme.Color.textTertiary)
             Text(shopType == .vendingMachine ? "自販機がありません" : "ショップがありません")
-                .font(.titleMedium).foregroundStyle(Color.textPrimary)
+                .font(Theme.Font.title3)
+                .foregroundStyle(Theme.Color.textPrimary)
             Text("ボタンからパネルを追加できます")
-                .font(.captionRegular).foregroundStyle(Color.textTertiary)
+                .font(Theme.Font.caption)
+                .foregroundStyle(Theme.Color.textTertiary)
         }
-        .frame(maxWidth: .infinity).padding(.top, 60)
+        .frame(maxWidth: .infinity)
+        .padding(.top, Theme.Spacing.xxl)
     }
 
     private func load() async {
@@ -270,16 +377,15 @@ private struct ShopPanelListView: View {
         do {
             let updated = try await services.shops.deployShop(id: shop.id, channelId: channelId)
             if let idx = shops.firstIndex(where: { $0.id == shop.id }) { shops[idx] = updated }
-            showToast("✅ Discordに送信しました")
+            showToast("Discordに送信しました")
         } catch ServiceError.workerError(let status, let msg) {
-            showToast("❌ 送信失敗(\(status)): \(msg.prefix(80))")
+            showToast("送信失敗(\(status)): \(msg.prefix(80))")
         } catch {
-            showToast("❌ 送信に失敗: \(error.localizedDescription)")
+            showToast("送信に失敗: \(error.localizedDescription)")
         }
         deployingId = nil
     }
 
-    /// 保存後にAppStateキャッシュを即時更新する（再ロード時の古いデータ表示を防ぐ）
     private func updateCache(with shop: Shop) {
         var cached = appState.cachedShops[guildId] ?? []
         if let idx = cached.firstIndex(where: { $0.id == shop.id }) {
@@ -288,6 +394,15 @@ private struct ShopPanelListView: View {
             cached.insert(shop, at: 0)
         }
         appState.cacheShops(cached, for: guildId)
+    }
+
+    private func countForFilter(_ filter: ShopFilter) -> Int {
+        switch filter {
+        case .all:      return shops.count
+        case .deployed: return shops.filter { $0.isDeployed && $0.enabled }.count
+        case .pending:  return shops.filter { !$0.isDeployed && $0.enabled }.count
+        case .disabled: return shops.filter { !$0.enabled }.count
+        }
     }
 
     private func showToast(_ msg: String) {
@@ -299,9 +414,9 @@ private struct ShopPanelListView: View {
     }
 }
 
-// MARK: - ShopCard
+// MARK: - ShopRow
 
-private struct ShopCard: View {
+private struct ShopRow: View {
     let shop: Shop
     let productCount: Int
     let isDeploying: Bool
@@ -309,45 +424,33 @@ private struct ShopCard: View {
     let onSettings: () -> Void
     let onProducts: () -> Void
     let onDeploy: () -> Void
+    let onDelete: () -> Void
 
     private var accentColor: Color {
-        shop.enabled ? Color(uiColor: UIColor(hex: UInt32(shop.color))) : Color.gray.opacity(0.6)
+        shop.enabled ? Color(uiColor: UIColor(hex: UInt32(shop.color))) : Theme.Color.textTertiary
     }
     private var hasProducts: Bool { productCount > 0 }
 
     var body: some View {
         VStack(spacing: 0) {
-            // ── 無効バナー ──
-            if !shop.enabled {
-                HStack(spacing: .spacing6) {
-                    Image(systemName: "exclamationmark.triangle.fill")
-                        .font(.system(size: 11)).foregroundStyle(.orange)
-                    Text("この自販機は現在無効です")
-                        .font(.system(size: 11, weight: .semibold)).foregroundStyle(.orange)
-                    Spacer()
-                }
-                .padding(.horizontal, .spacing12).padding(.vertical, .spacing8)
-                .background(Color.orange.opacity(0.12))
-            }
-
-            // ── メイン情報エリア（タップ → ステータスシート）──
+            // メイン情報
             Button(action: onStatusTap) {
-                HStack(spacing: .spacing12) {
+                HStack(spacing: Theme.Spacing.sm) {
                     VStack(alignment: .leading, spacing: 4) {
-                        HStack(spacing: .spacing6) {
+                        HStack(spacing: Theme.Spacing.xs) {
                             Text(shop.name)
-                                .font(.bodySmall).fontWeight(.semibold)
-                                .foregroundStyle(shop.enabled ? Color.textPrimary : Color.textTertiary)
+                                .font(Theme.Font.bodyMedium)
+                                .fontWeight(.semibold)
+                                .foregroundStyle(shop.enabled ? Theme.Color.textPrimary : Theme.Color.textTertiary)
                             if !shop.enabled {
-                                Text("無効")
-                                    .font(.system(size: 9, weight: .semibold)).foregroundStyle(.orange)
-                                    .padding(.horizontal, 6).padding(.vertical, 2)
-                                    .background(Color.orange.opacity(0.15)).clipShape(Capsule())
+                                Badge(text: "無効", color: Theme.Color.statusWarn)
                             }
                         }
                         if !shop.description.isEmpty {
                             Text(shop.description)
-                                .font(.captionSmall).foregroundStyle(Color.textTertiary).lineLimit(1)
+                                .font(Theme.Font.caption2)
+                                .foregroundStyle(Theme.Color.textTertiary)
+                                .lineLimit(1)
                         }
                     }
 
@@ -355,99 +458,118 @@ private struct ShopCard: View {
 
                     VStack(alignment: .trailing, spacing: 4) {
                         if shop.isDeployed {
-                            Label("設置済み", systemImage: "checkmark.circle.fill")
-                                .font(.system(size: 10, weight: .semibold)).foregroundStyle(Color.accentGreen)
-                                .padding(.horizontal, 8).padding(.vertical, 3)
-                                .background(Color.accentGreen.opacity(0.1)).clipShape(Capsule())
+                            HStack(spacing: 4) {
+                                StatusDot(color: Theme.Color.statusOK)
+                                Text("設置済み")
+                                    .font(Theme.Font.caption2)
+                                    .foregroundStyle(Theme.Color.textSecondary)
+                            }
                         } else {
                             Text("未設置")
-                                .font(.system(size: 10, weight: .semibold)).foregroundStyle(Color.textTertiary)
-                                .padding(.horizontal, 8).padding(.vertical, 3)
-                                .background(Color(.tertiarySystemGroupedBackground)).clipShape(Capsule())
+                                .font(Theme.Font.caption2)
+                                .foregroundStyle(Theme.Color.accent)
                         }
                         HStack(spacing: 3) {
-                            Image(systemName: "archivebox.fill").font(.system(size: 8))
+                            Image(systemName: "archivebox").font(.system(size: 8))
                             Text(hasProducts ? "\(productCount)商品" : "商品なし")
                                 .font(.system(size: 9, weight: .medium))
                         }
-                        .foregroundStyle(hasProducts ? Color.accentPurple : Color.accentOrange)
-                        .padding(.horizontal, 6).padding(.vertical, 2)
-                        .background((hasProducts ? Color.accentPurple : Color.accentOrange).opacity(0.1))
+                        .foregroundStyle(hasProducts ? Theme.Color.textSecondary : Theme.Color.textTertiary)
+                        .padding(.horizontal, 6)
+                        .padding(.vertical, 2)
+                        .background(Theme.Color.surfaceRaised)
                         .clipShape(Capsule())
                     }
-
-                    Image(systemName: "chart.bar.fill")
-                        .font(.system(size: 12))
-                        .foregroundStyle(Color.textTertiary.opacity(0.4))
                 }
-                .padding(.spacing12)
+                .padding(.horizontal, Theme.Spacing.sm)
+                .padding(.vertical, Theme.Spacing.sm)
             }
             .buttonStyle(.plain)
             .opacity(shop.enabled ? 1 : 0.8)
 
-            Divider().padding(.horizontal, .spacing12)
+            Divider()
+                .background(Theme.Color.line)
+                .padding(.horizontal, Theme.Spacing.sm)
 
-            // ── 商品管理ボタン（目立つアクセントカラー）──
+            // 商品管理
             Button(action: onProducts) {
-                HStack(spacing: .spacing8) {
-                    Image(systemName: "archivebox.fill").font(.system(size: 13))
-                    Text("商品を管理").font(.captionRegular).fontWeight(.semibold)
+                HStack(spacing: Theme.Spacing.xs) {
+                    Image(systemName: "archivebox").font(.system(size: 13))
+                    Text("商品を管理")
+                        .font(Theme.Font.caption)
+                        .fontWeight(.semibold)
                     Spacer()
                     if hasProducts {
                         Text("\(productCount)件")
                             .font(.system(size: 10, weight: .semibold))
-                            .foregroundStyle(.white.opacity(0.85))
-                            .padding(.horizontal, 8).padding(.vertical, 2)
-                            .background(.white.opacity(0.2)).clipShape(Capsule())
+                            .foregroundStyle(Theme.Color.textTertiary)
+                            .padding(.horizontal, 8)
+                            .padding(.vertical, 2)
+                            .background(Theme.Color.surfaceRaised)
+                            .clipShape(Capsule())
                     }
-                    Image(systemName: "chevron.right").font(.system(size: 11, weight: .semibold))
+                    Image(systemName: "chevron.right")
+                        .font(.system(size: 11, weight: .semibold))
                 }
-                .foregroundStyle(.white)
-                .padding(.horizontal, .spacing16).padding(.vertical, .spacing12)
-                .background(shop.shopType.accentColor)
+                .foregroundStyle(Theme.Color.accent)
+                .padding(.horizontal, Theme.Spacing.md)
+                .padding(.vertical, Theme.Spacing.sm)
             }
             .buttonStyle(.plain)
 
-            Divider().padding(.horizontal, .spacing12)
+            Divider()
+                .background(Theme.Color.line)
+                .padding(.horizontal, Theme.Spacing.sm)
 
-            // ── 設定 / 設置 ──
+            // 設定 / 設置
             HStack(spacing: 0) {
                 Button(action: onSettings) {
                     Label("設定", systemImage: "gearshape")
-                        .font(.captionRegular).fontWeight(.medium)
-                        .foregroundStyle(Color.textSecondary)
-                        .frame(maxWidth: .infinity).padding(.vertical, .spacing10)
+                        .font(Theme.Font.caption)
+                        .fontWeight(.medium)
+                        .foregroundStyle(Theme.Color.textSecondary)
+                        .frame(maxWidth: .infinity)
+                        .padding(.vertical, Theme.Spacing.sm)
                 }
                 .buttonStyle(.plain)
 
-                Divider().frame(height: 20)
+                Divider()
+                    .background(Theme.Color.line)
+                    .frame(height: 20)
 
                 Button(action: onDeploy) {
                     if isDeploying {
                         HStack(spacing: 5) {
                             ProgressView().scaleEffect(0.7)
-                            Text("送信中").font(.captionRegular).foregroundStyle(Color.textTertiary)
+                            Text("送信中")
+                                .font(Theme.Font.caption)
+                                .foregroundStyle(Theme.Color.textTertiary)
                         }
-                        .frame(maxWidth: .infinity).padding(.vertical, .spacing10)
+                        .frame(maxWidth: .infinity)
+                        .padding(.vertical, Theme.Spacing.sm)
                     } else {
-                        Label(shop.isDeployed ? "再設置" : "設置する", systemImage: "paperplane.fill")
-                            .font(.captionRegular).fontWeight(.semibold)
+                        Label(shop.isDeployed ? "再設置" : "設置する", systemImage: "paperplane")
+                            .font(Theme.Font.caption)
+                            .fontWeight(.semibold)
                             .foregroundStyle(
-                                !hasProducts ? Color.textTertiary :
-                                    (shop.isDeployed ? Color.accentOrange : Color.accentGreen)
+                                !hasProducts ? Theme.Color.textTertiary : Theme.Color.accent
                             )
-                            .frame(maxWidth: .infinity).padding(.vertical, .spacing10)
+                            .frame(maxWidth: .infinity)
+                            .padding(.vertical, Theme.Spacing.sm)
                     }
                 }
                 .buttonStyle(.plain)
                 .disabled(isDeploying || !hasProducts)
             }
-            .background(Color(.tertiarySystemGroupedBackground))
+            .background(Theme.Color.surfaceRaised)
         }
-        .background(shop.enabled
-            ? Color(.secondarySystemGroupedBackground)
-            : Color(.tertiarySystemGroupedBackground))
-        .clipShape(RoundedRectangle(cornerRadius: 14))
+        .swipeActions(edge: .trailing) {
+            Button(role: .destructive) {
+                onDelete()
+            } label: {
+                Label("削除", systemImage: "trash")
+            }
+        }
     }
 }
 
@@ -489,100 +611,148 @@ struct ShopQuickStatusSheet: View {
 
     var body: some View {
         NavigationStack {
-            List {
-                Section {
-                    HStack(spacing: .spacing12) {
+            ScrollView {
+                VStack(spacing: Theme.Spacing.md) {
+                    // ヘッダー
+                    HStack(spacing: Theme.Spacing.sm) {
                         ZStack {
-                            RoundedRectangle(cornerRadius: 12).fill(accentColor).frame(width: 52, height: 52)
-                            Image(systemName: shop.shopType.icon).font(.system(size: 22)).foregroundStyle(.white)
+                            RoundedRectangle(cornerRadius: 12)
+                                .fill(accentColor)
+                                .frame(width: 52, height: 52)
+                            Image(systemName: shop.shopType.icon)
+                                .font(.system(size: 22))
+                                .foregroundStyle(Theme.Color.accentInk)
                         }
                         VStack(alignment: .leading, spacing: 4) {
-                            Text(shop.name).font(.titleMedium).fontWeight(.bold)
-                            HStack(spacing: .spacing8) {
+                            Text(shop.name)
+                                .font(Theme.Font.title3)
+                                .fontWeight(.bold)
+                            HStack(spacing: Theme.Spacing.xs) {
                                 Label(shop.isDeployed ? "設置済み" : "未設置",
                                       systemImage: shop.isDeployed ? "checkmark.circle.fill" : "circle")
-                                    .font(.captionSmall)
-                                    .foregroundStyle(shop.isDeployed ? Color.accentGreen : Color.textTertiary)
-                                Text("·").foregroundStyle(Color.textTertiary)
-                                Label("\(productCount)商品", systemImage: "archivebox.fill")
-                                    .font(.captionSmall).foregroundStyle(Color.accentPurple)
+                                    .font(Theme.Font.caption2)
+                                    .foregroundStyle(shop.isDeployed ? Theme.Color.statusOK : Theme.Color.textTertiary)
+                                Text("·")
+                                    .foregroundStyle(Theme.Color.textTertiary)
+                                Label("\(productCount)商品", systemImage: "archivebox")
+                                    .font(Theme.Font.caption2)
+                                    .foregroundStyle(Theme.Color.textSecondary)
                             }
                         }
                         Spacer()
                     }
-                    .padding(.vertical, 4)
-                }
+                    .padding(Theme.Spacing.sm)
+                    .background(Theme.Color.surface)
+                    .clipShape(RoundedRectangle(cornerRadius: Theme.Radius.card))
+                    .padding(.horizontal, Theme.Spacing.md)
 
-                Section {
-                    if isLoading {
-                        HStack { Spacer(); ProgressView(); Spacer() }
-                    } else {
-                        HStack(spacing: .spacing12) {
-                            statCell(label: "本日", value: "\(todayOrders.count)",
-                                     icon: "sun.max.fill", color: .accentOrange)
-                            Divider().frame(height: 44)
-                            statCell(label: "7日間", value: "\(weekOrders.count)",
-                                     icon: "calendar", color: .accentIndigo)
-                            Divider().frame(height: 44)
-                            statCell(label: "累計", value: "\(orders.count)",
-                                     icon: "infinity", color: accentColor)
+                    // 注文件数
+                    FormSection("注文件数", icon: "chart.bar") {
+                        if isLoading {
+                            HStack { Spacer(); ProgressView(); Spacer() }
+                        } else {
+                            HStack(spacing: Theme.Spacing.sm) {
+                                statCell(label: "本日", value: "\(todayOrders.count)",
+                                         icon: "sun.max", color: Theme.Color.statusWarn)
+                                Divider()
+                                    .background(Theme.Color.line)
+                                    .frame(height: 44)
+                                statCell(label: "7日間", value: "\(weekOrders.count)",
+                                         icon: "calendar", color: Theme.Color.accent)
+                                Divider()
+                                    .background(Theme.Color.line)
+                                    .frame(height: 44)
+                                statCell(label: "累計", value: "\(orders.count)",
+                                         icon: "infinity", color: accentColor)
+                            }
+                            .padding(.vertical, 4)
                         }
-                        .padding(.vertical, 4)
                     }
-                } header: { Text("注文件数") }
+                    .padding(.horizontal, Theme.Spacing.md)
 
-                if !isLoading && !lowStockProducts.isEmpty {
-                    Section {
-                        ForEach(lowStockProducts) { product in
-                            HStack {
-                                Image(systemName: "exclamationmark.triangle.fill")
-                                    .foregroundStyle(product.stock == 0 ? .red : .orange)
-                                    .font(.system(size: 14))
-                                Text(product.name).font(.bodySmall)
-                                Spacer()
-                                Text(product.stock == 0 ? "売り切れ" : "残り\(product.stock!)個")
-                                    .font(.captionSmall).fontWeight(.semibold)
-                                    .foregroundStyle(product.stock == 0 ? .red : .accentOrange)
+                    // 在庫アラート
+                    if !isLoading && !lowStockProducts.isEmpty {
+                        FormSection("在庫アラート", icon: "exclamationmark.triangle") {
+                            VStack(spacing: 0) {
+                                ForEach(Array(lowStockProducts.enumerated()), id: \.element.id) { idx, product in
+                                    HStack {
+                                        Image(systemName: "exclamationmark.triangle.fill")
+                                            .foregroundStyle(product.stock == 0 ? Theme.Color.statusBad : Theme.Color.statusWarn)
+                                            .font(.system(size: 14))
+                                        Text(product.name)
+                                            .font(Theme.Font.body)
+                                        Spacer()
+                                        Text(product.stock == 0 ? "売り切れ" : "残り\(product.stock!)個")
+                                            .font(Theme.Font.caption2)
+                                            .fontWeight(.semibold)
+                                            .foregroundStyle(product.stock == 0 ? Theme.Color.statusBad : Theme.Color.statusWarn)
+                                    }
+                                    .padding(.vertical, Theme.Spacing.xs)
+                                    if idx < lowStockProducts.count - 1 {
+                                        Divider()
+                                            .background(Theme.Color.line)
+                                            .padding(.leading, 28)
+                                    }
+                                }
                             }
                         }
-                    } header: {
-                        HStack(spacing: 4) {
-                            Image(systemName: "exclamationmark.triangle.fill").foregroundStyle(.orange)
-                            Text("在庫アラート")
-                        }
+                        .padding(.horizontal, Theme.Spacing.md)
                     }
-                }
 
-                if !isLoading && !topProducts.isEmpty {
-                    Section {
-                        ForEach(Array(topProducts.enumerated()), id: \.offset) { idx, item in
-                            HStack {
-                                Text(["🥇", "🥈", "🥉"][safe: idx] ?? "·").font(.system(size: 16))
-                                Text(item.name).font(.bodySmall)
-                                Spacer()
-                                Text("\(item.count)件").font(.captionSmall).foregroundStyle(Color.textTertiary)
+                    // 売れ筋ランキング
+                    if !isLoading && !topProducts.isEmpty {
+                        FormSection("売れ筋ランキング", icon: "trophy") {
+                            VStack(spacing: 0) {
+                                ForEach(Array(topProducts.enumerated()), id: \.offset) { idx, item in
+                                    HStack {
+                                        Text("\(idx + 1)")
+                                            .font(.system(size: 14, weight: .bold))
+                                            .foregroundStyle(idx == 0 ? Theme.Color.accent : Theme.Color.textTertiary)
+                                            .frame(width: 24)
+                                        Text(item.name)
+                                            .font(Theme.Font.body)
+                                        Spacer()
+                                        Text("\(item.count)件")
+                                            .font(Theme.Font.caption2)
+                                            .foregroundStyle(Theme.Color.textTertiary)
+                                            .monospaced()
+                                    }
+                                    .padding(.vertical, Theme.Spacing.xs)
+                                    if idx < topProducts.count - 1 {
+                                        Divider()
+                                            .background(Theme.Color.line)
+                                            .padding(.leading, 28)
+                                    }
+                                }
                             }
                         }
-                    } header: { Text("売れ筋ランキング") }
-                }
-
-                if !isLoading && orders.isEmpty {
-                    Section {
-                        VStack(spacing: .spacing8) {
-                            Image(systemName: "cart").font(.system(size: 32)).foregroundStyle(Color.textTertiary)
-                            Text("まだ注文がありません").font(.bodySmall).foregroundStyle(Color.textTertiary)
-                        }
-                        .frame(maxWidth: .infinity).padding(.vertical, .spacing16)
-                        .listRowBackground(Color(.systemGroupedBackground))
+                        .padding(.horizontal, Theme.Spacing.md)
                     }
+
+                    if !isLoading && orders.isEmpty {
+                        VStack(spacing: Theme.Spacing.sm) {
+                            Image(systemName: "cart")
+                                .font(.system(size: 32))
+                                .foregroundStyle(Theme.Color.textTertiary)
+                            Text("まだ注文がありません")
+                                .font(Theme.Font.body)
+                                .foregroundStyle(Theme.Color.textTertiary)
+                        }
+                        .frame(maxWidth: .infinity)
+                        .padding(.vertical, Theme.Spacing.xl)
+                    }
+
+                    bottomPad
                 }
+                .padding(.top, Theme.Spacing.md)
             }
-            .listStyle(.insetGrouped)
+            .background(Theme.Color.bg)
             .navigationTitle("ステータス")
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
                 ToolbarItem(placement: .topBarTrailing) {
-                    Button("閉じる") { dismiss() }.foregroundStyle(Color.textSecondary)
+                    Button("閉じる") { dismiss() }
+                        .foregroundStyle(Theme.Color.textSecondary)
                 }
             }
             .task { await load() }
@@ -591,9 +761,16 @@ struct ShopQuickStatusSheet: View {
 
     private func statCell(label: String, value: String, icon: String, color: Color) -> some View {
         VStack(spacing: 4) {
-            Image(systemName: icon).font(.system(size: 16)).foregroundStyle(color)
-            Text(value).font(.system(size: 22, weight: .bold)).foregroundStyle(Color.textPrimary)
-            Text(label).font(.captionSmall).foregroundStyle(Color.textTertiary)
+            Image(systemName: icon)
+                .font(.system(size: 16))
+                .foregroundStyle(color)
+            Text(value)
+                .font(.system(size: 22, weight: .bold))
+                .foregroundStyle(Theme.Color.textPrimary)
+                .monospaced()
+            Text(label)
+                .font(Theme.Font.caption2)
+                .foregroundStyle(Theme.Color.textTertiary)
         }
         .frame(maxWidth: .infinity)
     }
@@ -623,69 +800,84 @@ struct ProductsManageView: View {
     @State private var isLoading = true
     @State private var showCreate = false
     @State private var editingProduct: Product? = nil
+    @State private var deletingProduct: Product? = nil
+    @State private var showDeleteConfirm = false
 
     var body: some View {
         NavigationStack {
             ZStack(alignment: .bottom) {
-                List {
-                    if isLoading {
-                        HStack { Spacer(); ProgressView(); Spacer() }
-                            .listRowBackground(Color(.systemGroupedBackground))
-                            .listRowSeparator(.hidden).padding(.top, 40)
-                    } else if products.isEmpty {
-                        VStack(spacing: .spacing12) {
-                            Image(systemName: "archivebox.fill")
-                                .font(.system(size: 40)).foregroundStyle(Color.textTertiary)
-                            Text("商品がありません").font(.titleMedium).foregroundStyle(Color.textPrimary)
-                            Text("「商品を追加」ボタンから販売する商品を作成できます")
-                                .font(.captionRegular).foregroundStyle(Color.textTertiary)
-                                .multilineTextAlignment(.center)
-                        }
-                        .frame(maxWidth: .infinity).padding(.top, 60)
-                        .listRowBackground(Color(.systemGroupedBackground)).listRowSeparator(.hidden)
-                    } else {
-                        ForEach(Array(products.enumerated()), id: \.element.id) { index, product in
-                            ShopProductCard(product: product, index: index, onEdit: { editingProduct = product })
-                                .listRowInsets(EdgeInsets(top: 4, leading: 16, bottom: 4, trailing: 16))
-                                .listRowBackground(Color(.systemGroupedBackground))
-                                .listRowSeparator(.hidden)
-                        }
-                        .onMove { indices, newOffset in
-                            products.move(fromOffsets: indices, toOffset: newOffset)
-                            Task { await updatePositions() }
-                        }
-                        .onDelete { offsets in
-                            let toDelete = offsets.map { products[$0] }
-                            Task {
-                                for p in toDelete { try? await services.shops.deleteProduct(id: p.id) }
-                                products.remove(atOffsets: offsets)
-                                onCountChange(products.count)
+                ScrollView {
+                    LazyVStack(spacing: Theme.Spacing.sm) {
+                        if isLoading {
+                            HStack { Spacer(); ProgressView(); Spacer() }
+                                .padding(.top, Theme.Spacing.xxl)
+                        } else if products.isEmpty {
+                            VStack(spacing: Theme.Spacing.sm) {
+                                Image(systemName: "archivebox")
+                                    .font(.system(size: 40))
+                                    .foregroundStyle(Theme.Color.textTertiary)
+                                Text("商品がありません")
+                                    .font(Theme.Font.title3)
+                                    .foregroundStyle(Theme.Color.textPrimary)
+                                Text("「商品を追加」ボタンから販売する商品を作成できます")
+                                    .font(Theme.Font.caption)
+                                    .foregroundStyle(Theme.Color.textTertiary)
+                                    .multilineTextAlignment(.center)
                             }
+                            .frame(maxWidth: .infinity)
+                            .padding(.top, Theme.Spacing.xxl)
+                        } else {
+                            SectionLabel(title: "商品一覧")
+                                .padding(.horizontal, Theme.Spacing.md)
+
+                            VStack(spacing: 0) {
+                                ForEach(Array(products.enumerated()), id: \.element.id) { index, product in
+                                    ShopProductRow(
+                                        product: product,
+                                        index: index,
+                                        onEdit: { editingProduct = product },
+                                        onDelete: {
+                                            deletingProduct = product
+                                            showDeleteConfirm = true
+                                        }
+                                    )
+                                    if index < products.count - 1 {
+                                        Divider()
+                                            .background(Theme.Color.line)
+                                            .padding(.leading, 60)
+                                    }
+                                }
+                            }
+                            .background(Theme.Color.surface)
+                            .clipShape(RoundedRectangle(cornerRadius: Theme.Radius.card))
+                            .padding(.horizontal, Theme.Spacing.md)
+
+                            bottomPad
                         }
                     }
-                    Color.clear.frame(height: 80)
-                        .listRowBackground(Color(.systemGroupedBackground)).listRowSeparator(.hidden)
+                    .padding(.top, Theme.Spacing.md)
                 }
-                .listStyle(.plain)
-                .background(Color(.systemGroupedBackground))
 
                 Button { showCreate = true } label: {
-                    HStack(spacing: .spacing8) {
+                    HStack(spacing: Theme.Spacing.xs) {
                         Image(systemName: "plus").font(.system(size: 14, weight: .bold))
-                        Text("商品を追加").font(.bodySmall).fontWeight(.semibold)
+                        Text("商品を追加").font(Theme.Font.bodySmall).fontWeight(.semibold)
                     }
-                    .foregroundStyle(.white)
-                    .padding(.horizontal, .spacing20).padding(.vertical, .spacing12)
-                    .background(shop.shopType.accentColor).clipShape(Capsule())
-                    .shadow(color: shop.shopType.accentColor.opacity(0.4), radius: 8, y: 4)
+                    .foregroundStyle(Theme.Color.accentInk)
+                    .padding(.horizontal, Theme.Spacing.lg)
+                    .padding(.vertical, Theme.Spacing.sm)
+                    .background(Theme.Color.accent)
+                    .clipShape(Capsule())
                 }
-                .padding(.bottom, 24)
+                .padding(.bottom, Theme.Spacing.xl)
             }
+            .background(Theme.Color.bg)
             .navigationTitle("\(shop.name)の商品")
             .navigationBarTitleDisplayMode(.large)
             .toolbar {
                 ToolbarItem(placement: .topBarLeading) {
-                    Button("閉じる") { dismiss() }.foregroundStyle(Color.textSecondary)
+                    Button("閉じる") { dismiss() }
+                        .foregroundStyle(Theme.Color.textSecondary)
                 }
                 ToolbarItem(placement: .topBarTrailing) { EditButton() }
             }
@@ -699,6 +891,31 @@ struct ProductsManageView: View {
             .sheet(item: $editingProduct) { product in
                 ProductEditView(shopId: product.shopId, guildId: guildId, shopType: shop.shopType, existingProduct: product) { updated in
                     if let idx = products.firstIndex(where: { $0.id == updated.id }) { products[idx] = updated }
+                }
+            }
+            .overlay {
+                if showDeleteConfirm, let product = deletingProduct {
+                    ConfirmModal(
+                        icon: "trash.fill",
+                        iconColor: Theme.Color.statusBad,
+                        title: "削除しますか？",
+                        message: "「\(product.name)」を削除します。この操作は元に戻せません。",
+                        primaryLabel: "削除する",
+                        primaryRole: .destructive,
+                        onPrimary: {
+                            Task {
+                                try? await services.shops.deleteProduct(id: product.id)
+                                products.removeAll { $0.id == product.id }
+                                onCountChange(products.count)
+                                deletingProduct = nil
+                                showDeleteConfirm = false
+                            }
+                        },
+                        onCancel: {
+                            deletingProduct = nil
+                            showDeleteConfirm = false
+                        }
+                    )
                 }
             }
         }
@@ -719,52 +936,52 @@ struct ProductsManageView: View {
     }
 }
 
-// MARK: - ShopProductCard
+// MARK: - ShopProductRow
 
-struct ShopProductCard: View {
+struct ShopProductRow: View {
     let product: Product
     let index: Int
     let onEdit: () -> Void
+    let onDelete: () -> Void
 
     var body: some View {
         VStack(spacing: 0) {
-            HStack(spacing: .spacing12) {
+            HStack(spacing: Theme.Spacing.sm) {
                 ZStack {
                     Circle()
-                        .fill(product.enabled ? Color.accentPurple.opacity(0.15) : Color.gray.opacity(0.45))
+                        .fill(product.enabled ? Theme.Color.accentDim : Theme.Color.surfaceRaised)
                         .frame(width: 36, height: 36)
                     Text("\(index + 1)")
                         .font(.system(size: 14, weight: .bold))
-                        .foregroundStyle(product.enabled ? Color.accentPurple : Color.textTertiary)
+                        .foregroundStyle(product.enabled ? Theme.Color.accent : Theme.Color.textTertiary)
                 }
                 .opacity(product.enabled ? 1 : 0.6)
 
                 VStack(alignment: .leading, spacing: 3) {
                     HStack(spacing: 6) {
-                        Text(product.name).font(.bodySmall).fontWeight(.semibold)
-                            .foregroundStyle(product.enabled ? Color.textPrimary : Color.textTertiary)
+                        Text(product.name)
+                            .font(Theme.Font.body)
+                            .fontWeight(.semibold)
+                            .foregroundStyle(product.enabled ? Theme.Color.textPrimary : Theme.Color.textTertiary)
                         if product.isSoldOut {
-                            Text("売り切れ")
-                                .font(.system(size: 9, weight: .semibold)).foregroundStyle(.red)
-                                .padding(.horizontal, 6).padding(.vertical, 2)
-                                .background(Color.red.opacity(0.12)).clipShape(Capsule())
+                            Badge(text: "売り切れ", color: Theme.Color.statusBad)
                         }
                         if !product.enabled {
-                            Text("無効")
-                                .font(.system(size: 9, weight: .semibold)).foregroundStyle(Color.textTertiary)
-                                .padding(.horizontal, 6).padding(.vertical, 2)
-                                .background(Color(.tertiarySystemGroupedBackground)).clipShape(Capsule())
+                            Badge(text: "無効", color: Theme.Color.textTertiary)
                         }
                     }
-                    HStack(spacing: .spacing12) {
-                        Label(product.priceDisplay, systemImage: "tag.fill")
-                            .font(.captionSmall).foregroundStyle(Color.textTertiary)
+                    HStack(spacing: Theme.Spacing.sm) {
+                        Label(product.priceDisplay, systemImage: "tag")
+                            .font(Theme.Font.caption2)
+                            .foregroundStyle(Theme.Color.textTertiary)
                         if let stock = product.stock {
-                            Label("残り\(stock)個", systemImage: "cube.box.fill")
-                                .font(.captionSmall).foregroundStyle(stock > 0 ? Color.accentGreen : .red)
+                            Label("残り\(stock)個", systemImage: "cube.box")
+                                .font(Theme.Font.caption2)
+                                .foregroundStyle(stock > 0 ? Theme.Color.textSecondary : Theme.Color.statusBad)
                         } else {
                             Label("無制限", systemImage: "infinity")
-                                .font(.captionSmall).foregroundStyle(Color.textTertiary)
+                                .font(Theme.Font.caption2)
+                                .foregroundStyle(Theme.Color.textTertiary)
                         }
                     }
                 }
@@ -773,29 +990,38 @@ struct ShopProductCard: View {
 
                 Label(product.rewardType.label, systemImage: product.rewardType.icon)
                     .font(.system(size: 10, weight: .semibold))
-                    .foregroundStyle(product.enabled ? Color.accentPurple : Color.textTertiary)
-                    .padding(.horizontal, 8).padding(.vertical, 4)
-                    .background(product.enabled ? Color.accentPurple.opacity(0.12) : Color(.tertiarySystemGroupedBackground))
+                    .foregroundStyle(product.enabled ? Theme.Color.textSecondary : Theme.Color.textTertiary)
+                    .padding(.horizontal, 8)
+                    .padding(.vertical, 4)
+                    .background(product.enabled ? Theme.Color.surfaceRaised : Theme.Color.surface)
                     .clipShape(Capsule())
             }
-            .padding(.spacing12)
+            .padding(.horizontal, Theme.Spacing.sm)
+            .padding(.vertical, Theme.Spacing.sm)
             .opacity(product.enabled ? 1 : 0.7)
 
-            Divider().padding(.horizontal, .spacing12)
+            Divider()
+                .background(Theme.Color.line)
+                .padding(.horizontal, Theme.Spacing.sm)
 
             Button(action: onEdit) {
                 Label("編集", systemImage: "pencil")
-                    .font(.captionRegular).fontWeight(.medium)
-                    .foregroundStyle(Color.accentIndigo)
-                    .frame(maxWidth: .infinity).padding(.vertical, .spacing10)
+                    .font(Theme.Font.caption)
+                    .fontWeight(.medium)
+                    .foregroundStyle(Theme.Color.accent)
+                    .frame(maxWidth: .infinity)
+                    .padding(.vertical, Theme.Spacing.sm)
             }
             .buttonStyle(.plain)
-            .background(Color(.tertiarySystemGroupedBackground))
+            .background(Theme.Color.surfaceRaised)
         }
-        .background(product.enabled
-            ? Color(.secondarySystemGroupedBackground)
-            : Color(.tertiarySystemGroupedBackground))
-        .clipShape(RoundedRectangle(cornerRadius: 14))
+        .swipeActions(edge: .trailing) {
+            Button(role: .destructive) {
+                onDelete()
+            } label: {
+                Label("削除", systemImage: "trash")
+            }
+        }
     }
 }
 
@@ -815,7 +1041,7 @@ private struct ShopDeployChannelPickerSheet: View {
             color: Color(uiColor: UIColor(hex: UInt32(shop.color))),
             botName: "Noxy",
             messageContent: nil,
-            title: "\(shop.shopType == .vendingMachine ? "🏪" : "🛒") \(shop.name)",
+            title: shop.name,
             description: shop.description.isEmpty ? nil : shop.description,
             fields: [],
             footerText: shop.shopType == .vendingMachine
@@ -826,57 +1052,72 @@ private struct ShopDeployChannelPickerSheet: View {
 
     var body: some View {
         NavigationStack {
-            List {
-                Section {
-                    DiscordMessagePreview(embed: shopEmbedPreview, isCompact: true)
-                        .listRowInsets(EdgeInsets(top: 8, leading: 16, bottom: 8, trailing: 16))
-                } header: {
-                    HStack(spacing: 4) {
-                        Image(systemName: "eye.fill").font(.captionSmall)
-                        Text("送信されるEmbedのプレビュー")
+            ScrollView {
+                VStack(spacing: Theme.Spacing.md) {
+                    FormSection("プレビュー", icon: "eye") {
+                        DiscordMessagePreview(embed: shopEmbedPreview, isCompact: true)
                     }
-                } footer: {
-                    Text("Discordに投稿されるパネルのイメージです。実際の商品一覧はBot側で自動的に追加されます。")
-                }
+                    .padding(.horizontal, Theme.Spacing.md)
 
-                if isLoading {
-                    HStack { Spacer(); ProgressView(); Spacer() }
-                        .listRowBackground(Color(.systemGroupedBackground))
-                } else if channels.isEmpty {
-                    Text("テキストチャンネルが見つかりません")
-                        .font(.bodySmall).foregroundStyle(Color.textTertiary)
-                } else {
-                    Section {
-                        ForEach(channels, id: \.id) { ch in
-                            Button {
-                                onSelect(ch.id)
-                                dismiss()
-                            } label: {
-                                HStack(spacing: .spacing12) {
-                                    Image(systemName: "number").font(.system(size: 14)).foregroundStyle(Color.textTertiary)
-                                    Text(ch.name).font(.bodySmall).foregroundStyle(Color.textPrimary)
-                                    Spacer()
-                                    if shop.channelId == ch.id {
-                                        Text("現在設定中")
-                                            .font(.system(size: 10, weight: .semibold)).foregroundStyle(Color.accentOrange)
-                                            .padding(.horizontal, 8).padding(.vertical, 3)
-                                            .background(Color.accentOrange.opacity(0.1)).clipShape(Capsule())
+                    if isLoading {
+                        HStack { Spacer(); ProgressView(); Spacer() }
+                            .padding(Theme.Spacing.md)
+                    } else if channels.isEmpty {
+                        Text("テキストチャンネルが見つかりません")
+                            .font(Theme.Font.body)
+                            .foregroundStyle(Theme.Color.textTertiary)
+                            .padding(Theme.Spacing.md)
+                    } else {
+                        FormSection("送信先チャンネル", icon: "number") {
+                            VStack(spacing: 0) {
+                                ForEach(Array(channels.enumerated()), id: \.element.id) { idx, ch in
+                                    Button {
+                                        onSelect(ch.id)
+                                        dismiss()
+                                    } label: {
+                                        HStack(spacing: Theme.Spacing.sm) {
+                                            Image(systemName: "number")
+                                                .font(.system(size: 14))
+                                                .foregroundStyle(Theme.Color.textTertiary)
+                                            Text(ch.name)
+                                                .font(Theme.Font.body)
+                                                .foregroundStyle(Theme.Color.textPrimary)
+                                            Spacer()
+                                            if shop.channelId == ch.id {
+                                                Text("現在設定中")
+                                                    .font(.system(size: 10, weight: .semibold))
+                                                    .foregroundStyle(Theme.Color.statusWarn)
+                                                    .padding(.horizontal, 8)
+                                                    .padding(.vertical, 3)
+                                                    .background(Theme.Color.statusWarn.opacity(0.1))
+                                                    .clipShape(Capsule())
+                                            }
+                                        }
+                                        .padding(.horizontal, Theme.Spacing.sm)
+                                        .padding(.vertical, Theme.Spacing.sm)
+                                        .contentShape(Rectangle())
+                                    }
+                                    .buttonStyle(.plain)
+                                    if idx < channels.count - 1 {
+                                        Divider()
+                                            .background(Theme.Color.line)
+                                            .padding(.leading, 40)
                                     }
                                 }
                             }
-                            .buttonStyle(.plain)
                         }
-                    } header: { Text("「\(shop.name)」の送信先チャンネル") }
-                    footer: { Text("選択したチャンネルに新しいパネルが投稿されます。") }
+                        .padding(.horizontal, Theme.Spacing.md)
+                    }
                 }
+                .padding(.top, Theme.Spacing.md)
             }
-            .listStyle(.insetGrouped)
-            .background(Color(.systemGroupedBackground))
+            .background(Theme.Color.bg)
             .navigationTitle("送信先を選択")
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
                 ToolbarItem(placement: .topBarLeading) {
-                    Button("キャンセル") { dismiss() }.foregroundStyle(Color.textSecondary)
+                    Button("キャンセル") { dismiss() }
+                        .foregroundStyle(Theme.Color.textSecondary)
                 }
             }
             .task { await load() }
@@ -899,4 +1140,20 @@ private extension Collection {
     subscript(safe index: Index) -> Element? {
         indices.contains(index) ? self[index] : nil
     }
+}
+
+// MARK: - Preview
+
+#Preview("Dark") {
+    NavigationStack { ShopsListView(guildId: "", shopType: .shop) }
+        .environment(\.services, ServiceContainer.live())
+        .environment(AppState())
+        .preferredColorScheme(.dark)
+}
+
+#Preview("Light") {
+    NavigationStack { ShopsListView(guildId: "", shopType: .shop) }
+        .environment(\.services, ServiceContainer.live())
+        .environment(AppState())
+        .preferredColorScheme(.light)
 }

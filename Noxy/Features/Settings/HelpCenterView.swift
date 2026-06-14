@@ -4,21 +4,20 @@ private struct HelpCategory: Identifiable {
     let id = UUID()
     let icon: String
     let title: String
-    let color: Color
     let faqs: [(String, String)]
 }
 
 private let categories: [HelpCategory] = [
-    HelpCategory(icon: "rocket.fill", title: "はじめかた", color: .accentIndigo,
+    HelpCategory(icon: "rocket.fill", title: "はじめかた",
                  faqs: [("BotForgeをサーバーに追加するには?", "設定 → 接続済みサーバー → サーバーを追加 でOAuth2フローに従ってください。"),
                         ("BotForgeに必要な権限は?", "最低限: メッセージ送信、Embedリンク、メッセージ履歴の読み取り。")]),
-    HelpCategory(icon: "rectangle.stack.fill", title: "Embedビルダー", color: .accentPink,
+    HelpCategory(icon: "rectangle.stack.fill", title: "Embedビルダー",
                  faqs: [("文字数制限はありますか?", "Discord Embedの合計文字数制限は6,000文字です。"),
                         ("Embedに変数を使えますか?", "ウェルカムメッセージでは {user.name}、{server.name} などが使えます。")]),
-    HelpCategory(icon: "bolt.fill", title: "Bot管理", color: .accentOrange,
+    HelpCategory(icon: "bolt.fill", title: "Bot管理",
                  faqs: [("Botを再起動するには?", "ダッシュボード → Bot状況カード → 「再起動」をタップ。"),
                         ("Botがオフラインと表示される場合は?", "Bot設定 → 接続設定 でトークンが正しいか確認してください。")]),
-    HelpCategory(icon: "wrench.and.screwdriver.fill", title: "トラブルシューティング", color: .accentGreen,
+    HelpCategory(icon: "wrench.and.screwdriver.fill", title: "トラブルシューティング",
                  faqs: [("Botがコマンドに反応しない。", "権限を確認してください。Botにスラッシュコマンド権限が必要です。"),
                         ("予約送信メッセージが送られなかった。", "予約時刻にBotがオンラインだったか確認してください。")]),
 ]
@@ -37,57 +36,60 @@ struct HelpCenterView: View {
     }
 
     var body: some View {
-        List {
-            if !searchText.isEmpty {
-                Section("検索結果") {
-                    if filteredFAQs.isEmpty {
-                        Text("「\(searchText)」の結果が見つかりません")
-                            .foregroundStyle(Color.textSecondary)
-                    } else {
-                        ForEach(filteredFAQs, id: \.0) { faq in
-                            FAQRow(question: faq.0, answer: faq.1,
-                                   isExpanded: expandedFAQ == faq.0) {
-                                expandedFAQ = expandedFAQ == faq.0 ? nil : faq.0
-                            }
-                        }
-                    }
+        ScrollView {
+            LazyVStack(spacing: Theme.Spacing.md) {
+                if !searchText.isEmpty {
+                    searchResultsSection
+                } else {
+                    categoriesSection
                 }
+            }
+            .padding(.horizontal, Theme.Spacing.md)
+            .padding(.vertical, Theme.Spacing.sm)
+        }
+        .background(Theme.Color.bg)
+        .searchable(text: $searchText, prompt: "ヘルプ記事を検索")
+        .navigationTitle("ヘルプセンター")
+    }
+
+    private var searchResultsSection: some View {
+        FormSection("検索結果", icon: "magnifyingglass") {
+            if filteredFAQs.isEmpty {
+                Text("「\(searchText)」の結果が見つかりません")
+                    .foregroundStyle(Theme.Color.textSecondary)
+                    .padding(.vertical, Theme.Spacing.sm)
             } else {
-                ForEach(categories) { category in
-                    Section {
-                        // Category header card
-                        HStack(spacing: .spacing12) {
-                            Image(systemName: category.icon)
-                                .foregroundStyle(category.color)
-                                .frame(width: 32)
-                            Text(category.title)
-                                .font(.titleMedium)
-                                .foregroundStyle(Color.textPrimary)
+                VStack(spacing: 0) {
+                    ForEach(filteredFAQs, id: \.0) { faq in
+                        FAQRow(question: faq.0, answer: faq.1,
+                               isExpanded: expandedFAQ == faq.0) {
+                            expandedFAQ = expandedFAQ == faq.0 ? nil : faq.0
                         }
-                        .padding(.vertical, .spacing4)
-
-                        ForEach(category.faqs, id: \.0) { faq in
-                            FAQRow(question: faq.0, answer: faq.1,
-                                   isExpanded: expandedFAQ == faq.0) {
-                                withAnimation { expandedFAQ = expandedFAQ == faq.0 ? nil : faq.0 }
-                            }
+                        if faq.0 != filteredFAQs.last?.0 {
+                            Divider().background(Theme.Color.line)
                         }
                     }
-                }
-
-                Section {
-                    VStack(spacing: .spacing12) {
-                        Text("まだ解決しませんか?")
-                            .font(.titleMedium)
-                            .foregroundStyle(Color.textPrimary)
-                        PrimaryButton("お問い合わせ", style: .outlined, size: .medium, icon: "envelope.fill") {}
-                    }
-                    .padding(.vertical, .spacing8)
                 }
             }
         }
-        .searchable(text: $searchText, prompt: "ヘルプ記事を検索")
-        .navigationTitle("ヘルプセンター")
+    }
+
+    private var categoriesSection: some View {
+        ForEach(categories) { category in
+            FormSection(category.title, icon: category.icon) {
+                VStack(spacing: 0) {
+                    ForEach(category.faqs, id: \.0) { faq in
+                        FAQRow(question: faq.0, answer: faq.1,
+                               isExpanded: expandedFAQ == faq.0) {
+                            withAnimation { expandedFAQ = expandedFAQ == faq.0 ? nil : faq.0 }
+                        }
+                        if faq.0 != category.faqs.last?.0 {
+                            Divider().background(Theme.Color.line)
+                        }
+                    }
+                }
+            }
+        }
     }
 }
 
@@ -99,30 +101,42 @@ private struct FAQRow: View {
 
     var body: some View {
         Button(action: onTap) {
-            VStack(alignment: .leading, spacing: .spacing8) {
+            VStack(alignment: .leading, spacing: Theme.Spacing.sm) {
                 HStack {
                     Text(question)
-                        .font(.bodySmall)
+                        .font(Theme.Font.bodySmall)
                         .fontWeight(.medium)
-                        .foregroundStyle(Color.textPrimary)
+                        .foregroundStyle(Theme.Color.textPrimary)
                         .multilineTextAlignment(.leading)
                     Spacer()
                     Image(systemName: isExpanded ? "chevron.up" : "chevron.down")
-                        .font(.captionSmall)
-                        .foregroundStyle(Color.textTertiary)
+                        .font(Theme.Font.caption2)
+                        .foregroundStyle(Theme.Color.textTertiary)
                 }
                 if isExpanded {
                     Text(answer)
-                        .font(.captionRegular)
-                        .foregroundStyle(Color.textSecondary)
+                        .font(Theme.Font.caption)
+                        .foregroundStyle(Theme.Color.textSecondary)
                         .transition(.opacity.combined(with: .move(edge: .top)))
                 }
             }
         }
         .buttonStyle(.plain)
+        .padding(.vertical, Theme.Spacing.sm)
+        .contentShape(Rectangle())
     }
 }
 
 #Preview {
     NavigationStack { HelpCenterView() }
+}
+
+#Preview("Dark") {
+    NavigationStack { HelpCenterView() }
+        .preferredColorScheme(.dark)
+}
+
+#Preview("Light") {
+    NavigationStack { HelpCenterView() }
+        .preferredColorScheme(.light)
 }

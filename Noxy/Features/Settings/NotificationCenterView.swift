@@ -37,37 +37,44 @@ struct NotificationCenterView: View {
                         description: "新しい通知はありません。"
                     )
                 } else {
-                    List {
-                        ForEach(filtered) { notification in
-                            NotificationRow(
-                                notification: notification,
-                                guildName: notification.guildId.flatMap { gid in
-                                    appState.guilds.first { $0.id == gid }?.name
-                                        ?? appState.botGuilds.first { $0.id == gid }?.name
-                                },
-                                onTap: { markRead(notification) }
-                            )
-                            .swipeActions(edge: .leading) {
-                                Button {
-                                    markRead(notification)
-                                } label: {
-                                    Label("既読", systemImage: "envelope.open.fill")
+                    ScrollView {
+                        LazyVStack(spacing: 0) {
+                            ForEach(filtered) { notification in
+                                NotificationRow(
+                                    notification: notification,
+                                    guildName: notification.guildId.flatMap { gid in
+                                        appState.guilds.first { $0.id == gid }?.name
+                                            ?? appState.botGuilds.first { $0.id == gid }?.name
+                                    },
+                                    onTap: { markRead(notification) }
+                                )
+                                .swipeActions(edge: .leading) {
+                                    Button {
+                                        markRead(notification)
+                                    } label: {
+                                        Label("既読", systemImage: "envelope.open.fill")
+                                    }
+                                    .tint(Theme.Color.accent)
                                 }
-                                .tint(Color.accentIndigo)
-                            }
-                            .swipeActions(edge: .trailing) {
-                                Button(role: .destructive) {
-                                    deleteNotification(notification)
-                                } label: {
-                                    Label("削除", systemImage: "trash")
+                                .swipeActions(edge: .trailing) {
+                                    Button(role: .destructive) {
+                                        deleteNotification(notification)
+                                    } label: {
+                                        Label("削除", systemImage: "trash")
+                                    }
+                                }
+                                if notification.id != filtered.last?.id {
+                                    Divider().background(Theme.Color.line)
                                 }
                             }
                         }
+                        .padding(.horizontal, Theme.Spacing.md)
+                        .padding(.vertical, Theme.Spacing.sm)
                     }
-                    .listStyle(.plain)
+                    .background(Theme.Color.bg)
                 }
             }
-            .background(Color.bgPrimary)
+            .background(Theme.Color.bg)
             .navigationTitle("通知")
             .navigationBarTitleDisplayMode(.large)
             .toolbar {
@@ -76,8 +83,8 @@ struct NotificationCenterView: View {
                         Task { try? await services.notifications.markAllRead() }
                         notifications.indices.forEach { notifications[$0].read = true }
                     }
-                    .font(.captionRegular)
-                    .foregroundStyle(Color.accentIndigo)
+                    .font(Theme.Font.caption)
+                    .foregroundStyle(Theme.Color.accent)
                 }
             }
         }
@@ -118,57 +125,45 @@ private struct NotificationRow: View {
         }
     }
 
-    private var typeColor: Color {
-        switch notification.type {
-        case .mention:       .accentPink
-        case .ticket:        .accentOrange
-        case .system:        .textSecondary
-        case .memberJoin:    .accentGreen
-        case .botStatus:     .accentIndigo
-        case .scheduledSend: .accentPurple
-        }
-    }
-
     var body: some View {
         Button(action: onTap) {
-            HStack(spacing: .spacing12) {
+            HStack(spacing: Theme.Spacing.sm) {
                 // Unread indicator
-                Circle()
-                    .fill(notification.read ? Color.clear : Color.accentIndigo)
-                    .frame(width: 8, height: 8)
+                StatusDot(color: notification.read ? Color.clear : Theme.Color.accent)
 
                 // Icon
                 Image(systemName: typeIcon)
-                    .font(.titleMedium)
-                    .foregroundStyle(typeColor)
+                    .font(Theme.Font.bodyMedium)
+                    .foregroundStyle(Theme.Color.textSecondary)
                     .frame(width: 32)
 
                 VStack(alignment: .leading, spacing: 4) {
                     Text(notification.title)
-                        .font(notification.read ? .bodySmall : .titleMedium)
-                        .foregroundStyle(Color.textPrimary)
+                        .font(notification.read ? Theme.Font.bodySmall : Theme.Font.bodyMedium)
+                        .foregroundStyle(Theme.Color.textPrimary)
                         .lineLimit(1)
 
                     Text(notification.body)
-                        .font(.captionRegular)
-                        .foregroundStyle(Color.textSecondary)
+                        .font(Theme.Font.caption)
+                        .foregroundStyle(Theme.Color.textSecondary)
                         .lineLimit(2)
 
-                    HStack(spacing: .spacing8) {
+                    HStack(spacing: Theme.Spacing.sm) {
                         if let name = guildName {
                             Text(name)
-                                .font(.captionSmall)
-                                .foregroundStyle(Color.textTertiary)
+                                .font(Theme.Font.caption2)
+                                .foregroundStyle(Theme.Color.textTertiary)
                         }
                         Text(notification.timestamp.formatted(.relative(presentation: .named)))
-                            .font(.captionSmall)
-                            .foregroundStyle(Color.textTertiary)
+                            .font(Theme.Font.caption2)
+                            .foregroundStyle(Theme.Color.textTertiary)
                     }
                 }
             }
-            .padding(.vertical, .spacing4)
+            .padding(.vertical, Theme.Spacing.sm)
         }
         .buttonStyle(.plain)
+        .contentShape(Rectangle())
     }
 }
 
@@ -176,4 +171,18 @@ private struct NotificationRow: View {
     NotificationCenterView()
         .environment(\.services, ServiceContainer.mock())
         .environment(AppState())
+}
+
+#Preview("Dark") {
+    NotificationCenterView()
+        .environment(\.services, ServiceContainer.mock())
+        .environment(AppState())
+        .preferredColorScheme(.dark)
+}
+
+#Preview("Light") {
+    NotificationCenterView()
+        .environment(\.services, ServiceContainer.mock())
+        .environment(AppState())
+        .preferredColorScheme(.light)
 }

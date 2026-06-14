@@ -1,8 +1,7 @@
 import SwiftUI
 
 // MARK: - TicketDetailView
-// 1件のチケット詳細。メッセージ履歴、返信、ステータス変更、優先度変更、担当者割り当てを行う。
-// 初心者向けに、ステップインジケータで現在の対応状況を視覚的に表示する。
+// Noxy Design Language に厳密に従った再設計。
 
 struct TicketDetailView: View {
     @State var ticket: Ticket
@@ -11,7 +10,6 @@ struct TicketDetailView: View {
 
     @Environment(\.services) private var services
     @Environment(\.dismiss)  private var dismiss
-    @Environment(\.colorScheme) private var colorScheme
 
     @State private var messages: [TicketMessage] = []
     @State private var isLoadingMessages = true
@@ -49,70 +47,84 @@ struct TicketDetailView: View {
                     replyBar
                 }
             }
-            .background(Color(.systemGroupedBackground))
+            .background(Theme.Color.bg)
             .navigationTitle("# \(ticket.subject)")
             .navigationBarTitleDisplayMode(.inline)
             .toolbar { toolbarContent }
-            .alert("チケットをクローズ", isPresented: $showCloseConfirm) {
-                Button("クローズ", role: .destructive) { Task { await closeTicket() } }
-                Button("キャンセル", role: .cancel) {}
-            } message: {
-                Text("チケットをクローズします。開設者はチャンネルにアクセスできなくなります。")
+            .overlay {
+                if showCloseConfirm {
+                    ConfirmModal(
+                        icon: "lock.fill",
+                        iconColor: Theme.Color.statusWarn,
+                        title: "チケットをクローズ",
+                        message: "チケットをクローズします。開設者はチャンネルにアクセスできなくなります。",
+                        primaryLabel: "クローズ",
+                        primaryRole: .destructive,
+                        onPrimary: {
+                            Task { await closeTicket() }
+                            showCloseConfirm = false
+                        },
+                        onCancel: {
+                            showCloseConfirm = false
+                        }
+                    )
+                    .transition(.scale(scale: 0.92).combined(with: .opacity))
+                }
             }
         }
         .task { await loadMessages() }
     }
 
-    // MARK: - Status Workflow (視覚的ステップ表示)
+    // MARK: - Status Workflow
+    // Noxy: sur 背景 + 14px 角丸 + line ボーダー + ステップ表示
 
     private var statusWorkflow: some View {
-        HStack(spacing: 0) {
-            stepCell(
-                title: "対応待ち",
-                icon: "envelope.open.fill",
-                isActive: ticket.status == .open,
-                isCompleted: ticket.status != .open
-            )
-            stepConnector(isCompleted: ticket.status == .pending || ticket.status == .closed)
-            stepCell(
-                title: "対応中",
-                icon: "clock.fill",
-                isActive: ticket.status == .pending,
-                isCompleted: ticket.status == .closed
-            )
-            stepConnector(isCompleted: ticket.status == .closed)
-            stepCell(
-                title: "クローズ",
-                icon: "lock.fill",
-                isActive: ticket.status == .closed,
-                isCompleted: false
-            )
+        Card(padding: .spacing12, background: Theme.Color.surface, showBorder: true) {
+            HStack(spacing: 0) {
+                stepCell(
+                    title: "対応待ち",
+                    icon: "envelope.open.fill",
+                    isActive: ticket.status == .open,
+                    isCompleted: ticket.status != .open
+                )
+                stepConnector(isCompleted: ticket.status == .pending || ticket.status == .closed)
+                stepCell(
+                    title: "対応中",
+                    icon: "clock.fill",
+                    isActive: ticket.status == .pending,
+                    isCompleted: ticket.status == .closed
+                )
+                stepConnector(isCompleted: ticket.status == .closed)
+                stepCell(
+                    title: "クローズ",
+                    icon: "lock.fill",
+                    isActive: ticket.status == .closed,
+                    isCompleted: false
+                )
+            }
         }
-        .padding(.spacing12)
-        .background(Color(.secondarySystemGroupedBackground))
-        .clipShape(RoundedRectangle(cornerRadius: 14))
     }
 
     private func stepCell(title: String, icon: String, isActive: Bool, isCompleted: Bool) -> some View {
         VStack(spacing: 4) {
             ZStack {
                 Circle()
-                    .fill(isActive ? Color.accentIndigo : (isCompleted ? Color.accentGreen : Color(.tertiarySystemGroupedBackground)))
+                    .fill(isActive ? Theme.Color.accent : (isCompleted ? Theme.Color.statusOK : Theme.Color.surfaceRaised))
                     .frame(width: 32, height: 32)
                 Image(systemName: isCompleted ? "checkmark" : icon)
                     .font(.system(size: 12, weight: .semibold))
-                    .foregroundStyle(isActive || isCompleted ? .white : Color.textTertiary)
+                    .foregroundStyle(isActive || isCompleted ? Theme.Color.accentInk : Theme.Color.textTertiary)
             }
             Text(title)
                 .font(.system(size: 9, weight: .semibold))
-                .foregroundStyle(isActive ? Color.accentIndigo : (isCompleted ? Color.accentGreen : Color.textTertiary))
+                .foregroundStyle(isActive ? Theme.Color.accent : (isCompleted ? Theme.Color.statusOK : Theme.Color.textTertiary))
         }
         .frame(maxWidth: .infinity)
     }
 
     private func stepConnector(isCompleted: Bool) -> some View {
         Rectangle()
-            .fill(isCompleted ? Color.accentGreen : Color(.tertiarySystemGroupedBackground))
+            .fill(isCompleted ? Theme.Color.statusOK : Theme.Color.surfaceRaised)
             .frame(height: 2)
             .frame(maxWidth: .infinity)
             .padding(.horizontal, 4)
@@ -120,165 +132,193 @@ struct TicketDetailView: View {
     }
 
     // MARK: - Info Card
+    // Noxy: Card + SectionLabel + infoRow（長押しコピー対応）
 
     private var infoCard: some View {
-        VStack(spacing: 0) {
-            cardHeader("詳細", icon: "ticket.fill", color: .accentIndigo)
-            Divider()
+        Card(padding: 0, background: Theme.Color.surface, showBorder: true) {
+            VStack(spacing: 0) {
+                SectionLabel(title: "詳細")
+                    .padding(.horizontal, .spacing16)
+                    .padding(.vertical, .spacing10)
 
-            infoRow("開設者", value: "@\(ticket.openedBy)")
-            Divider().padding(.leading, .spacing16)
-            infoRow("開設日時", value: ticket.openedAt.formatted(date: .abbreviated, time: .shortened))
-            Divider().padding(.leading, .spacing16)
-            infoRow("ステータス", value: ticket.status.label)
+                Divider().background(Theme.Color.line)
 
-            // 優先度（送信中は無効化）
-            Divider().padding(.leading, .spacing16)
-            HStack {
-                Text("優先度").font(.bodySmall).foregroundStyle(Color.textSecondary)
-                Spacer()
-                HStack(spacing: .spacing6) {
-                    ForEach(TicketPriority.allCases, id: \.self) { p in
-                        Button {
-                            guard ticket.priority != p else { return }
-                            Task { await changePriority(p) }
-                        } label: {
-                            Text(p.label)
-                                .font(.system(size: 11, weight: ticket.priority == p ? .bold : .regular))
-                                .foregroundStyle(ticket.priority == p ? .white : Color.textSecondary)
-                                .padding(.horizontal, .spacing8).padding(.vertical, 4)
-                                .background(ticket.priority == p ? p.color : Color(.tertiarySystemGroupedBackground))
-                                .clipShape(Capsule())
+                infoRow("開設者", value: "@\(ticket.openedBy)")
+                infoRowMono("開設日時", value: ticket.openedAt.formatted(date: .abbreviated, time: .shortened))
+                infoRow("ステータス", value: ticket.status.label)
+
+                // 優先度
+                Divider()
+                    .background(Theme.Color.line)
+                    .padding(.leading, .spacing16)
+                HStack {
+                    Text("優先度")
+                        .font(Theme.Font.body)
+                        .foregroundStyle(Theme.Color.textSecondary)
+                    Spacer()
+                    HStack(spacing: .spacing6) {
+                        ForEach(TicketPriority.allCases, id: \.self) { p in
+                            Button {
+                                guard ticket.priority != p else { return }
+                                Task { await changePriority(p) }
+                            } label: {
+                                Text(p.label)
+                                    .font(.system(size: 11, weight: ticket.priority == p ? .bold : .regular))
+                                    .foregroundStyle(ticket.priority == p ? Theme.Color.accentInk : Theme.Color.textSecondary)
+                                    .padding(.horizontal, .spacing8)
+                                    .padding(.vertical, 4)
+                                    .background(ticket.priority == p ? p.color : Theme.Color.surfaceRaised)
+                                    .clipShape(Capsule())
+                            }
+                            .buttonStyle(.plain)
+                            .disabled(isActioning)
                         }
-                        .buttonStyle(.plain)
-                        .disabled(isActioning)
                     }
                 }
-            }
-            .padding(.horizontal, .spacing16).padding(.vertical, .spacing12)
+                .padding(.horizontal, .spacing16)
+                .padding(.vertical, .spacing12)
 
-            // 担当者
-            Divider().padding(.leading, .spacing16)
-            claimRow
-
-            if let closedAt = ticket.closedAt {
-                Divider().padding(.leading, .spacing16)
-                infoRow("クローズ", value: closedAt.formatted(date: .abbreviated, time: .shortened))
-            }
-
-            if let err = errorMessage {
+                // 担当者
                 Divider()
-                HStack(spacing: .spacing8) {
-                    Image(systemName: "exclamationmark.triangle.fill").foregroundStyle(.orange)
-                    Text(err).font(.captionSmall).foregroundStyle(Color.textSecondary)
+                    .background(Theme.Color.line)
+                    .padding(.leading, .spacing16)
+                claimRow
+
+                if let closedAt = ticket.closedAt {
+                    Divider()
+                        .background(Theme.Color.line)
+                        .padding(.leading, .spacing16)
+                    infoRowMono("クローズ", value: closedAt.formatted(date: .abbreviated, time: .shortened))
                 }
-                .padding(.horizontal, .spacing16).padding(.vertical, .spacing10)
+
+                if let err = errorMessage {
+                    Divider().background(Theme.Color.line)
+                    HStack(spacing: .spacing8) {
+                        Image(systemName: "exclamationmark.triangle.fill")
+                            .foregroundStyle(Theme.Color.statusWarn)
+                        Text(err)
+                            .font(Theme.Font.caption)
+                            .foregroundStyle(Theme.Color.textSecondary)
+                    }
+                    .padding(.horizontal, .spacing16)
+                    .padding(.vertical, .spacing10)
+                }
             }
         }
-        .background(Color(.secondarySystemGroupedBackground))
-        .clipShape(RoundedRectangle(cornerRadius: 14))
     }
 
     private var claimRow: some View {
         HStack {
-            Text("担当者").font(.bodySmall).foregroundStyle(Color.textSecondary)
+            Text("担当者")
+                .font(Theme.Font.body)
+                .foregroundStyle(Theme.Color.textSecondary)
             Spacer()
             if let assignee = ticket.assignedToUserId, !assignee.isEmpty, assignee != myUserId {
                 // 他のスタッフが担当中
                 HStack(spacing: 4) {
                     Image(systemName: "person.badge.clock.fill")
-                        .font(.captionSmall)
-                        .foregroundStyle(Color.accentIndigo)
+                        .font(Theme.Font.caption)
+                        .foregroundStyle(Theme.Color.accent)
                     Text("@\(assignee)")
-                        .font(.bodySmall)
-                        .foregroundStyle(Color.textTertiary)
+                        .font(Theme.Font.body)
+                        .foregroundStyle(Theme.Color.textTertiary)
                 }
             } else if ticket.status != .closed {
                 Button { Task { await claimTicket() } } label: {
                     Label(isClaimed ? "担当を外れる" : "担当する",
                           systemImage: isClaimed ? "person.badge.minus" : "person.badge.plus")
-                        .font(.captionRegular).fontWeight(.medium)
-                        .foregroundStyle(isClaimed ? Color.accentOrange : Color.accentIndigo)
-                        .padding(.horizontal, .spacing10).padding(.vertical, 5)
-                        .background((isClaimed ? Color.accentOrange : Color.accentIndigo).opacity(0.1))
+                        .font(Theme.Font.caption)
+                        .fontWeight(.medium)
+                        .foregroundStyle(isClaimed ? Theme.Color.statusWarn : Theme.Color.accent)
+                        .padding(.horizontal, .spacing10)
+                        .padding(.vertical, 5)
+                        .background((isClaimed ? Theme.Color.statusWarn : Theme.Color.accent).opacity(0.1))
                         .clipShape(Capsule())
                 }
                 .buttonStyle(.plain)
                 .disabled(isActioning)
             } else {
                 Text(ticket.assignedToUserId.map { "@\($0)" } ?? "なし")
-                    .font(.bodySmall)
-                    .foregroundStyle(Color.textTertiary)
+                    .font(Theme.Font.body)
+                    .foregroundStyle(Theme.Color.textTertiary)
             }
         }
-        .padding(.horizontal, .spacing16).padding(.vertical, .spacing12)
+        .padding(.horizontal, .spacing16)
+        .padding(.vertical, .spacing12)
     }
 
     // MARK: - Messages Section
 
     private var messagesSection: some View {
-        VStack(spacing: 0) {
-            cardHeader("メッッセージ (\(ticket.messageCount))",
-                       icon: "bubble.left.and.bubble.right.fill", color: .accentGreen)
-            Divider()
-            if isLoadingMessages {
-                HStack { Spacer(); ProgressView(); Spacer() }.padding(.spacing24)
-            } else if let err = loadError {
-                VStack(spacing: .spacing12) {
-                    Image(systemName: "wifi.exclamationmark")
-                        .font(.system(size: 32))
-                        .foregroundStyle(Color.textTertiary)
-                    Text(err)
-                        .font(.captionRegular)
-                        .foregroundStyle(Color.textSecondary)
-                        .multilineTextAlignment(.center)
-                    Button { Task { await loadMessages() } } label: {
-                        Label("再試行", systemImage: "arrow.clockwise")
-                            .font(.captionSmall)
-                            .fontWeight(.semibold)
+        Card(padding: 0, background: Theme.Color.surface, showBorder: true) {
+            VStack(spacing: 0) {
+                SectionLabel(title: "メッセージ (\(ticket.messageCount))")
+                    .padding(.horizontal, .spacing16)
+                    .padding(.vertical, .spacing10)
+
+                Divider().background(Theme.Color.line)
+
+                if isLoadingMessages {
+                    HStack { Spacer(); ProgressView(); Spacer() }
+                        .padding(.spacing24)
+                } else if let err = loadError {
+                    VStack(spacing: .spacing12) {
+                        Image(systemName: "wifi.exclamationmark")
+                            .font(.system(size: 32))
+                            .foregroundStyle(Theme.Color.textTertiary)
+                        Text(err)
+                            .font(Theme.Font.caption)
+                            .foregroundStyle(Theme.Color.textSecondary)
+                            .multilineTextAlignment(.center)
+                        Button { Task { await loadMessages() } } label: {
+                            Label("再試行", systemImage: "arrow.clockwise")
+                                .font(Theme.Font.caption)
+                                .fontWeight(.semibold)
+                        }
                     }
-                }
-                .padding(.spacing16)
-            } else if messages.isEmpty {
-                Text("メッセージはありません")
-                    .font(.captionSmall)
-                    .foregroundStyle(Color.textTertiary)
                     .padding(.spacing16)
-            } else {
-                LazyVStack(spacing: .spacing8) {
-                    ForEach(messages) { msg in
-                        MessageBubble(message: msg)
+                } else if messages.isEmpty {
+                    Text("メッセージはありません")
+                        .font(Theme.Font.caption)
+                        .foregroundStyle(Theme.Color.textTertiary)
+                        .padding(.spacing16)
+                } else {
+                    LazyVStack(spacing: .spacing8) {
+                        ForEach(messages) { msg in
+                            MessageBubble(message: msg, myUserId: myUserId)
+                        }
                     }
+                    .padding(.spacing12)
                 }
-                .padding(.spacing12)
             }
         }
-        .background(Color(.secondarySystemGroupedBackground))
-        .clipShape(RoundedRectangle(cornerRadius: 14))
     }
 
-    // MARK: - Reply Bar（キーボード対応）
+    // MARK: - Reply Bar
+    // Noxy: sur 背景 + line 上境界
 
     private var replyBar: some View {
         VStack(spacing: 0) {
-            Divider()
+            Divider().background(Theme.Color.line)
             HStack(spacing: .spacing10) {
                 ZStack(alignment: .topLeading) {
                     if replyText.isEmpty && !isReplyFocused {
                         Text("スタッフとして返信…")
-                            .foregroundStyle(Color.textTertiary)
-                            .font(.bodySmall)
-                            .padding(.top, 8).padding(.leading, 4)
+                            .foregroundStyle(Theme.Color.textTertiary)
+                            .font(Theme.Font.body)
+                            .padding(.top, 8)
+                            .padding(.leading, 4)
                             .allowsHitTesting(false)
                     }
                     TextEditor(text: $replyText)
-                        .font(.bodySmall)
+                        .font(Theme.Font.body)
                         .frame(minHeight: 38, maxHeight: 100)
                         .scrollContentBackground(.hidden)
                         .focused($isReplyFocused)
                 }
-                .padding(.horizontal, .spacing10).padding(.vertical, .spacing6)
-                .background(Color(.tertiarySystemGroupedBackground))
+                .padding(.horizontal, .spacing10)
+                .padding(.vertical, .spacing6)
+                .background(Theme.Color.surfaceRaised)
                 .clipShape(RoundedRectangle(cornerRadius: 18))
 
                 Button {
@@ -290,18 +330,19 @@ struct TicketDetailView: View {
                         ProgressView()
                             .scaleEffect(0.8)
                             .frame(width: 24, height: 24)
-                            .tint(Color.accentIndigo)
+                            .tint(Theme.Color.accent)
                     } else {
                         Image(systemName: "paperplane.fill")
                             .font(.system(size: 18, weight: .semibold))
                     }
                 }
-                .foregroundStyle(replyText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ? Color.textTertiary : Color.accentIndigo)
+                .foregroundStyle(replyText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ? Theme.Color.textTertiary : Theme.Color.accent)
                 .disabled(replyText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty || isSending)
             }
-            .padding(.horizontal, .spacing16).padding(.top, .spacing10)
+            .padding(.horizontal, .spacing16)
+            .padding(.top, .spacing10)
             .padding(.bottom, .spacing10)
-            .background(Color(.secondarySystemGroupedBackground))
+            .background(Theme.Color.surface)
         }
     }
 
@@ -311,7 +352,8 @@ struct TicketDetailView: View {
     private var toolbarContent: some ToolbarContent {
         ToolbarItem(placement: .topBarLeading) {
             Button("完了") { dismiss() }
-                .foregroundStyle(Color.accentIndigo)
+                .font(Theme.Font.body)
+                .foregroundStyle(Theme.Color.accent)
         }
         ToolbarItem(placement: .topBarTrailing) {
             Menu {
@@ -340,31 +382,51 @@ struct TicketDetailView: View {
                 }
             } label: {
                 Image(systemName: "ellipsis.circle")
-                    .foregroundStyle(Color.accentIndigo)
+                    .font(.system(size: 18, weight: .semibold))
+                    .foregroundStyle(Theme.Color.accent)
             }
             .disabled(isActioning)
         }
     }
 
     // MARK: - Helpers
-
-    private func cardHeader(_ title: String, icon: String, color: Color) -> some View {
-        HStack(spacing: .spacing8) {
-            Image(systemName: icon).font(.captionRegular).foregroundStyle(color)
-            Text(title).font(.captionSmall).fontWeight(.semibold)
-                .foregroundStyle(Color.textTertiary).textCase(.uppercase)
-        }
-        .frame(maxWidth: .infinity, alignment: .leading)
-        .padding(.horizontal, .spacing16).padding(.vertical, .spacing10)
-    }
+    // Noxy §5: 長押しで編集・詳細操作のトリガー（コピー）
 
     private func infoRow(_ label: String, value: String) -> some View {
         HStack {
-            Text(label).font(.bodySmall).foregroundStyle(Color.textSecondary)
+            Text(label)
+                .font(Theme.Font.body)
+                .foregroundStyle(Theme.Color.textSecondary)
             Spacer()
-            Text(value).font(.bodySmall).fontWeight(.medium).foregroundStyle(Color.textPrimary)
+            Text(value)
+                .font(Theme.Font.body)
+                .fontWeight(.medium)
+                .foregroundStyle(Theme.Color.textPrimary)
         }
-        .padding(.horizontal, .spacing16).padding(.vertical, .spacing12)
+        .padding(.horizontal, .spacing16)
+        .padding(.vertical, .spacing12)
+        .contentShape(Rectangle())
+        .onLongPressGesture {
+            UIPasteboard.general.string = value
+            UIImpactFeedbackGenerator(style: .light).impactOccurred()
+        }
+    }
+
+    private func infoRowMono(_ label: String, value: String) -> some View {
+        HStack {
+            Text(label)
+                .font(Theme.Font.body)
+                .foregroundStyle(Theme.Color.textSecondary)
+            Spacer()
+            MonoText(value: value, font: Theme.Font.mono, color: Theme.Color.textPrimary)
+        }
+        .padding(.horizontal, .spacing16)
+        .padding(.vertical, .spacing12)
+        .contentShape(Rectangle())
+        .onLongPressGesture {
+            UIPasteboard.general.string = value
+            UIImpactFeedbackGenerator(style: .light).impactOccurred()
+        }
     }
 
     // MARK: - Actions
@@ -391,7 +453,6 @@ struct TicketDetailView: View {
             ticket.lastMessageAt = .now
             onUpdate(ticket)
             await loadMessages()
-            // 返信したら自動的に対応中に
             if ticket.status == .open {
                 try? await services.tickets.setStatus(id: ticket.id, status: .pending)
                 ticket.status = .pending
@@ -454,47 +515,69 @@ struct TicketDetailView: View {
 }
 
 // MARK: - MessageBubble
+// source == "app"  → 右側「あなた(app)」
+// source != "app" && userId == myUserId → 右側「あなた(discord)」
+// それ以外 → 左側
 
 private struct MessageBubble: View {
     let message: TicketMessage
+    let myUserId: String
+
+    private var isMine: Bool {
+        if message.source == "app" { return true }
+        return !myUserId.isEmpty && message.userId == myUserId
+    }
+
+    private var senderLabel: String {
+        if message.source == "app" { return "あなた(app)" }
+        if !myUserId.isEmpty && message.userId == myUserId { return "あなた(discord)" }
+        return message.username
+    }
 
     var body: some View {
         HStack(alignment: .bottom, spacing: .spacing8) {
-            if message.isStaff { Spacer(minLength: 40) }
+            if isMine { Spacer(minLength: 40) }
 
-            VStack(alignment: message.isStaff ? .trailing : .leading, spacing: 3) {
+            VStack(alignment: isMine ? .trailing : .leading, spacing: 3) {
                 // ヘッダー（名前・ロール・時刻）
                 HStack(spacing: 5) {
-                    if message.isStaff {
-                        Text(message.createdAt.formatted(.dateTime.hour().minute()))
-                            .font(.system(size: 9))
-                            .foregroundStyle(Color.textTertiary)
-                        Label("スタッフ", systemImage: "shield.fill")
-                            .font(.system(size: 9, weight: .semibold))
-                            .foregroundStyle(Color.accentIndigo)
+                    if isMine {
+                        MonoText(
+                            value: message.createdAt.formatted(.dateTime.hour().minute()),
+                            font: Theme.Font.monoCap,
+                            color: Theme.Color.textTertiary
+                        )
+                        if message.isStaff {
+                            Label("スタッフ", systemImage: "shield.fill")
+                                .font(.system(size: 9, weight: .semibold))
+                                .foregroundStyle(Theme.Color.accent)
+                        }
                     }
-                    Text(message.username)
+                    Text(senderLabel)
                         .font(.system(size: 11, weight: .semibold))
-                        .foregroundStyle(Color.textTertiary)
-                    if !message.isStaff {
-                        Text(message.createdAt.formatted(.dateTime.hour().minute()))
-                            .font(.system(size: 9))
-                            .foregroundStyle(Color.textTertiary)
+                        .foregroundStyle(Theme.Color.textTertiary)
+                    if !isMine {
+                        MonoText(
+                            value: message.createdAt.formatted(.dateTime.hour().minute()),
+                            font: Theme.Font.monoCap,
+                            color: Theme.Color.textTertiary
+                        )
                     }
                 }
 
                 // メッセージ本文
                 Text(message.content)
-                    .font(.bodySmall)
-                    .foregroundStyle(message.isStaff ? .white : Color.textPrimary)
-                    .multilineTextAlignment(message.isStaff ? .trailing : .leading)
-                    .padding(.horizontal, .spacing12).padding(.vertical, .spacing8)
-                    .background(message.isStaff ? Color.accentIndigo : Color(.tertiarySystemGroupedBackground))
+                    .font(Theme.Font.body)
+                    .foregroundStyle(isMine ? Theme.Color.accentInk : Theme.Color.textPrimary)
+                    .multilineTextAlignment(isMine ? .trailing : .leading)
+                    .padding(.horizontal, .spacing12)
+                    .padding(.vertical, .spacing8)
+                    .background(isMine ? Theme.Color.accent : Theme.Color.surfaceRaised)
                     .clipShape(RoundedRectangle(cornerRadius: 16, style: .continuous))
             }
-            .frame(maxWidth: .infinity, alignment: message.isStaff ? .trailing : .leading)
+            .frame(maxWidth: .infinity, alignment: isMine ? .trailing : .leading)
 
-            if !message.isStaff { Spacer(minLength: 40) }
+            if !isMine { Spacer(minLength: 40) }
         }
     }
 }

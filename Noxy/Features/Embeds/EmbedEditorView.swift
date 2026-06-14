@@ -47,24 +47,18 @@ struct EmbedEditorView: View {
     @State private var errorMessage: String? = nil
     @State private var showCancelConfirm = false
 
-    // Focus
     @FocusState private var focusedField: FieldFocus?
-
-    // Keyboard
     @State private var keyboardHeight: CGFloat = 0
 
-    // Color picker
     @State private var showColorPicker = false
     @State private var showSendSheet = false
 
-    // Image upload
     @State private var thumbnailPhotoItem: PhotosPickerItem? = nil
     @State private var imagePhotoItem: PhotosPickerItem? = nil
     @State private var isUploadingThumbnail = false
     @State private var isUploadingImage = false
     @State private var uploadError: String? = nil
 
-    // Reordering
     @State private var reorderingFieldId: String? = nil
 
     let onSave: (EmbedModel) -> Void
@@ -98,14 +92,11 @@ struct EmbedEditorView: View {
         NavigationStack {
             ScrollViewReader { proxy in
                 ScrollView(.vertical, showsIndicators: false) {
-                    VStack(spacing: .spacing16) {
-                        // テンプレート名
-                        templateNameRow
-
-                        // Discord風編集可能プレビュー
-                        editablePreview
+                    VStack(spacing: Theme.Spacing.md) {
+                        templateNameSection
+                        previewSection
                     }
-                    .padding(.spacing16)
+                    .padding(Theme.Spacing.md)
                     .padding(.bottom, keyboardHeight > 0 ? keyboardHeight + 16 : 16)
                 }
                 .onChange(of: focusedField) { _, newValue in
@@ -145,7 +136,7 @@ struct EmbedEditorView: View {
                     }
                 }
             }
-            .background(Color.bgPrimary)
+            .background(Theme.Color.bg)
             .navigationTitle(vm.embed.name.isEmpty ? "新規Embed" : vm.embed.name)
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
@@ -178,11 +169,25 @@ struct EmbedEditorView: View {
             } message: {
                 Text(errorMessage ?? "")
             }
-            .alert("変更が破棄されます", isPresented: $showCancelConfirm) {
-                Button("変更を破棄", role: .destructive) { dismiss() }
-                Button("キャンセル", role: .cancel) { }
-            } message: {
-                Text("保存していない変更があります。このまま閉じますか？")
+            .overlay {
+                if showCancelConfirm {
+                    ConfirmModal(
+                        icon: "exclamationmark.triangle.fill",
+                        iconColor: Theme.Color.statusWarn,
+                        title: "変更が破棄されます",
+                        message: "保存していない変更があります。このまま閉じますか？",
+                        primaryLabel: "変更を破棄",
+                        primaryRole: .destructive,
+                        onPrimary: {
+                            dismiss()
+                            showCancelConfirm = false
+                        },
+                        onCancel: {
+                            showCancelConfirm = false
+                        }
+                    )
+                    .transition(.scale(scale: 0.92).combined(with: .opacity))
+                }
             }
         }
     }
@@ -192,25 +197,23 @@ struct EmbedEditorView: View {
     @ToolbarContentBuilder
     private var keyboardToolbar: some ToolbarContent {
         ToolbarItemGroup(placement: .keyboard) {
-            HStack(spacing: .spacing12) {
-                // +Field
+            HStack(spacing: Theme.Spacing.sm) {
                 if vm.embed.fields.count < EmbedModel.maxFields {
                     Button { vm.addField() } label: {
-                        Label("フィールド", systemImage: "plus").font(.captionRegular)
+                        Label("フィールド", systemImage: "plus")
+                            .font(Theme.Font.caption)
                     }
                     .foregroundStyle(accentColor)
                 }
 
                 Spacer()
 
-                // 文字数
-                Text("\(vm.charCount) / 6,000")
-                    .font(.mono)
-                    .foregroundStyle(vm.isOverLimit ? Color.accentPink : Color.textTertiary)
+                // 文字数: IBM Plex Mono で等幅表現
+                MonoText(value: "\(vm.charCount) / 6,000", font: Theme.Font.mono, color: vm.isOverLimit ? Theme.Color.statusBad : Theme.Color.textTertiary)
 
-                // 閉じる
                 Button("完了") { focusedField = nil }
-                    .font(.captionRegular).fontWeight(.semibold)
+                    .font(Theme.Font.caption)
+                    .fontWeight(.semibold)
             }
         }
     }
@@ -223,15 +226,17 @@ struct EmbedEditorView: View {
             Button("キャンセル") {
                 if vm.isModified { showCancelConfirm = true } else { dismiss() }
             }
-            .foregroundStyle(Color.textSecondary)
+            .font(Theme.Font.body)
+            .foregroundStyle(Theme.Color.textSecondary)
         }
         ToolbarItem(placement: .topBarTrailing) {
-            HStack(spacing: .spacing16) {
+            HStack(spacing: Theme.Spacing.md) {
                 Button {
                     showSendSheet = true
                 } label: {
                     Image(systemName: "paperplane.fill")
-                        .foregroundStyle(vm.isValid ? accentColor : Color.textTertiary)
+                        .font(.system(size: 16, weight: .semibold))
+                        .foregroundStyle(vm.isValid ? accentColor : Theme.Color.textTertiary)
                 }
                 .disabled(!vm.isValid)
                 .accessibilityLabel("送信")
@@ -240,87 +245,76 @@ struct EmbedEditorView: View {
                     Button("保存") {
                         saveEmbed()
                     }
-                    .fontWeight(.semibold)
-                    .foregroundStyle(canSave && !isSaving ? accentColor : Color.textTertiary)
+                    .font(Theme.Font.bodyMedium)
+                    .foregroundStyle(canSave && !isSaving ? Theme.Color.accent : Theme.Color.textTertiary)
                     .disabled(!canSave || isSaving)
                 }
             }
         }
     }
 
-    // MARK: - Template Name
+    // MARK: - Template Name Section
+    // Noxy Design Language: FormField を使用し、セクションビルド
 
-    private var templateNameRow: some View {
-        VStack(alignment: .leading, spacing: .spacing6) {
-            HStack(spacing: .spacing4) {
-                Text("テンプレート名")
-                    .font(.captionSmall)
-                    .fontWeight(.semibold)
-                    .foregroundStyle(Color.textTertiary)
-                    .textCase(.uppercase)
-                Text("必須")
-                    .font(.system(size: 9, weight: .bold))
-                    .foregroundStyle(Color.accentRed)
-                    .padding(.horizontal, 4).padding(.vertical, 1)
-                    .background(Color.accentRed.opacity(0.1))
-                    .clipShape(Capsule())
-            }
-            TextField("名前を入力", text: Binding(
-                get: { vm.embed.name },
-                set: { vm.embed.name = $0; vm.isModified = true }
-            ))
-            .font(.bodySmall)
-            .inputStyle()
-            .focused($focusedField, equals: .templateName)
+    private var templateNameSection: some View {
+        FormSection("基本情報", icon: "doc.text") {
+            FormField.text(
+                label: "テンプレート名",
+                text: Binding(
+                    get: { vm.embed.name },
+                    set: { vm.embed.name = $0; vm.isModified = true }
+                ),
+                placeholder: "名前を入力",
+                isRequired: true
+            )
         }
     }
 
-    // MARK: - Editable Preview
+    // MARK: - Preview Section
+    // Noxy Design Language: Card コンテナ + sur 背景 + 14px 角丸 + line ボーダー
+
+    private var previewSection: some View {
+        FormSection("プレビュー", icon: "eye") {
+            editablePreview
+        }
+    }
 
     private var editablePreview: some View {
-        HStack(alignment: .top, spacing: .spacing12) {
+        HStack(alignment: .top, spacing: Theme.Spacing.sm) {
             // Bot アバター
             ZStack {
                 Circle()
-                    .fill(
-                        LinearGradient(
-                            colors: [Color.accentIndigo, Color.accentPink],
-                            startPoint: .topLeading,
-                            endPoint: .bottomTrailing
-                        )
-                    )
+                    .fill(Theme.Color.accent)
                     .frame(width: 40, height: 40)
                 Image(systemName: "bubble.left.and.bubble.right.fill")
                     .font(.system(size: 16, weight: .semibold))
-                    .foregroundStyle(.white)
+                    .foregroundStyle(Theme.Color.accentInk)
             }
 
-            VStack(alignment: .leading, spacing: .spacing4) {
-                // ヘッダー: 名前 + BOT + 時刻（常時）
-                HStack(spacing: .spacing6) {
+            VStack(alignment: .leading, spacing: Theme.Spacing.xs) {
+                // ヘッダー
+                HStack(spacing: Theme.Spacing.xs) {
                     Text("Noxy")
-                        .font(.system(size: 14, weight: .semibold))
-                        .foregroundStyle(Color.accentIndigo)
-                    Text("BOT")
-                        .font(.system(size: 9, weight: .bold))
-                        .foregroundStyle(.white)
-                        .padding(.horizontal, 4).padding(.vertical, 1)
-                        .background(Color.accentIndigo)
-                        .clipShape(RoundedRectangle(cornerRadius: 3))
+                        .font(Theme.Font.bodyMedium)
+                        .foregroundStyle(Theme.Color.accent)
+
+                    Badge(text: "BOT", color: Theme.Color.accent, style: .filled)
+
                     Text("今日 ") + Text(Date(), style: .time)
-                        .font(.captionSmall)
-                        .foregroundStyle(Color.textTertiary)
+                        .font(Theme.Font.caption2)
+                        .foregroundStyle(Theme.Color.textTertiary)
+
                     Spacer()
                 }
 
-                // メッセージ本文（常時表示）
+                // メッセージ本文
                 TextField("メッセージを入力...", text: Binding(
                     get: { vm.embed.messageContent ?? "" },
                     set: { vm.embed.messageContent = $0.isEmpty ? nil : $0; vm.isModified = true }
                 ), axis: .vertical)
                 .lineLimit(2...5)
-                .font(.system(size: 14))
-                .foregroundStyle(Color.textPrimary)
+                .font(Theme.Font.body)
+                .foregroundStyle(Theme.Color.textPrimary)
                 .textFieldStyle(.plain)
                 .background(.clear)
                 .focused($focusedField, equals: .messageContent)
@@ -332,26 +326,30 @@ struct EmbedEditorView: View {
                 embedBlock
             }
         }
-        .padding(.spacing12)
-        .background(Color.bgSurface)
-        .clipShape(RoundedRectangle(cornerRadius: 4))
+        .padding(Theme.Spacing.sm)
+        .background(Theme.Color.surface)
+        .clipShape(RoundedRectangle(cornerRadius: Theme.Radius.card, style: .continuous))
+        .overlay(
+            RoundedRectangle(cornerRadius: Theme.Radius.card, style: .continuous)
+                .stroke(Theme.Color.line, lineWidth: 1)
+        )
     }
 
     private var embedBlock: some View {
         HStack(alignment: .top, spacing: 0) {
-            // 左カラーバー（タップでカラー変更）
+            // 左カラーバー
             RoundedRectangle(cornerRadius: 2)
                 .fill(accentColor)
                 .frame(width: 4)
                 .onTapGesture { showColorPicker = true }
 
-            VStack(alignment: .leading, spacing: .spacing8) {
-                // タイトル（常時表示）
+            VStack(alignment: .leading, spacing: Theme.Spacing.xs) {
+                // タイトル
                 TextField("タイトル", text: Binding(
                     get: { vm.embed.title ?? "" },
                     set: { vm.embed.title = $0.isEmpty ? nil : $0; vm.isModified = true }
                 ))
-                .font(.system(size: 15, weight: .semibold))
+                .font(Theme.Font.bodyMedium)
                 .foregroundStyle(accentColor)
                 .textFieldStyle(.plain)
                 .background(.clear)
@@ -360,12 +358,12 @@ struct EmbedEditorView: View {
                 .padding(.horizontal, 6).padding(.vertical, 4)
                 .embedDashedBorder(focused: focusedField == .title)
 
-                // 説明（常時表示）
+                // 説明
                 ZStack(alignment: .topLeading) {
                     if (vm.embed.description ?? "").isEmpty {
                         Text("説明")
-                            .font(.system(size: 14))
-                            .foregroundStyle(Color.textTertiary)
+                            .font(Theme.Font.body)
+                            .foregroundStyle(Theme.Color.textTertiary)
                             .padding(.top, 8).padding(.leading, 6)
                             .allowsHitTesting(false)
                     }
@@ -373,8 +371,8 @@ struct EmbedEditorView: View {
                         get: { vm.embed.description ?? "" },
                         set: { vm.embed.description = $0.isEmpty ? nil : $0; vm.isModified = true }
                     ))
-                    .font(.system(size: 14))
-                    .foregroundStyle(Color.textSecondary)
+                    .font(Theme.Font.body)
+                    .foregroundStyle(Theme.Color.textSecondary)
                     .scrollContentBackground(.hidden)
                     .background(.clear)
                     .frame(minHeight: 60, maxHeight: .infinity)
@@ -384,16 +382,18 @@ struct EmbedEditorView: View {
                 .embedDashedBorder(focused: focusedField == .description)
                 .id("desc-anchor")
 
-                // タイトルリンク（オプション）
+                // タイトルリンク
                 if vm.embed.embedUrl != nil {
-                    HStack(spacing: .spacing6) {
-                        Image(systemName: "link").font(.system(size: 12)).foregroundStyle(Color.textTertiary)
+                    HStack(spacing: Theme.Spacing.xs) {
+                        Image(systemName: "link")
+                            .font(.system(size: 12))
+                            .foregroundStyle(Theme.Color.textTertiary)
                         TextField("https://...", text: Binding(
                             get: { vm.embed.embedUrl ?? "" },
                             set: { vm.embed.embedUrl = $0.isEmpty ? nil : $0; vm.isModified = true }
                         ))
-                        .font(.captionRegular)
-                        .foregroundStyle(Color.textSecondary)
+                        .font(Theme.Font.caption2)
+                        .foregroundStyle(Theme.Color.textSecondary)
                         .textFieldStyle(.plain)
                         .background(.clear)
                         .keyboardType(.URL)
@@ -407,7 +407,7 @@ struct EmbedEditorView: View {
                         } label: {
                             Image(systemName: "xmark.circle.fill")
                                 .font(.system(size: 14))
-                                .foregroundStyle(Color.textTertiary)
+                                .foregroundStyle(Theme.Color.textTertiary)
                         }
                     }
                     .padding(.horizontal, 6).padding(.vertical, 4)
@@ -417,18 +417,18 @@ struct EmbedEditorView: View {
                 // フィールド
                 fieldsSection
 
-                // 画像（常時枠）
+                // 画像
                 imageSection
 
-                // フッター（常時表示）
+                // フッター
                 footerSection
             }
-            .padding(.spacing10)
+            .padding(Theme.Spacing.xs)
 
-            // サムネイル（右上 / 常時枠）
+            // サムネイル
             thumbnailSection
         }
-        .background(Color.bgSurface)
+        .background(Theme.Color.surface)
         .clipShape(RoundedRectangle(cornerRadius: 4))
     }
 
@@ -457,11 +457,11 @@ struct EmbedEditorView: View {
                     } label: {
                         Image(systemName: "xmark.circle.fill")
                             .font(.system(size: 20))
-                            .foregroundStyle(.white)
-                            .background(Color.black.opacity(0.5))
+                            .foregroundStyle(Theme.Color.accentInk)
+                            .background(Theme.Color.bg)
                             .clipShape(Circle())
                     }
-                    .padding(.spacing4)
+                    .padding(Theme.Spacing.xs)
                 }
             } else {
                 PhotosPicker(selection: $imagePhotoItem, matching: .images) {
@@ -473,10 +473,10 @@ struct EmbedEditorView: View {
                                 VStack(spacing: 4) {
                                     Image(systemName: "photo")
                                         .font(.system(size: 24))
-                                        .foregroundStyle(Color.textTertiary)
+                                        .foregroundStyle(Theme.Color.textTertiary)
                                     Text("タップして画像を追加")
-                                        .font(.captionSmall)
-                                        .foregroundStyle(Color.textTertiary)
+                                        .font(Theme.Font.caption2)
+                                        .foregroundStyle(Theme.Color.textTertiary)
                                 }
                             }
                         }
@@ -489,13 +489,13 @@ struct EmbedEditorView: View {
 
     private var placeholderImage: some View {
         RoundedRectangle(cornerRadius: 4)
-            .fill(Color.bgElevated)
+            .fill(Theme.Color.surfaceRaised)
             .frame(maxWidth: .infinity)
             .frame(height: 140)
             .overlay(
                 RoundedRectangle(cornerRadius: 4)
                     .stroke(style: StrokeStyle(lineWidth: 1, dash: [5, 3]))
-                    .foregroundStyle(Color.accentIndigo.opacity(0.28))
+                    .foregroundStyle(Theme.Color.accent.opacity(0.28))
             )
     }
 
@@ -511,7 +511,7 @@ struct EmbedEditorView: View {
                         case .success(let image):
                             image.resizable().scaledToFill()
                         default:
-                            RoundedRectangle(cornerRadius: 4).fill(Color.bgElevated)
+                            RoundedRectangle(cornerRadius: 4).fill(Theme.Color.surfaceRaised)
                         }
                     }
                     .frame(width: 60, height: 60)
@@ -523,8 +523,8 @@ struct EmbedEditorView: View {
                     } label: {
                         Image(systemName: "xmark.circle.fill")
                             .font(.system(size: 16))
-                            .foregroundStyle(.white)
-                            .background(Color.black.opacity(0.5))
+                            .foregroundStyle(Theme.Color.accentInk)
+                            .background(Theme.Color.bg)
                             .clipShape(Circle())
                     }
                     .offset(x: 4, y: -4)
@@ -532,12 +532,12 @@ struct EmbedEditorView: View {
             } else {
                 PhotosPicker(selection: $thumbnailPhotoItem, matching: .images) {
                     RoundedRectangle(cornerRadius: 4)
-                        .fill(Color.bgElevated)
+                        .fill(Theme.Color.surfaceRaised)
                         .frame(width: 60, height: 60)
                         .overlay(
                             RoundedRectangle(cornerRadius: 4)
                                 .stroke(style: StrokeStyle(lineWidth: 1, dash: [4, 3]))
-                                .foregroundStyle(Color.accentIndigo.opacity(0.28))
+                                .foregroundStyle(Theme.Color.accent.opacity(0.28))
                         )
                         .overlay {
                             if isUploadingThumbnail {
@@ -545,7 +545,7 @@ struct EmbedEditorView: View {
                             } else {
                                 Image(systemName: "photo")
                                     .font(.system(size: 20))
-                                    .foregroundStyle(Color.textTertiary)
+                                    .foregroundStyle(Theme.Color.textTertiary)
                             }
                         }
                 }
@@ -558,7 +558,7 @@ struct EmbedEditorView: View {
     // MARK: - Footer Section
 
     private var footerSection: some View {
-        HStack(spacing: .spacing4) {
+        HStack(spacing: Theme.Spacing.xs) {
             if let icon = vm.embed.footerIconUrl, !icon.isEmpty,
                let url = URL(string: icon) {
                 AsyncImage(url: url) { phase in
@@ -566,7 +566,7 @@ struct EmbedEditorView: View {
                     case .success(let image):
                         image.resizable().scaledToFill()
                     default:
-                        Circle().fill(Color.bgElevated)
+                        Circle().fill(Theme.Color.surfaceRaised)
                     }
                 }
                 .frame(width: 14, height: 14)
@@ -577,8 +577,8 @@ struct EmbedEditorView: View {
                 get: { vm.embed.footerText ?? "" },
                 set: { vm.embed.footerText = $0.isEmpty ? nil : $0; vm.isModified = true }
             ))
-            .font(.captionSmall)
-            .foregroundStyle(Color.textTertiary)
+            .font(Theme.Font.caption2)
+            .foregroundStyle(Theme.Color.textTertiary)
             .textFieldStyle(.plain)
             .background(.clear)
             .focused($focusedField, equals: .footerText)
@@ -586,8 +586,8 @@ struct EmbedEditorView: View {
             .embedDashedBorder(focused: focusedField == .footerText)
 
             Text(Date(), style: .time)
-                .font(.captionSmall)
-                .foregroundStyle(Color.textTertiary)
+                .font(Theme.Font.caption2)
+                .foregroundStyle(Theme.Color.textTertiary)
 
             Spacer()
         }
@@ -596,21 +596,19 @@ struct EmbedEditorView: View {
     // MARK: - Fields Section
 
     private var fieldsSection: some View {
-        VStack(alignment: .leading, spacing: .spacing8) {
-            // すべてのフィールドを縦並びで編集（inline も block も区別せず）
+        VStack(alignment: .leading, spacing: Theme.Spacing.xs) {
             ForEach(vm.embed.fields) { field in
                 fieldEditor(fieldBinding(for: field))
             }
 
-            // 追加ボタン
             if vm.embed.fields.count < EmbedModel.maxFields {
                 Button { vm.addField() } label: {
-                    HStack(spacing: .spacing6) {
+                    HStack(spacing: Theme.Spacing.xs) {
                         Image(systemName: "plus").font(.system(size: 12))
-                        Text("フィールドを追加").font(.captionRegular)
+                        Text("フィールドを追加").font(Theme.Font.caption)
                     }
                     .foregroundStyle(accentColor)
-                    .padding(.vertical, .spacing6)
+                    .padding(.vertical, Theme.Spacing.xs)
                 }
                 .buttonStyle(.plain)
             }
@@ -633,12 +631,12 @@ struct EmbedEditorView: View {
         let fieldId = field.wrappedValue.id
         let isReordering = reorderingFieldId == fieldId
 
-        return VStack(alignment: .leading, spacing: .spacing4) {
-            HStack(spacing: .spacing6) {
+        return VStack(alignment: .leading, spacing: Theme.Spacing.xs) {
+            HStack(spacing: Theme.Spacing.xs) {
                 // ドラッグハンドル
                 Image(systemName: "line.3.horizontal")
                     .font(.system(size: 12))
-                    .foregroundStyle(Color.textTertiary)
+                    .foregroundStyle(Theme.Color.textTertiary)
                     .padding(.vertical, 4)
                     .contentShape(Rectangle())
                     .gesture(
@@ -675,8 +673,9 @@ struct EmbedEditorView: View {
                     )
 
                 TextField("名前", text: field.name)
-                    .font(.system(size: 12, weight: .bold))
-                    .foregroundStyle(Color.textTertiary)
+                    .font(Theme.Font.caption)
+                    .fontWeight(.semibold)
+                    .foregroundStyle(Theme.Color.textTertiary)
                     .textFieldStyle(.plain)
                     .background(.clear)
                     .focused($focusedField, equals: .fieldName(fieldId))
@@ -699,28 +698,27 @@ struct EmbedEditorView: View {
                 } label: {
                     Image(systemName: "minus.circle.fill")
                         .font(.system(size: 16))
-                        .foregroundStyle(.red)
+                        .foregroundStyle(Theme.Color.statusBad)
                 }
             }
 
             TextField("値", text: field.value)
-                .font(.bodySmall)
-                .foregroundStyle(Color.textPrimary)
+                .font(Theme.Font.body)
+                .foregroundStyle(Theme.Color.textPrimary)
                 .textFieldStyle(.plain)
                 .background(.clear)
                 .focused($focusedField, equals: .fieldValue(fieldId))
                 .padding(.horizontal, 4).padding(.vertical, 3)
                 .embedDashedBorder(focused: focusedField == .fieldValue(fieldId))
         }
-        .padding(.spacing8)
-        .background(isReordering ? accentColor.opacity(0.15) : Color.bgElevated)
+        .padding(Theme.Spacing.xs)
+        .background(isReordering ? Theme.Color.accentDim : Theme.Color.surfaceRaised)
         .clipShape(RoundedRectangle(cornerRadius: 4))
         .overlay(
             RoundedRectangle(cornerRadius: 4)
                 .stroke(isReordering ? accentColor : Color.clear, lineWidth: 1.5)
         )
         .scaleEffect(isReordering ? 1.02 : 1.0)
-        .shadow(color: isReordering ? Color.black.opacity(0.15) : .clear, radius: 4, y: 2)
         .id("field-\(fieldId)")
     }
 

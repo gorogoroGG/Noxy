@@ -23,20 +23,35 @@ struct ServerIconView: View {
     }
 
     var body: some View {
-        RoundedRectangle(cornerRadius: cornerRadius)
-            .fill(
-                LinearGradient(
-                    colors: gradientColors,
-                    startPoint: .topLeading,
-                    endPoint: .bottomTrailing
-                )
-            )
-            .frame(width: size, height: size)
-            .overlay {
-                Text(initials)
-                    .font(.system(size: size * 0.35, weight: .bold))
-                    .foregroundStyle(.white)
+        Group {
+            if let urlString = imageUrl, let url = URL(string: urlString) {
+                AsyncImage(url: url) { phase in
+                    switch phase {
+                    case .success(let image):
+                        image.resizable().scaledToFill()
+                    default:
+                        fallbackView
+                    }
+                }
+            } else {
+                fallbackView
             }
+        }
+        .frame(width: size, height: size)
+        .clipShape(RoundedRectangle(cornerRadius: cornerRadius))
+    }
+
+    private var fallbackView: some View {
+        LinearGradient(
+            colors: gradientColors,
+            startPoint: .topLeading,
+            endPoint: .bottomTrailing
+        )
+        .overlay {
+            Text(initials)
+                .font(.system(size: size * 0.35, weight: .bold))
+                .foregroundStyle(.white)
+        }
     }
 }
 

@@ -23,22 +23,19 @@ struct FormField: View {
     }
 
     var body: some View {
-        VStack(alignment: .leading, spacing: .spacing6) {
+        VStack(alignment: .leading, spacing: Theme.Spacing.xs) {
             // Label row
-            HStack(spacing: .spacing4) {
+            HStack(spacing: Theme.Spacing.xs) {
                 Text(label)
-                    .font(.captionSmall)
+                    .font(Theme.Font.caption2)
                     .fontWeight(.semibold)
-                    .foregroundStyle(Color.textTertiary)
+                    .foregroundStyle(Theme.Color.textTertiary)
                     .textCase(.uppercase)
 
                 if isRequired {
-                    Text("必須")
-                        .font(.system(size: 9, weight: .bold))
-                        .foregroundStyle(Color.accentRed)
-                        .padding(.horizontal, 4).padding(.vertical, 1)
-                        .background(Color.accentRed.opacity(0.1))
-                        .clipShape(Capsule())
+                    Text("*")
+                        .font(.system(size: 14, weight: .bold))
+                        .foregroundStyle(Theme.Color.statusBad)
                 }
             }
 
@@ -48,8 +45,8 @@ struct FormField: View {
             // Helper
             if let helper {
                 Text(helper)
-                    .font(.captionSmall)
-                    .foregroundStyle(Color.textTertiary)
+                    .font(Theme.Font.caption2)
+                    .foregroundStyle(Theme.Color.textTertiary)
             }
         }
     }
@@ -61,12 +58,12 @@ extension View {
     /// 統一テキスト入力スタイル。bgElevated + cornerRadiusSmall + 内側余白。
     func inputStyle(height: CGFloat? = nil) -> some View {
         self
-            .font(.bodySmall)
-            .padding(.horizontal, .spacing12)
-            .padding(.vertical, .spacing10)
+            .font(Theme.Font.bodySmall)
+            .padding(.horizontal, Theme.Spacing.sm)
+            .padding(.vertical, Theme.Spacing.xs)
             .frame(height: height, alignment: .leading)
-            .background(Color.bgElevated)
-            .clipShape(RoundedRectangle(cornerRadius: .cornerRadiusSmall, style: .continuous))
+            .background(Theme.Color.surfaceRaised)
+            .clipShape(RoundedRectangle(cornerRadius: Theme.Radius.button, style: .continuous))
     }
 
     /// Embed エディタ専用：薄い点線で入力エリアを囲う。テキストに合わせて動的にサイズ変化。
@@ -79,8 +76,8 @@ extension View {
                 )
                 .foregroundStyle(
                     focused
-                        ? Color.accentIndigo.opacity(0.55)
-                        : Color.accentIndigo.opacity(0.28)
+                        ? Theme.Color.accent.opacity(0.55)
+                        : Theme.Color.accent.opacity(0.28)
                 )
         )
         .padding(2)
@@ -124,13 +121,13 @@ extension FormField {
             ZStack(alignment: .topLeading) {
                 if text.wrappedValue.isEmpty {
                     Text(placeholder)
-                        .font(.bodySmall)
-                        .foregroundStyle(Color.textTertiary)
+                        .font(Theme.Font.bodySmall)
+                        .foregroundStyle(Theme.Color.textTertiary)
                         .padding(.top, 10).padding(.leading, 14)
                         .allowsHitTesting(false)
                 }
                 TextEditor(text: text)
-                    .font(.bodySmall)
+                    .font(Theme.Font.bodySmall)
                     .scrollContentBackground(.hidden)
                     .inputStyle(height: 100)
             }
@@ -148,7 +145,7 @@ extension FormField {
             HStack {
                 Spacer()
                 Toggle("", isOn: isOn)
-                    .tint(Color.accentIndigo)
+                    .tint(Theme.Color.accent)
                     .labelsHidden()
             }
             .inputStyle(height: 44)
@@ -187,7 +184,7 @@ extension FormField {
                 Spacer()
                 Stepper(value: value, in: range) {
                     Text("\(value.wrappedValue)")
-                        .font(.bodySmall)
+                        .font(Theme.Font.bodySmall)
                         .foregroundStyle(Color.textPrimary)
                 }
             }
@@ -216,9 +213,9 @@ extension FormField {
 
 #Preview {
     ScrollView {
-        VStack(spacing: .spacing16) {
+        VStack(spacing: Theme.Spacing.md) {
             FormSection("基本設定", icon: "gear") {
-                VStack(spacing: .spacing12) {
+                VStack(spacing: Theme.Spacing.sm) {
                     FormField.text(label: "タイトル", text: .constant(""), placeholder: "タイトルを入力", isRequired: true)
                     FormField.editor(label: "説明", text: .constant(""), placeholder: "説明を入力...")
                     FormField.toggle(label: "有効化", isOn: .constant(true))
@@ -226,7 +223,7 @@ extension FormField {
                 }
             }
         }
-        .padding(.spacing16)
+        .padding(Theme.Spacing.md)
     }
     .background(Color.bgPrimary)
 }

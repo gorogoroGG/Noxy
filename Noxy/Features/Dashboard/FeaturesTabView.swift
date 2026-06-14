@@ -67,7 +67,7 @@ struct FeaturesTabView: View {
                     icon: "checkmark.shield.fill",
                     title: "認証",
                     subtitle: "CAPTCHA認証でロールを自動付与",
-                    accentColor: .accentGreen,
+                    accentColor: Theme.Color.statusOK,
                     badge: appState.isPro ? nil : "Pro"
                 )
             }
@@ -140,7 +140,7 @@ struct FeaturesTabView: View {
                 icon: "gift.fill",
                 title: "ギブアウェイ",
                 subtitle: "景品プレゼント抽選",
-                accentColor: .accentPink,
+                accentColor: Color.accentPink,
                 isComingSoon: true
             )
             .disabled(true)
@@ -234,7 +234,7 @@ struct FeaturesTabView: View {
                     icon: "shield.lefthalf.filled",
                     title: "モデレーション",
                     subtitle: "BAN・タイムアウト・警告・AutoMod を一括管理",
-                    accentColor: .accentRed
+                    accentColor: Theme.Color.statusBad
                 )
             }
 
@@ -242,7 +242,7 @@ struct FeaturesTabView: View {
                 icon: "shield.fill",
                 title: "自動モデレーション",
                 subtitle: "スパム・大文字・メンション制限",
-                accentColor: .accentRed,
+                accentColor: Theme.Color.statusBad,
                 isComingSoon: true
             )
             .disabled(true)
@@ -259,7 +259,7 @@ struct FeaturesTabView: View {
                 icon: "nosign",
                 title: "ワードフィルター",
                 subtitle: "特定ワードをブロック",
-                accentColor: .accentRed,
+                accentColor: Theme.Color.statusBad,
                 isComingSoon: true
             )
             .disabled(true)
@@ -312,7 +312,7 @@ struct FeaturesTabView: View {
                     icon: "storefront.fill",
                     title: "自販機",
                     subtitle: "即時購入・スムーズな取引",
-                    accentColor: .accentGreen,
+                    accentColor: Theme.Color.statusOK,
                     badge: appState.isPro ? nil : "Pro"
                 )
             }
@@ -351,30 +351,36 @@ private struct FeatureRow: View {
     let icon: String
     let title: String
     let subtitle: String
-    var accentColor: Color = .accentIndigo
+    var accentColor: Color = Theme.Color.accent  // retained for API compatibility; icons always neutral
     var isComingSoon: Bool = false
     var badge: String?     = nil  // "Pro" などのバッジテキスト
 
     var body: some View {
-        HStack(spacing: .spacing12) {
-            // Icon
-            Image(systemName: icon)
-                .font(.subheadline)
-                .foregroundStyle(accentColor)
-                .frame(width: 32, height: 32)
-                .background(accentColor.opacity(0.12))
-                .clipShape(RoundedRectangle(cornerRadius: .cornerRadiusSmall))
+        HStack(spacing: Theme.Spacing.md) {
+            // Icon — neutral container matching mock style
+            ZStack {
+                RoundedRectangle(cornerRadius: 11)
+                    .fill(Theme.Color.surfaceRaised)
+                    .overlay {
+                        RoundedRectangle(cornerRadius: 11)
+                            .stroke(Theme.Color.lineStrong, lineWidth: 1)
+                    }
+                    .frame(width: 34, height: 34)
+                Image(systemName: icon)
+                    .font(.system(size: 15, weight: .semibold))
+                    .foregroundStyle(Theme.Color.textSecondary)
+            }
 
             // Text
-            VStack(alignment: .leading, spacing: .spacing2) {
-                HStack(spacing: .spacing6) {
+            VStack(alignment: .leading, spacing: 3) {
+                HStack(spacing: Theme.Spacing.xs) {
                     Text(title)
-                        .font(.body)
-                        .foregroundStyle(Color.textPrimary)
+                        .font(.system(size: 13.5, weight: .semibold))
+                        .foregroundStyle(Theme.Color.textPrimary)
 
                     if let badge {
                         Text(badge)
-                            .font(.system(size: 10, weight: .bold))
+                            .font(.system(size: 9.5, weight: .bold))
                             .foregroundStyle(.white)
                             .padding(.horizontal, 5)
                             .padding(.vertical, 2)
@@ -386,8 +392,8 @@ private struct FeatureRow: View {
                 }
 
                 Text(subtitle)
-                    .font(.subheadline)
-                    .foregroundStyle(Color.textSecondary)
+                    .font(.system(size: 10.5))
+                    .foregroundStyle(Theme.Color.textTertiary)
                     .lineLimit(1)
             }
 
@@ -396,10 +402,11 @@ private struct FeatureRow: View {
             // Coming Soon indicator
             if isComingSoon {
                 Image(systemName: "lock.fill")
-                    .font(.caption)
-                    .foregroundStyle(Color.textTertiary)
+                    .font(.system(size: 11))
+                    .foregroundStyle(Theme.Color.textTertiary)
             }
         }
+        .padding(.vertical, 2)
         .opacity(isComingSoon ? 0.5 : 1.0)
     }
 }

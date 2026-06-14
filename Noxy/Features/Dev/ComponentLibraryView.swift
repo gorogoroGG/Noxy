@@ -788,66 +788,6 @@ private struct DemoSheet: View {
     }
 }
 
-// MARK: - ConfirmModal
-
-struct ConfirmModal: View {
-    let icon: String
-    let iconColor: Color
-    let title: String
-    let message: String
-    let primaryLabel: String
-    let primaryRole: ButtonRole?
-    let onPrimary: () -> Void
-    let onCancel: (() -> Void)?
-
-    var body: some View {
-        ZStack {
-            Color.black.opacity(0.45).ignoresSafeArea()
-                .onTapGesture { onCancel?() }
-
-            VStack(spacing: 0) {
-                ZStack {
-                    Circle().fill(iconColor.opacity(0.12)).frame(width: 64, height: 64)
-                    Image(systemName: icon).font(.system(size: 28, weight: .semibold)).foregroundStyle(iconColor)
-                }
-                .padding(.top, .spacing24)
-
-                VStack(spacing: .spacing8) {
-                    Text(title).font(.titleMedium).fontWeight(.bold).foregroundStyle(Color.textPrimary)
-                        .multilineTextAlignment(.center)
-                    Text(message).font(.bodySmall).foregroundStyle(Color.textSecondary)
-                        .multilineTextAlignment(.center).fixedSize(horizontal: false, vertical: true)
-                }
-                .padding(.horizontal, .spacing24).padding(.top, .spacing16).padding(.bottom, .spacing24)
-
-                Divider()
-
-                if let cancel = onCancel {
-                    HStack(spacing: 0) {
-                        Button("キャンセル") { cancel() }
-                            .font(.bodySmall).foregroundStyle(Color.textSecondary)
-                            .frame(maxWidth: .infinity).padding(.vertical, .spacing16).contentShape(Rectangle())
-                        Divider().frame(height: 50)
-                        Button(primaryLabel, role: primaryRole) { onPrimary() }
-                            .font(.bodySmall).fontWeight(.semibold)
-                            .foregroundStyle(primaryRole == .destructive ? Color.accentRed : Color.accentIndigo)
-                            .frame(maxWidth: .infinity).padding(.vertical, .spacing16).contentShape(Rectangle())
-                    }
-                } else {
-                    Button(primaryLabel) { onPrimary() }
-                        .font(.bodySmall).fontWeight(.semibold).foregroundStyle(Color.accentIndigo)
-                        .frame(maxWidth: .infinity).padding(.vertical, .spacing16).contentShape(Rectangle())
-                }
-            }
-            .background(Color.bgSurface)
-            .clipShape(RoundedRectangle(cornerRadius: 20))
-            .shadow(color: Color.black.opacity(0.2), radius: 30, y: 10)
-            .padding(.horizontal, .spacing32)
-            .transition(.scale(scale: 0.92).combined(with: .opacity))
-        }
-    }
-}
-
 // MARK: - CustomInputModal
 
 private struct CustomInputModal: View {
@@ -1037,7 +977,8 @@ private struct BottomSheetPickerContent: View {
     }
 }
 
-private struct FlowLayout: Layout {
+// FlowLayout は Theme/Components/FlowLayout.swift で共通定義済み
+private struct _DevFlowLayout: Layout {
     var spacing: CGFloat = 8
 
     func sizeThatFits(proposal: ProposedViewSize, subviews: Subviews, cache: inout ()) -> CGSize {

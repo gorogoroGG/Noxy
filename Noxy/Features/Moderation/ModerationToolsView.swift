@@ -19,18 +19,10 @@ struct ModerationCenterView: View {
         }
         var icon: String {
             switch self {
-            case .ban:     "hand.raised.slash.fill"
+            case .ban:     "hand.raised.slash"
             case .timeout: "timer"
-            case .warning: "exclamationmark.triangle.fill"
-            case .automod: "shield.lefthalf.filled.badge.checkmark"
-            }
-        }
-        var color: Color {
-            switch self {
-            case .ban:     .accentRed
-            case .timeout: .accentPurple
-            case .warning: .accentOrange
-            case .automod: .accentIndigo
+            case .warning: "exclamationmark.triangle"
+            case .automod: "shield.lefthalf.filled"
             }
         }
     }
@@ -38,15 +30,15 @@ struct ModerationCenterView: View {
     var body: some View {
         ZStack(alignment: .top) {
             tabContent
-                .padding(.top, 44) // タブバーの高さ分だけ下にずらす
+                .padding(.top, 44)
             tabBar
         }
-        .background(Color.bgPrimary)
+        .background(Theme.Color.bg)
         .navigationTitle("モデレーション")
-        .navigationBarTitleDisplayMode(.large)
+        .navigationBarTitleDisplayMode(.inline)
     }
 
-    // MARK: - Tab Bar（常に固定）
+    // MARK: - Tab Bar
 
     private var tabBar: some View {
         HStack(spacing: 0) {
@@ -58,25 +50,25 @@ struct ModerationCenterView: View {
                     VStack(spacing: 4) {
                         Image(systemName: t.icon)
                             .font(.system(size: 18, weight: .medium))
-                            .foregroundStyle(tab == t ? t.color : Color.textTertiary)
+                            .foregroundStyle(tab == t ? Theme.Color.accent : Theme.Color.textTertiary)
                         Text(t.label)
-                            .font(.captionSmall)
+                            .font(Theme.Font.caption2)
                             .fontWeight(tab == t ? .semibold : .regular)
-                            .foregroundStyle(tab == t ? t.color : Color.textTertiary)
+                            .foregroundStyle(tab == t ? Theme.Color.accent : Theme.Color.textTertiary)
                         Rectangle()
-                            .fill(tab == t ? t.color : Color.clear)
+                            .fill(tab == t ? Theme.Color.accent : Color.clear)
                             .frame(height: 2)
                             .clipShape(Capsule())
                     }
                     .frame(maxWidth: .infinity)
-                    .padding(.vertical, .spacing10)
+                    .padding(.vertical, Theme.Spacing.sm)
                     .contentShape(Rectangle())
                 }
                 .buttonStyle(.plain)
             }
         }
-        .background(Color.bgSurface)
-        .overlay(Divider(), alignment: .bottom)
+        .background(Theme.Color.surface)
+        .overlay(Divider().background(Theme.Color.line), alignment: .bottom)
     }
 
     // MARK: - Tab Content
@@ -108,22 +100,17 @@ struct ModErrorView: View {
     let retry: () -> Void
 
     var body: some View {
-        VStack(spacing: .spacing16) {
+        VStack(spacing: Theme.Spacing.md) {
             Spacer()
             Image(systemName: "wifi.exclamationmark")
                 .font(.system(size: 40, weight: .thin))
-                .foregroundStyle(Color.textTertiary)
+                .foregroundStyle(Theme.Color.textTertiary)
             Text(message)
-                .font(.bodySmall)
-                .foregroundStyle(Color.textSecondary)
+                .font(Theme.Font.bodySmall)
+                .foregroundStyle(Theme.Color.textSecondary)
                 .multilineTextAlignment(.center)
-                .padding(.horizontal, .spacing32)
-            Button("再試行", action: retry)
-                .font(.bodySmall).fontWeight(.semibold)
-                .foregroundStyle(.white)
-                .padding(.horizontal, .spacing24).frame(height: 40)
-                .background(Color.accentIndigo)
-                .clipShape(Capsule())
+                .padding(.horizontal, Theme.Spacing.xxl)
+            AccentButton(title: "再試行", action: retry)
             Spacer()
         }
         .frame(maxWidth: .infinity)
@@ -136,15 +123,19 @@ struct ModSuccessToast: View {
     let message: String
 
     var body: some View {
-        HStack(spacing: .spacing8) {
-            Image(systemName: "checkmark.circle.fill").foregroundStyle(.white)
+        HStack(spacing: Theme.Spacing.xs) {
+            Image(systemName: "checkmark.circle.fill")
+                .foregroundStyle(Theme.Color.statusOK)
             Text(message)
-                .font(.bodySmall).fontWeight(.semibold).foregroundStyle(.white)
+                .font(Theme.Font.bodySmall)
+                .fontWeight(.semibold)
+                .foregroundStyle(Theme.Color.textPrimary)
         }
-        .padding(.horizontal, .spacing20).frame(height: 48)
-        .background(Color.accentGreen)
+        .padding(.horizontal, Theme.Spacing.lg)
+        .frame(height: 48)
+        .background(Theme.Color.surface)
         .clipShape(Capsule())
-        .shadow(color: .black.opacity(0.2), radius: 8, y: 4)
+        .overlay(Capsule().stroke(Theme.Color.lineStrong, lineWidth: 1))
     }
 }
 
@@ -156,16 +147,18 @@ struct ModEmptyView: View {
     var subtitle: String? = nil
 
     var body: some View {
-        VStack(spacing: .spacing12) {
+        VStack(spacing: Theme.Spacing.sm) {
             Spacer()
             Image(systemName: icon)
                 .font(.system(size: 48, weight: .thin))
-                .foregroundStyle(Color.accentGreen.opacity(0.6))
+                .foregroundStyle(Theme.Color.textTertiary)
             Text(title)
-                .font(.titleMedium).foregroundStyle(Color.textPrimary)
+                .font(Theme.Font.title3)
+                .foregroundStyle(Theme.Color.textPrimary)
             if let subtitle {
                 Text(subtitle)
-                    .font(.bodySmall).foregroundStyle(Color.textSecondary)
+                    .font(Theme.Font.bodySmall)
+                    .foregroundStyle(Theme.Color.textSecondary)
             }
             Spacer()
         }
@@ -173,7 +166,14 @@ struct ModEmptyView: View {
     }
 }
 
-#Preview {
+#Preview("Dark") {
     NavigationStack { ModerationCenterView() }
         .environment(AppState())
+        .preferredColorScheme(.dark)
+}
+
+#Preview("Light") {
+    NavigationStack { ModerationCenterView() }
+        .environment(AppState())
+        .preferredColorScheme(.light)
 }

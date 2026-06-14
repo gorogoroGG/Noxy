@@ -32,7 +32,7 @@ struct SubscriptionView: View {
 
     var body: some View {
         ScrollView {
-            VStack(spacing: .spacing24) {
+            VStack(spacing: Theme.Spacing.xl) {
                 if isLoading {
                     ProgressView().frame(maxWidth: .infinity, minHeight: 300)
                 } else {
@@ -49,7 +49,7 @@ struct SubscriptionView: View {
             }
             .padding(.vertical)
         }
-        .background(Color.bgPrimary)
+        .background(Theme.Color.bg)
         .navigationTitle("Noxy Pro")
         .navigationBarTitleDisplayMode(.inline)
         .task { await load() }
@@ -60,44 +60,48 @@ struct SubscriptionView: View {
     // MARK: - Header
 
     private var header: some View {
-        VStack(spacing: .spacing16) {
+        VStack(spacing: Theme.Spacing.md) {
             ZStack {
-                Circle()
-                    .fill(LinearGradient(
-                        colors: [Color.accentOrange.opacity(0.18), Color.accentPink.opacity(0.18)],
-                        startPoint: .topLeading, endPoint: .bottomTrailing))
+                RoundedRectangle(cornerRadius: Theme.Radius.card)
+                    .fill(Theme.Color.surface)
                     .frame(width: 80, height: 80)
                 Image(systemName: "crown.fill")
                     .font(.system(size: 36))
-                    .foregroundStyle(LinearGradient(
-                        colors: [Color.accentOrange, Color.accentPink],
-                        startPoint: .topLeading, endPoint: .bottomTrailing))
+                    .foregroundStyle(Theme.Color.accent)
             }
 
-            VStack(spacing: .spacing6) {
+            VStack(spacing: Theme.Spacing.sm) {
                 Text("Noxy Pro")
-                    .font(.displayMedium)
-                    .foregroundStyle(Color.textPrimary)
+                    .font(Theme.Font.title3)
+                    .foregroundStyle(Theme.Color.textPrimary)
 
                 if status.isActive {
-                    HStack(spacing: .spacing6) {
-                        Image(systemName: "checkmark.seal.fill").foregroundStyle(Color.accentGreen)
-                        Text("有効中").font(.bodySmall).foregroundStyle(Color.accentGreen)
+                    HStack(spacing: Theme.Spacing.sm) {
+                        Image(systemName: "checkmark.seal.fill")
+                            .font(Theme.Font.caption)
+                            .foregroundStyle(Theme.Color.statusOK)
+                        Text("有効中")
+                            .font(Theme.Font.bodySmall)
+                            .foregroundStyle(Theme.Color.statusOK)
                         if let exp = status.expiresAt {
                             Text("· \(exp.formatted(date: .abbreviated, time: .omitted))まで")
-                                .font(.captionRegular).foregroundStyle(Color.textTertiary)
+                                .font(Theme.Font.caption)
+                                .foregroundStyle(Theme.Color.textTertiary)
                         }
                     }
                 } else {
                     Text("全Pro機能つき · いつでも解約可能")
-                        .font(.bodySmall).foregroundStyle(Color.textSecondary)
+                        .font(Theme.Font.bodySmall)
+                        .foregroundStyle(Theme.Color.textSecondary)
                 }
             }
 
             if let error = errorMessage {
                 Label(error, systemImage: "exclamationmark.triangle.fill")
-                    .font(.captionRegular).foregroundStyle(Color.accentPink)
-                    .multilineTextAlignment(.center).padding(.horizontal)
+                    .font(Theme.Font.caption)
+                    .foregroundStyle(Theme.Color.statusBad)
+                    .multilineTextAlignment(.center)
+                    .padding(.horizontal)
             }
         }
         .padding(.horizontal)
@@ -106,33 +110,43 @@ struct SubscriptionView: View {
     // MARK: - Active: slots bar
 
     private var slotsBar: some View {
-        VStack(spacing: .spacing8) {
-            HStack {
-                Text("サーバースロット")
-                    .font(.titleMedium).foregroundStyle(Color.textPrimary)
-                Spacer()
-                if status.isUnlimited {
-                    Label("無制限", systemImage: "infinity")
-                        .font(.captionRegular).foregroundStyle(Color.accentIndigo)
-                } else {
-                    Text("\(status.usedSlots) / \(status.purchasedSlots) 使用中")
-                        .font(.captionRegular).foregroundStyle(Color.textSecondary)
-                }
-            }
-            if !status.isUnlimited {
-                GeometryReader { geo in
-                    ZStack(alignment: .leading) {
-                        RoundedRectangle(cornerRadius: 4).fill(Color.bgSurface).frame(height: 8)
-                        RoundedRectangle(cornerRadius: 4)
-                            .fill(status.availableSlots > 0 ? Color.accentIndigo : Color.accentOrange)
-                            .frame(
-                                width: geo.size.width * CGFloat(status.usedSlots) / CGFloat(max(status.purchasedSlots, 1)),
-                                height: 8
-                            )
-                            .animation(.easeInOut, value: status.usedSlots)
+        Card {
+            VStack(spacing: Theme.Spacing.sm) {
+                HStack {
+                    Text("サーバースロット")
+                        .font(Theme.Font.bodyMedium)
+                        .foregroundStyle(Theme.Color.textPrimary)
+                    Spacer()
+                    if status.isUnlimited {
+                        Label("無制限", systemImage: "infinity")
+                            .font(Theme.Font.caption)
+                            .foregroundStyle(Theme.Color.accent)
+                    } else {
+                        Text("\(status.usedSlots) / \(status.purchasedSlots) 使用中")
+                            .font(Theme.Font.caption)
+                            .foregroundStyle(Theme.Color.textSecondary)
+                            .monospaced()
                     }
                 }
-                .frame(height: 8)
+                if !status.isUnlimited {
+                    GeometryReader { geo in
+                        ZStack(alignment: .leading) {
+                            RoundedRectangle(cornerRadius: 4)
+                                .fill(Theme.Color.surfaceRaised)
+                                .frame(height: 8)
+                            RoundedRectangle(cornerRadius: 4)
+                                .fill(
+                                    status.availableSlots > 0 ? Theme.Color.accent : Theme.Color.statusWarn
+                                )
+                                .frame(
+                                    width: geo.size.width * CGFloat(status.usedSlots) / CGFloat(max(status.purchasedSlots, 1)),
+                                    height: 8
+                                )
+                                .animation(.easeInOut, value: status.usedSlots)
+                        }
+                    }
+                    .frame(height: 8)
+                }
             }
         }
         .padding(.horizontal)
@@ -141,38 +155,41 @@ struct SubscriptionView: View {
     // MARK: - Active: server list
 
     private var serverSection: some View {
-        VStack(alignment: .leading, spacing: .spacing12) {
+        VStack(alignment: .leading, spacing: Theme.Spacing.sm) {
             HStack {
-                SectionHeader(title: "サーバーを有効化")
+                SectionLabel(title: "サーバーを有効化")
                 Spacer()
                 NavigationLink(destination: ServerActivationView()) {
-                    HStack(spacing: .spacing4) {
-                        Text("すべて管理").font(.captionRegular)
-                        Image(systemName: "chevron.right").font(.captionRegular)
+                    HStack(spacing: Theme.Spacing.xs) {
+                        Text("すべて管理")
+                            .font(Theme.Font.caption)
+                        Image(systemName: "chevron.right")
+                            .font(Theme.Font.caption)
                     }
-                    .foregroundStyle(Color.accentIndigo)
+                    .foregroundStyle(Theme.Color.accent)
                 }
             }
             .padding(.horizontal)
 
             if ownerGuilds.isEmpty {
                 Text("条件に合うサーバーがありません")
-                    .font(.bodySmall).foregroundStyle(Color.textSecondary)
+                    .font(Theme.Font.bodySmall)
+                    .foregroundStyle(Theme.Color.textSecondary)
                     .padding(.horizontal)
             } else {
-                VStack(spacing: 0) {
-                    ForEach(ownerGuilds) { guild in
-                        ServerActivationRow(
-                            guild: guild,
-                            isActivated: status.activatedGuildIds.contains(guild.id),
-                            isLoading: isActivating == guild.id,
-                            canActivate: status.availableSlots > 0 || status.activatedGuildIds.contains(guild.id)
-                        ) { activate in await toggleActivation(guild: guild, activate: activate) }
-                        if guild.id != ownerGuilds.last?.id { Divider().padding(.leading, 60) }
+                Card {
+                    VStack(spacing: 0) {
+                        ForEach(ownerGuilds) { guild in
+                            ServerActivationRow(
+                                guild: guild,
+                                isActivated: status.activatedGuildIds.contains(guild.id),
+                                isLoading: isActivating == guild.id,
+                                canActivate: status.availableSlots > 0 || status.activatedGuildIds.contains(guild.id)
+                            ) { activate in await toggleActivation(guild: guild, activate: activate) }
+                            if guild.id != ownerGuilds.last?.id { Divider().padding(.leading, 60) }
+                        }
                     }
                 }
-                .background(Color.bgSurface)
-                .clipShape(RoundedRectangle(cornerRadius: .cornerRadiusMedium))
                 .padding(.horizontal)
             }
 
@@ -182,7 +199,8 @@ struct SubscriptionView: View {
                 }
             } label: {
                 Text("App Storeでサブスクを管理")
-                    .font(.bodySmall).foregroundStyle(Color.textTertiary)
+                    .font(Theme.Font.bodySmall)
+                    .foregroundStyle(Theme.Color.textTertiary)
             }
             .frame(maxWidth: .infinity)
         }
@@ -191,13 +209,14 @@ struct SubscriptionView: View {
     // MARK: - Plans
 
     private var plansSection: some View {
-        VStack(spacing: .spacing12) {
+        VStack(spacing: Theme.Spacing.sm) {
             Picker("", selection: $billingPeriod) {
                 ForEach(BillingPeriod.allCases, id: \.self) { period in
                     Text(period == .annual ? "年額（最大38%オフ）" : period.rawValue).tag(period)
                 }
             }
             .pickerStyle(.segmented)
+            .padding(.horizontal)
 
             ForEach(currentStoreProducts.isEmpty ? [] : currentStoreProducts.compactMap({ sp in
                 currentCatalog.first(where: { $0.id == sp.id })
@@ -222,7 +241,8 @@ struct SubscriptionView: View {
 
             Button { Task { await restore() } } label: {
                 Text("購入を復元")
-                    .font(.captionRegular).foregroundStyle(Color.textTertiary)
+                    .font(Theme.Font.caption)
+                    .foregroundStyle(Theme.Color.textTertiary)
             }
         }
         .padding(.horizontal)
@@ -231,39 +251,53 @@ struct SubscriptionView: View {
     // MARK: - Feature comparison
 
     private var featureComparison: some View {
-        VStack(alignment: .leading, spacing: .spacing12) {
+        VStack(alignment: .leading, spacing: Theme.Spacing.sm) {
             Text("プラン比較")
-                .font(.titleMedium).foregroundStyle(Color.textPrimary)
+                .font(Theme.Font.bodyMedium)
+                .foregroundStyle(Theme.Color.textPrimary)
                 .padding(.horizontal)
 
-            VStack(spacing: 0) {
-                HStack {
-                    Text("機能").font(.captionRegular).foregroundStyle(Color.textTertiary)
-                    Spacer()
-                    Text("Free").font(.captionRegular).foregroundStyle(Color.textTertiary).frame(width: 48)
-                    Text("Pro").font(.captionRegular).foregroundStyle(Color.accentOrange).frame(width: 48)
-                }
-                .padding(.horizontal, .spacing16).padding(.vertical, .spacing8)
-                Divider()
-
-                ForEach(Array(rows.enumerated()), id: \.offset) { i, row in
+            Card {
+                VStack(spacing: 0) {
                     HStack {
-                        Text(row.feature).font(.bodySmall).foregroundStyle(Color.textPrimary)
+                        Text("機能")
+                            .font(Theme.Font.caption)
+                            .foregroundStyle(Theme.Color.textTertiary)
                         Spacer()
-                        Image(systemName: row.free ? "checkmark" : "minus")
-                            .font(.captionRegular)
-                            .foregroundStyle(row.free ? Color.accentGreen : Color.textTertiary)
+                        Text("Free")
+                            .font(Theme.Font.caption)
+                            .foregroundStyle(Theme.Color.textTertiary)
                             .frame(width: 48)
-                        Image(systemName: "checkmark")
-                            .font(.captionRegular).foregroundStyle(Color.accentGreen)
+                        Text("Pro")
+                            .font(Theme.Font.caption)
+                            .foregroundStyle(Theme.Color.textTertiary)
                             .frame(width: 48)
                     }
-                    .padding(.horizontal, .spacing16).padding(.vertical, .spacing12)
-                    if i < rows.count - 1 { Divider() }
+                    .padding(.horizontal, Theme.Spacing.md)
+                    .padding(.vertical, Theme.Spacing.sm)
+                    Divider()
+
+                    ForEach(Array(rows.enumerated()), id: \.offset) { i, row in
+                        HStack {
+                            Text(row.feature)
+                                .font(Theme.Font.bodySmall)
+                                .foregroundStyle(Theme.Color.textPrimary)
+                            Spacer()
+                            Image(systemName: row.free ? "checkmark" : "minus")
+                                .font(Theme.Font.caption)
+                                .foregroundStyle(row.free ? Theme.Color.statusOK : Theme.Color.textTertiary)
+                                .frame(width: 48)
+                            Image(systemName: "checkmark")
+                                .font(Theme.Font.caption)
+                                .foregroundStyle(Theme.Color.statusOK)
+                                .frame(width: 48)
+                        }
+                        .padding(.horizontal, Theme.Spacing.md)
+                        .padding(.vertical, Theme.Spacing.sm)
+                        if i < rows.count - 1 { Divider() }
+                    }
                 }
             }
-            .background(Color.bgSurface)
-            .clipShape(RoundedRectangle(cornerRadius: .cornerRadiusMedium))
             .padding(.horizontal)
         }
     }
@@ -287,7 +321,8 @@ struct SubscriptionView: View {
 
     private var footerLinks: some View {
         Text("利用規約 · プライバシー · サブスク管理")
-            .font(.captionSmall).foregroundStyle(Color.textTertiary)
+            .font(Theme.Font.caption2)
+            .foregroundStyle(Theme.Color.textTertiary)
             .multilineTextAlignment(.center)
     }
 
@@ -320,7 +355,7 @@ struct SubscriptionView: View {
         do {
             let s = try await services.subscription.purchase(productId: productId)
             appState.subscriptionStatus = s
-            toast = ToastMessage(type: .success, message: "購入完了 🎉")
+            toast = ToastMessage(type: .success, message: "購入完了")
         } catch SubscriptionError.cancelled { }
         catch SubscriptionError.pending { errorMessage = "購入の承認待ちです" }
         catch { errorMessage = "購入に失敗しました: \(error.localizedDescription)" }
@@ -364,51 +399,57 @@ private struct PlanCard: View {
 
     var body: some View {
         Button { Task { await onPurchase() } } label: {
-            HStack(spacing: .spacing16) {
+            HStack(spacing: Theme.Spacing.md) {
                 // Slot count badge
                 ZStack {
-                    RoundedRectangle(cornerRadius: .cornerRadiusSmall)
-                        .fill(plan.isRecommended ? Color.accentIndigo : Color.accentIndigo.opacity(0.1))
+                    RoundedRectangle(cornerRadius: Theme.Radius.chip)
+                        .fill(plan.isRecommended ? Theme.Color.accent : Theme.Color.surfaceRaised)
                         .frame(width: 48, height: 48)
                     if plan.slots >= 99 {
                         Image(systemName: "infinity")
-                            .font(.titleMedium)
-                            .foregroundStyle(plan.isRecommended ? Color.white : Color.accentIndigo)
+                            .font(Theme.Font.title3)
+                            .foregroundStyle(plan.isRecommended ? Theme.Color.accentInk : Theme.Color.accent)
                     } else {
                         Text("\(plan.slots)")
-                            .font(.titleLarge)
-                            .foregroundStyle(plan.isRecommended ? Color.white : Color.accentIndigo)
+                            .font(Theme.Font.title2)
+                            .foregroundStyle(plan.isRecommended ? Theme.Color.accentInk : Theme.Color.accent)
+                            .monospaced()
                     }
                 }
 
                 VStack(alignment: .leading, spacing: 3) {
-                    HStack(spacing: .spacing6) {
+                    HStack(spacing: Theme.Spacing.sm) {
                         Text(plan.planName)
-                            .font(.titleMedium).foregroundStyle(Color.textPrimary)
+                            .font(Theme.Font.bodyMedium)
+                            .foregroundStyle(Theme.Color.textPrimary)
                         if plan.isRecommended {
                             Text("人気 No.1")
-                                .font(.system(size: 10, weight: .bold))
-                                .foregroundStyle(.white)
-                                .padding(.horizontal, 6).padding(.vertical, 2)
-                                .background(LinearGradient(
-                                    colors: [Color.accentOrange, Color.accentPink],
-                                    startPoint: .leading, endPoint: .trailing))
+                                .font(Theme.Font.caption2)
+                                .fontWeight(.bold)
+                                .foregroundStyle(Theme.Color.accentInk)
+                                .padding(.horizontal, 6)
+                                .padding(.vertical, 2)
+                                .background(Theme.Color.accent)
                                 .clipShape(Capsule())
                         }
                         if let savings = plan.savingsLabel {
                             Text(savings)
-                                .font(.system(size: 10, weight: .bold))
-                                .foregroundStyle(Color.accentGreen)
-                                .padding(.horizontal, 6).padding(.vertical, 2)
-                                .background(Color.accentGreen.opacity(0.12))
+                                .font(Theme.Font.caption2)
+                                .fontWeight(.bold)
+                                .foregroundStyle(Theme.Color.statusOK)
+                                .padding(.horizontal, 6)
+                                .padding(.vertical, 2)
+                                .background(Theme.Color.statusOK.opacity(0.12))
                                 .clipShape(Capsule())
                         }
                     }
                     Text("\(plan.slotsLabel)サーバー · 全Pro機能")
-                        .font(.captionRegular).foregroundStyle(Color.textSecondary)
+                        .font(Theme.Font.caption)
+                        .foregroundStyle(Theme.Color.textSecondary)
                     if let equiv = plan.monthlyEquivalentLabel {
                         Text(equiv)
-                            .font(.captionRegular).foregroundStyle(Color.textTertiary)
+                            .font(Theme.Font.caption)
+                            .foregroundStyle(Theme.Color.textTertiary)
                     }
                 }
 
@@ -418,21 +459,23 @@ private struct PlanCard: View {
                     ProgressView().scaleEffect(0.8)
                 } else {
                     Text(displayPrice)
-                        .font(.titleMedium).foregroundStyle(Color.accentIndigo)
+                        .font(Theme.Font.bodyMedium)
+                        .foregroundStyle(Theme.Color.accent)
+                        .monospaced()
                 }
             }
-            .padding(.spacing16)
-            .background(Color.bgSurface)
-            .clipShape(RoundedRectangle(cornerRadius: .cornerRadiusMedium))
+            .padding(Theme.Spacing.md)
+            .background(Theme.Color.surface)
+            .clipShape(RoundedRectangle(cornerRadius: Theme.Radius.card))
             .overlay(
-                RoundedRectangle(cornerRadius: .cornerRadiusMedium)
+                RoundedRectangle(cornerRadius: Theme.Radius.card)
                     .strokeBorder(
-                        plan.isRecommended ? Color.accentIndigo.opacity(0.5) : Color.border,
+                        plan.isRecommended ? Theme.Color.accent : Theme.Color.line,
                         lineWidth: plan.isRecommended ? 1.5 : 1
                     )
             )
         }
-        .buttonStyle(ScalePressButtonStyle())
+        .buttonStyle(.plain)
         .disabled(isPurchasing)
     }
 }
@@ -447,13 +490,16 @@ private struct ServerActivationRow: View {
     let onToggle: (Bool) async -> Void
 
     var body: some View {
-        HStack(spacing: .spacing12) {
+        HStack(spacing: Theme.Spacing.sm) {
             ServerIconView(name: guild.name, size: 40)
             VStack(alignment: .leading, spacing: 2) {
-                Text(guild.name).font(.body).foregroundStyle(Color.textPrimary)
-                Text(isActivated ? "有効" : canActivate ? "タップして有効化" : "スロット不足")
-                    .font(.captionRegular)
-                    .foregroundStyle(isActivated ? Color.accentGreen : canActivate ? Color.textSecondary : Color.textTertiary)
+                Text(guild.name).font(Theme.Font.body).foregroundStyle(Theme.Color.textPrimary)
+                HStack(spacing: 4) {
+                    StatusDot(color: isActivated ? Theme.Color.statusOK : Theme.Color.textTertiary)
+                    Text(isActivated ? "有効" : canActivate ? "タップして有効化" : "スロット不足")
+                        .font(Theme.Font.caption)
+                        .foregroundStyle(isActivated ? Theme.Color.statusOK : canActivate ? Theme.Color.textSecondary : Theme.Color.textTertiary)
+                }
             }
             Spacer()
             if isLoading {
@@ -463,11 +509,13 @@ private struct ServerActivationRow: View {
                     get: { isActivated },
                     set: { v in Task { await onToggle(v) } }
                 ))
-                .tint(Color.accentIndigo).labelsHidden()
+                .tint(Theme.Color.accent)
+                .labelsHidden()
                 .disabled(!canActivate && !isActivated)
             }
         }
-        .padding(.horizontal, .spacing16).padding(.vertical, .spacing12)
+        .padding(.horizontal, Theme.Spacing.md)
+        .padding(.vertical, Theme.Spacing.sm)
     }
 }
 
@@ -479,4 +527,22 @@ private struct ServerActivationRow: View {
             .environment(AppState())
             .environment(\.services, ServiceContainer.live())
     }
+}
+
+#Preview("Dark") {
+    NavigationStack {
+        SubscriptionView()
+            .environment(AppState())
+            .environment(\.services, ServiceContainer.live())
+    }
+    .preferredColorScheme(.dark)
+}
+
+#Preview("Light") {
+    NavigationStack {
+        SubscriptionView()
+            .environment(AppState())
+            .environment(\.services, ServiceContainer.live())
+    }
+    .preferredColorScheme(.light)
 }

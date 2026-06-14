@@ -1,13 +1,13 @@
 import SwiftUI
 
 // MARK: - Discord Permission Bits
-// チャンネル権限で使用する Discord パーミッションビット
+
 enum DiscordChannelPerm: String, CaseIterable {
-    case viewChannel      = "1024"        // 1 << 10
-    case sendMessages     = "2048"        // 1 << 11
-    case readHistory      = "65536"       // 1 << 16
-    case connect          = "1048576"     // 1 << 20 (VC)
-    case speak            = "2097152"     // 1 << 21 (VC)
+    case viewChannel      = "1024"
+    case sendMessages     = "2048"
+    case readHistory      = "65536"
+    case connect          = "1048576"
+    case speak            = "2097152"
 
     var label: String {
         switch self {
@@ -42,7 +42,7 @@ struct VerifyPanelEditView: View {
     // 基本設定
     @State private var name = "認証"
     @State private var description = "下のボタンを押して認証を完了してください。"
-    @State private var buttonLabel = "✅ 認証する"
+    @State private var buttonLabel = "認証する"
     @State private var footerText = ""
     @State private var colorHex: UInt32 = 0x10b981
     @State private var enabled = true
@@ -83,22 +83,35 @@ struct VerifyPanelEditView: View {
             reactionEmoji != e.reactionEmoji || manualChannelId != (e.manualChannelId ?? "")
     }
 
+    // MARK: - Body
+
     var body: some View {
         NavigationStack {
             VStack(spacing: 0) {
+                // カスタムツールバー
                 HStack {
                     Button("キャンセル") {
                         if hasChanges { showDiscardAlert = true } else { dismiss() }
-                    }.foregroundStyle(Color.textSecondary)
+                    }
+                    .font(Theme.Font.body)
+                    .foregroundStyle(Theme.Color.textSecondary)
+
                     Spacer()
+
                     Button(isSaving ? "保存中..." : "保存") { Task { await save() } }
-                        .fontWeight(.semibold)
-                        .foregroundStyle(name.isEmpty || roleId.isEmpty ? Color.textTertiary : Color.accentIndigo)
+                        .font(Theme.Font.bodyMedium)
+                        .foregroundStyle(name.isEmpty || roleId.isEmpty ? Theme.Color.textTertiary : Theme.Color.accent)
                         .disabled(name.isEmpty || roleId.isEmpty || isSaving)
                 }
-                .padding(.horizontal, 16).padding(.vertical, 10)
-                .background(Color(.secondarySystemGroupedBackground))
-                .overlay(Divider(), alignment: .bottom)
+                .padding(.horizontal, .spacing16)
+                .padding(.vertical, .spacing10)
+                .background(Theme.Color.surface)
+                .overlay(
+                    Rectangle()
+                        .fill(Theme.Color.line)
+                        .frame(height: 1),
+                    alignment: .bottom
+                )
 
                 Form {
                     editablePreviewSection
@@ -109,20 +122,37 @@ struct VerifyPanelEditView: View {
                     if let err = errorMessage {
                         Section {
                             Label(err, systemImage: "exclamationmark.triangle.fill")
-                                .foregroundStyle(.orange).font(.captionRegular)
+                                .font(Theme.Font.caption)
+                                .foregroundStyle(Theme.Color.statusWarn)
                         }
                     }
                 }
                 .scrollContentBackground(.hidden)
-                .background(Color(.systemGroupedBackground))
+                .background(Theme.Color.bg)
             }
             .navigationTitle(isNew ? "認証を設定" : "認証を編集")
             .navigationBarTitleDisplayMode(.inline)
             .task { await loadData() }
-            .alert("変更を破棄しますか？", isPresented: $showDiscardAlert) {
-                Button("破棄する", role: .destructive) { dismiss() }
-                Button("キャンセル", role: .cancel) {}
-            } message: { Text("行った変更は保存されません。") }
+            .overlay {
+                if showDiscardAlert {
+                    ConfirmModal(
+                        icon: "exclamationmark.triangle.fill",
+                        iconColor: Theme.Color.statusWarn,
+                        title: "変更を破棄しますか？",
+                        message: "行った変更は保存されません。",
+                        primaryLabel: "破棄する",
+                        primaryRole: .destructive,
+                        onPrimary: {
+                            dismiss()
+                            showDiscardAlert = false
+                        },
+                        onCancel: {
+                            showDiscardAlert = false
+                        }
+                    )
+                    .transition(.scale(scale: 0.92).combined(with: .opacity))
+                }
+            }
             .sheet(isPresented: $showCreateRole) {
                 VerifyCreateRoleSheet(guildId: guildId, channels: allChannels, services: services) { created in
                     let newRole = DiscordRole(id: created.id, name: created.name,
@@ -152,7 +182,8 @@ struct VerifyPanelEditView: View {
         }
     }
 
-    // MARK: - 認証方法セクション
+    // MARK: - Verify Type Section
+    // Noxy: Card 内のリストアイテム。選択状態は accentColor + sur2 背景
 
     private var verifyTypeSection: some View {
         Section {
@@ -172,130 +203,201 @@ struct VerifyPanelEditView: View {
                             }
                             VStack(alignment: .leading, spacing: 2) {
                                 Text(type.label)
-                                    .font(.bodySmall).fontWeight(.semibold).foregroundStyle(Color.textPrimary)
+                                    .font(Theme.Font.bodyMedium)
+                                    .foregroundStyle(Theme.Color.textPrimary)
                                 Text(type.description)
-                                    .font(.system(size: 11)).foregroundStyle(Color.textTertiary).lineLimit(2)
+                                    .font(Theme.Font.caption)
+                                    .foregroundStyle(Theme.Color.textTertiary)
+                                    .lineLimit(2)
                             }
                             Spacer()
                             if verifyType == type {
                                 Image(systemName: "checkmark.circle.fill")
-                                    .foregroundStyle(type.accentColor).font(.system(size: 18))
+                                    .foregroundStyle(type.accentColor)
+                                    .font(.system(size: 18, weight: .semibold))
                             }
                         }
                         .padding(.spacing10)
-                        .background(verifyType == type ? type.accentColor.opacity(0.07) : Color(.tertiarySystemGroupedBackground))
+                        .background(verifyType == type ? Theme.Color.surfaceRaised : Theme.Color.surface)
                         .clipShape(RoundedRectangle(cornerRadius: 12))
-                        .overlay(RoundedRectangle(cornerRadius: 12)
-                            .stroke(verifyType == type ? type.accentColor.opacity(0.4) : Color.clear, lineWidth: 1.5))
+                        .overlay(
+                            RoundedRectangle(cornerRadius: 12)
+                                .stroke(verifyType == type ? type.accentColor.opacity(0.4) : Color.clear, lineWidth: 1.5)
+                        )
                     }
                     .buttonStyle(.plain)
                 }
             }
             .padding(.vertical, 4)
-        } header: { Text("認証方法") }
+        } header: {
+            SectionLabel(title: "認証方法")
+                .padding(.horizontal, .spacing16)
+        }
     }
 
-    // MARK: - インライン編集プレビュー
+    // MARK: - Editable Preview Section
+    // Noxy: Discord プレビュー + sur 背景 + 14px 角丸 + line ボーダー
 
     @ViewBuilder
     private var editablePreviewSection: some View {
         Section {
             Toggle("パネルを有効にする", isOn: $enabled)
-        } header: { Text("基本設定") }
+                .tint(Theme.Color.accent)
+                .font(Theme.Font.body)
+        } header: {
+            SectionLabel(title: "基本設定")
+                .padding(.horizontal, .spacing16)
+        }
 
         Section {
             // Discord メッセージ風インライン編集プレビュー
-            HStack(alignment: .top, spacing: 10) {
+            HStack(alignment: .top, spacing: .spacing10) {
                 // Bot アバター
                 ZStack {
-                    Circle().fill(LinearGradient(colors: [Color.accentIndigo, Color.accentPink], startPoint: .topLeading, endPoint: .bottomTrailing))
+                    Circle()
+                        .fill(
+                            LinearGradient(
+                                colors: [Theme.Color.accent, Theme.Color.accent],
+                                startPoint: .topLeading,
+                                endPoint: .bottomTrailing
+                            )
+                        )
                         .frame(width: 36, height: 36)
                     Image(systemName: "bubble.left.and.bubble.right.fill")
-                        .font(.system(size: 13, weight: .semibold)).foregroundStyle(.white)
+                        .font(.system(size: 13, weight: .semibold))
+                        .foregroundStyle(Theme.Color.accentInk)
                 }
 
                 VStack(alignment: .leading, spacing: 5) {
                     // Bot ヘッダー
                     HStack(spacing: 5) {
-                        Text("Noxy").font(.system(size: 13, weight: .semibold)).foregroundStyle(Color.accentIndigo)
-                        Text("BOT").font(.system(size: 9, weight: .bold)).foregroundStyle(.white)
-                            .padding(.horizontal, 3).padding(.vertical, 1)
-                            .background(Color.accentIndigo).clipShape(RoundedRectangle(cornerRadius: 3))
-                        Text(Date(), style: .time).font(.system(size: 11)).foregroundStyle(Color.textTertiary)
+                        Text("Noxy")
+                            .font(Theme.Font.bodyMedium)
+                            .foregroundStyle(Theme.Color.accent)
+                        Badge(text: "BOT", color: Theme.Color.accent, style: .filled)
+                        Text(Date(), style: .time)
+                            .font(Theme.Font.caption)
+                            .foregroundStyle(Theme.Color.textTertiary)
                     }
 
                     // Embed ブロック
                     HStack(alignment: .top, spacing: 0) {
                         // カラーバー（タップでカラー変更）
-                        RoundedRectangle(cornerRadius: 2).fill(previewColor).frame(width: 4)
+                        RoundedRectangle(cornerRadius: 2)
+                            .fill(previewColor)
+                            .frame(width: 4)
                             .onTapGesture { showColorPicker = true }
 
                         VStack(alignment: .leading, spacing: 8) {
                             // タイトル（インライン編集）
                             TextField("タイトル", text: $name)
-                                .font(.system(size: 14, weight: .bold)).foregroundStyle(previewColor)
-                                .textFieldStyle(.plain).focused($previewFocus, equals: .title)
-                                .padding(.horizontal, 5).padding(.vertical, 3)
+                                .font(Theme.Font.bodyMedium)
+                                .foregroundStyle(previewColor)
+                                .textFieldStyle(.plain)
+                                .focused($previewFocus, equals: .title)
+                                .padding(.horizontal, 5)
+                                .padding(.vertical, 3)
                                 .embedDashedBorder(focused: previewFocus == .title)
 
                             // 説明文（インライン編集）
                             ZStack(alignment: .topLeading) {
                                 if description.isEmpty {
-                                    Text("説明文を入力...").font(.system(size: 13))
-                                        .foregroundStyle(Color.textTertiary)
-                                        .padding(.top, 6).padding(.leading, 6).allowsHitTesting(false)
+                                    Text("説明文を入力...")
+                                        .font(Theme.Font.body)
+                                        .foregroundStyle(Theme.Color.textTertiary)
+                                        .padding(.top, 6)
+                                        .padding(.leading, 6)
+                                        .allowsHitTesting(false)
                                 }
                                 TextEditor(text: $description)
-                                    .font(.system(size: 13)).foregroundStyle(Color.textSecondary)
-                                    .scrollContentBackground(.hidden).background(.clear)
+                                    .font(Theme.Font.body)
+                                    .foregroundStyle(Theme.Color.textSecondary)
+                                    .scrollContentBackground(.hidden)
+                                    .background(.clear)
                                     .frame(minHeight: 52, maxHeight: .infinity)
                                     .focused($previewFocus, equals: .description)
                             }
-                            .padding(.horizontal, 2).padding(.vertical, 1)
+                            .padding(.horizontal, 2)
+                            .padding(.vertical, 1)
                             .embedDashedBorder(focused: previewFocus == .description)
 
                             // フッター（インライン編集）
                             TextField("フッターテキスト", text: $footerText)
-                                .font(.system(size: 10)).foregroundStyle(Color.textTertiary)
-                                .textFieldStyle(.plain).focused($previewFocus, equals: .footer)
-                                .padding(.horizontal, 5).padding(.vertical, 3)
+                                .font(Theme.Font.caption)
+                                .foregroundStyle(Theme.Color.textTertiary)
+                                .textFieldStyle(.plain)
+                                .focused($previewFocus, equals: .footer)
+                                .padding(.horizontal, 5)
+                                .padding(.vertical, 3)
                                 .embedDashedBorder(focused: previewFocus == .footer)
                         }
-                        .padding(10)
+                        .padding(.spacing10)
                     }
-                    .background(Color.bgSurface)
+                    .background(Theme.Color.surface)
                     .clipShape(RoundedRectangle(cornerRadius: 4))
 
                     // ボタン / リアクション（インライン編集）
-                    if verifyType == .reaction {
-                        HStack(spacing: 4) {
-                            Text(reactionEmoji.isEmpty ? "✅" : reactionEmoji).font(.system(size: 16))
-                            Text("1").font(.system(size: 11, weight: .semibold)).foregroundStyle(Color.textSecondary)
+                    Group {
+                        if verifyType == .reaction {
+                            HStack(spacing: 4) {
+                                Text(reactionEmoji.isEmpty ? "✅" : reactionEmoji)
+                                    .font(.system(size: 16))
+                                Text("1")
+                                    .font(.system(size: 11, weight: .semibold))
+                                    .foregroundStyle(Theme.Color.textSecondary)
+                            }
+                            .padding(.horizontal, 8)
+                            .padding(.vertical, 4)
+                            .background(Theme.Color.surfaceRaised)
+                            .clipShape(RoundedRectangle(cornerRadius: 8))
+                        } else {
+                            TextField("ボタンのラベル", text: $buttonLabel)
+                                .font(Theme.Font.bodyMedium)
+                                .foregroundStyle(Theme.Color.accentInk)
+                                .textFieldStyle(.plain)
+                                .focused($previewFocus, equals: .buttonLabel)
+                                .padding(.horizontal, 12)
+                                .padding(.vertical, 6)
+                                .background(previewColor)
+                                .clipShape(RoundedRectangle(cornerRadius: 4))
                         }
-                        .padding(.horizontal, 8).padding(.vertical, 4)
-                        .background(Color.bgElevated).clipShape(RoundedRectangle(cornerRadius: 8))
-                    } else {
-                        TextField("ボタンのラベル", text: $buttonLabel)
-                            .font(.system(size: 13, weight: .semibold)).foregroundStyle(.white)
-                            .textFieldStyle(.plain).focused($previewFocus, equals: .buttonLabel)
-                            .padding(.horizontal, 12).padding(.vertical, 6)
-                            .background(previewColor).clipShape(RoundedRectangle(cornerRadius: 4))
                     }
 
                     // カラー変更ヒント
                     HStack(spacing: 4) {
-                        Image(systemName: "paintbrush.fill").font(.system(size: 9)).foregroundStyle(Color.textTertiary)
-                        Text("左のカラーバーをタップして色を変更").font(.system(size: 10)).foregroundStyle(Color.textTertiary)
+                        Image(systemName: "paintbrush.fill")
+                            .font(.system(size: 9))
+                            .foregroundStyle(Theme.Color.textTertiary)
+                        Text("左のカラーバーをタップして色を変更")
+                            .font(.system(size: 10))
+                            .foregroundStyle(Theme.Color.textTertiary)
+                    }
+
+                    HStack(spacing: 3) {
+                        Text("*")
+                            .font(.system(size: 10, weight: .bold))
+                            .foregroundStyle(Theme.Color.statusBad)
+                        Text("タイトルは必須項目です")
+                            .font(.system(size: 10))
+                            .foregroundStyle(Theme.Color.textTertiary)
                     }
                 }
             }
             .padding(.vertical, 4)
         } header: {
-            HStack(spacing: 4) { Image(systemName: "eye.fill").font(.captionSmall); Text("プレビュー（タップして編集）") }
+            HStack(spacing: 4) {
+                Image(systemName: "eye.fill")
+                    .font(Theme.Font.caption)
+                Text("プレビュー（タップして編集）")
+                    .font(Theme.Font.caption)
+                    .foregroundStyle(Theme.Color.textSecondary)
+            }
+            .padding(.horizontal, .spacing16)
         }
     }
 
-    // MARK: - ロール設定
+    // MARK: - Role Section
+    // Noxy: FormField + 標準 Picker
 
     private var roleSection: some View {
         Section {
@@ -308,6 +410,8 @@ struct VerifyPanelEditView: View {
                         Text("@\($0.name)").tag($0.id)
                     }
                 }
+                .font(Theme.Font.body)
+                .pickerStyle(.menu)
 
                 // 既存ロールの権限を編集
                 if !roleId.isEmpty, let selectedRole = roles.first(where: { $0.id == roleId }) {
@@ -316,7 +420,9 @@ struct VerifyPanelEditView: View {
                         showEditRolePerms = true
                     } label: {
                         Label("「@\(selectedRole.name)」の権限を編集", systemImage: "shield.lefthalf.filled")
-                            .font(.bodySmall).fontWeight(.medium).foregroundStyle(Color.accentIndigo)
+                            .font(Theme.Font.body)
+                            .fontWeight(.medium)
+                            .foregroundStyle(Theme.Color.accent)
                     }
                     .buttonStyle(.plain)
                 }
@@ -325,22 +431,31 @@ struct VerifyPanelEditView: View {
                     showCreateRole = true
                 } label: {
                     Label("新しいロールを作成して設定", systemImage: "plus.circle.fill")
-                        .font(.bodySmall).fontWeight(.medium).foregroundStyle(Color.accentIndigo)
+                        .font(Theme.Font.body)
+                        .fontWeight(.medium)
+                        .foregroundStyle(Theme.Color.accent)
                 }
                 .buttonStyle(.plain)
             }
-        } header: { Text("ロール設定") }
-          footer: {
-              if roleId.isEmpty {
-                  Label("ロールを選択または作成しないとパネルを設置できません", systemImage: "exclamationmark.triangle.fill")
-                      .font(.captionSmall).foregroundStyle(.orange)
-              } else {
-                  Text("認証を通過したユーザーにこのロールが自動付与されます。「新しいロールを作成」でロールの権限も同時に設定できます。")
-              }
-          }
+        } header: {
+            SectionLabel(title: "ロール設定", isRequired: true)
+                .padding(.horizontal, .spacing16)
+        } footer: {
+            if roleId.isEmpty {
+                Label("ロールを選択または作成しないとパネルを設置できません", systemImage: "exclamationmark.triangle.fill")
+                    .font(Theme.Font.caption)
+                    .foregroundStyle(Theme.Color.statusWarn)
+                    .padding(.horizontal, .spacing16)
+            } else {
+                Text("認証を通過したユーザーにこのロールが自動付与されます。「新しいロールを作成」でロールの権限も同時に設定できます。")
+                    .font(Theme.Font.caption)
+                    .foregroundStyle(Theme.Color.textTertiary)
+                    .padding(.horizontal, .spacing16)
+            }
+        }
     }
 
-    // MARK: - 認証タイプ固有設定
+    // MARK: - Type Specific Section
 
     @ViewBuilder
     private var typeSpecificSection: some View {
@@ -352,17 +467,26 @@ struct VerifyPanelEditView: View {
                 } label: {
                     HStack {
                         Text("認証絵文字")
-                            .font(.bodySmall).foregroundStyle(Color.textPrimary)
+                            .font(Theme.Font.body)
+                            .foregroundStyle(Theme.Color.textPrimary)
                         Spacer()
                         Text(reactionEmoji.isEmpty ? "✅" : reactionEmoji)
                             .font(.system(size: 24))
                         Image(systemName: "chevron.down")
-                            .font(.captionSmall).foregroundStyle(Color.textTertiary)
+                            .font(Theme.Font.caption)
+                            .foregroundStyle(Theme.Color.textTertiary)
                     }
                 }
                 .buttonStyle(.plain)
-            } header: { Text("リアクション設定") }
-              footer: { Text("パネルメッセージにこの絵文字でリアクションすることで認証されます。") }
+            } header: {
+                SectionLabel(title: "リアクション設定")
+                    .padding(.horizontal, .spacing16)
+            } footer: {
+                Text("パネルメッセージにこの絵文字でリアクションすることで認証されます。")
+                    .font(Theme.Font.caption)
+                    .foregroundStyle(Theme.Color.textTertiary)
+                    .padding(.horizontal, .spacing16)
+            }
         case .manual:
             Section {
                 if isLoading {
@@ -372,14 +496,22 @@ struct VerifyPanelEditView: View {
                         Text("なし（アプリのみ）").tag("")
                         ForEach(textChannels, id: \.id) { ch in Text("#\(ch.name)").tag(ch.id) }
                     }
+                    .font(Theme.Font.body)
+                    .pickerStyle(.menu)
                 }
-            } header: { Text("手動認証設定") }
-              footer: { Text("ユーザーが申請するとこのチャンネルに通知が届きます。アプリの「承認待ち」からも管理できます。") }
+            } header: {
+                SectionLabel(title: "手動認証設定")
+                    .padding(.horizontal, .spacing16)
+            } footer: {
+                Text("ユーザーが申請するとこのチャンネルに通知が届きます。アプリの「承認待ち」からも管理できます。")
+                    .font(Theme.Font.caption)
+                    .foregroundStyle(Theme.Color.textTertiary)
+                    .padding(.horizontal, .spacing16)
+            }
         case .captcha, .button:
             EmptyView()
         }
     }
-
 
     // MARK: - Load & Save
 
@@ -428,9 +560,7 @@ struct VerifyPanelEditView: View {
     }
 }
 
-// MARK: - VerifyCreateRoleSheet（ロール新規作成 + 権限設定）
-
-// MARK: - CategoryChannelGroup（権限シート共通）
+// MARK: - CategoryChannelGroup
 
 private struct CategoryChannelGroup: Identifiable {
     let id: String
@@ -478,51 +608,71 @@ struct VerifyCreateRoleSheet: View {
         NavigationStack {
             VStack(spacing: 0) {
                 HStack {
-                    Button("キャンセル") { dismiss() }.foregroundStyle(Color.textSecondary)
+                    Button("キャンセル") { dismiss() }
+                        .font(Theme.Font.body)
+                        .foregroundStyle(Theme.Color.textSecondary)
                     Spacer()
                     Button(isCreating ? "作成中..." : "作成") { Task { await createRole() } }
-                        .fontWeight(.semibold)
-                        .foregroundStyle(roleName.isEmpty ? Color.textTertiary : Color.accentIndigo)
+                        .font(Theme.Font.bodyMedium)
+                        .foregroundStyle(roleName.isEmpty ? Theme.Color.textTertiary : Theme.Color.accent)
                         .disabled(roleName.isEmpty || isCreating)
                 }
-                .padding(.horizontal, 16).padding(.vertical, 10)
-                .background(Color(.secondarySystemGroupedBackground))
-                .overlay(Divider(), alignment: .bottom)
+                .padding(.horizontal, .spacing16)
+                .padding(.vertical, .spacing10)
+                .background(Theme.Color.surface)
+                .overlay(
+                    Rectangle()
+                        .fill(Theme.Color.line)
+                        .frame(height: 1),
+                    alignment: .bottom
+                )
 
                 ScrollView {
-                    VStack(spacing: 16) {
+                    VStack(spacing: .spacing16) {
                         // ロール基本情報
-                        VStack(spacing: 12) {
-                            HStack {
-                                Text("ロール名").font(.captionSmall).foregroundStyle(Color.textSecondary).frame(width: 80, alignment: .leading)
-                                TextField("認証済み", text: $roleName)
-                                    .font(.bodySmall)
-                                    .padding(.horizontal, 12).padding(.vertical, 8)
-                                    .background(Color(.tertiarySystemGroupedBackground))
-                                    .clipShape(RoundedRectangle(cornerRadius: 8))
-                            }
-                            HStack {
-                                Text("カラー").font(.captionSmall).foregroundStyle(Color.textSecondary).frame(width: 80, alignment: .leading)
-                                HStack(spacing: 8) {
-                                    ForEach(colorPresets, id: \.self) { hex in
-                                        ZStack {
-                                            Circle().fill(Color(uiColor: UIColor(hex: hex))).frame(width: 28, height: 28)
-                                            if colorHex == hex { Image(systemName: "checkmark").font(.system(size: 11, weight: .bold)).foregroundStyle(.white) }
+                        Card(padding: .spacing12, background: Theme.Color.surface, showBorder: true) {
+                            VStack(spacing: .spacing12) {
+                                HStack {
+                                    Text("ロール名")
+                                        .font(Theme.Font.caption)
+                                        .foregroundStyle(Theme.Color.textSecondary)
+                                        .frame(width: 80, alignment: .leading)
+                                    TextField("認証済み", text: $roleName)
+                                        .font(Theme.Font.body)
+                                        .padding(.horizontal, .spacing12)
+                                        .padding(.vertical, .spacing8)
+                                        .background(Theme.Color.surfaceRaised)
+                                        .clipShape(RoundedRectangle(cornerRadius: 8))
+                                }
+                                HStack {
+                                    Text("カラー")
+                                        .font(Theme.Font.caption)
+                                        .foregroundStyle(Theme.Color.textSecondary)
+                                        .frame(width: 80, alignment: .leading)
+                                    HStack(spacing: 8) {
+                                        ForEach(colorPresets, id: \.self) { hex in
+                                            ZStack {
+                                                Circle()
+                                                    .fill(Color(uiColor: UIColor(hex: hex)))
+                                                    .frame(width: 28, height: 28)
+                                                if colorHex == hex {
+                                                    Image(systemName: "checkmark")
+                                                        .font(.system(size: 11, weight: .bold))
+                                                        .foregroundStyle(Theme.Color.accentInk)
+                                                }
+                                            }
+                                            .onTapGesture { withAnimation { colorHex = hex } }
                                         }
-                                        .onTapGesture { withAnimation { colorHex = hex } }
                                     }
                                 }
                             }
                         }
-                        .padding(12)
-                        .background(Color(.secondarySystemGroupedBackground))
-                        .clipShape(RoundedRectangle(cornerRadius: 12))
-                        .padding(.horizontal, 16)
+                        .padding(.horizontal, .spacing16)
 
                         // 権限設定
-                        VStack(alignment: .leading, spacing: 12) {
-                            Text("チャンネル権限").font(.bodySmall).fontWeight(.semibold).foregroundStyle(Color.textPrimary)
-                                .padding(.horizontal, 16)
+                        VStack(alignment: .leading, spacing: .spacing12) {
+                            SectionLabel(title: "チャンネル権限")
+                                .padding(.horizontal, .spacing16)
 
                             // 権限タブバー
                             permTabBar(textChannels: textChannels)
@@ -533,13 +683,15 @@ struct VerifyCreateRoleSheet: View {
 
                         if let err = errorMessage {
                             Label(err, systemImage: "exclamationmark.triangle.fill")
-                                .foregroundStyle(.orange).font(.captionSmall).padding(.horizontal, 16)
+                                .font(Theme.Font.caption)
+                                .foregroundStyle(Theme.Color.statusWarn)
+                                .padding(.horizontal, .spacing16)
                         }
                         Spacer(minLength: 20)
                     }
-                    .padding(.vertical, 16)
+                    .padding(.vertical, .spacing16)
                 }
-                .background(Color(.systemGroupedBackground))
+                .background(Theme.Color.bg)
             }
             .navigationTitle("ロールを作成")
             .navigationBarTitleDisplayMode(.inline)
@@ -555,41 +707,57 @@ struct VerifyCreateRoleSheet: View {
                         withAnimation(.easeInOut(duration: 0.15)) { activePermTab = perm }
                     } label: {
                         HStack(spacing: 5) {
-                            Image(systemName: perm.icon).font(.system(size: 11))
-                            Text(perm.label).font(.system(size: 11, weight: activePermTab == perm ? .semibold : .regular))
+                            Image(systemName: perm.icon)
+                                .font(.system(size: 11))
+                            Text(perm.label)
+                                .font(Theme.Font.caption)
+                                .fontWeight(activePermTab == perm ? .semibold : .regular)
                             if count > 0 {
-                                Text("\(count)").font(.system(size: 9, weight: .bold)).foregroundStyle(.white)
-                                    .padding(.horizontal, 5).padding(.vertical, 1)
-                                    .background(Color.accentGreen).clipShape(Capsule())
+                                Text("\(count)")
+                                    .font(.system(size: 9, weight: .bold))
+                                    .foregroundStyle(Theme.Color.accentInk)
+                                    .padding(.horizontal, 5)
+                                    .padding(.vertical, 1)
+                                    .background(Theme.Color.statusOK)
+                                    .clipShape(Capsule())
                             }
                         }
-                        .padding(.horizontal, 10).padding(.vertical, 6)
-                        .background(activePermTab == perm ? Color.accentIndigo : Color(.tertiarySystemGroupedBackground))
-                        .foregroundStyle(activePermTab == perm ? .white : Color.textSecondary)
+                        .padding(.horizontal, 10)
+                        .padding(.vertical, 6)
+                        .background(activePermTab == perm ? Theme.Color.accent : Theme.Color.surfaceRaised)
+                        .foregroundStyle(activePermTab == perm ? Theme.Color.accentInk : Theme.Color.textSecondary)
                         .clipShape(Capsule())
                     }
                     .buttonStyle(.plain)
                 }
             }
-            .padding(.horizontal, 16)
+            .padding(.horizontal, .spacing16)
         }
     }
 
     private func categoryPermGrid(textChannels: [(id: String, name: String)]) -> some View {
-        VStack(alignment: .leading, spacing: 16) {
+        VStack(alignment: .leading, spacing: .spacing16) {
             // 全選択/全解除
             HStack {
                 Button {
                     for group in categoryGroups { allowedPerms[group.id, default: []].insert(activePermTab) }
-                } label: { Text("全選択").font(.captionSmall).foregroundStyle(Color.accentIndigo) }
+                } label: {
+                    Text("全選択")
+                        .font(Theme.Font.caption)
+                        .foregroundStyle(Theme.Color.accent)
+                }
                 .buttonStyle(.plain)
                 Spacer()
                 Button {
                     for group in categoryGroups { allowedPerms[group.id]?.remove(activePermTab) }
-                } label: { Text("全解除").font(.captionSmall).foregroundStyle(Color.textTertiary) }
+                } label: {
+                    Text("全解除")
+                        .font(Theme.Font.caption)
+                        .foregroundStyle(Theme.Color.textTertiary)
+                }
                 .buttonStyle(.plain)
             }
-            .padding(.horizontal, 16)
+            .padding(.horizontal, .spacing16)
 
             ForEach(categoryGroups) { group in
                 categoryToggleButton(group: group)
@@ -606,36 +774,43 @@ struct VerifyCreateRoleSheet: View {
                     else { allowedPerms[group.id, default: []].insert(activePermTab) }
                 }
             } label: {
-                HStack(spacing: 12) {
+                HStack(spacing: .spacing12) {
                     ZStack {
                         RoundedRectangle(cornerRadius: 8)
-                            .fill(isAllowed ? Color.accentGreen.opacity(0.15) : Color(.tertiarySystemGroupedBackground))
+                            .fill(isAllowed ? Theme.Color.statusOK.opacity(0.15) : Theme.Color.surfaceRaised)
                             .frame(width: 40, height: 40)
                         Image(systemName: "folder.fill")
                             .font(.system(size: 16))
-                            .foregroundStyle(isAllowed ? Color.accentGreen : Color.textTertiary)
+                            .foregroundStyle(isAllowed ? Theme.Color.statusOK : Theme.Color.textTertiary)
                     }
                     VStack(alignment: .leading, spacing: 2) {
-                        Text(group.name).font(.bodySmall).fontWeight(.semibold)
-                            .foregroundStyle(isAllowed ? Color.accentGreen : Color.textPrimary)
-                        Text("\(group.channels.count)チャンネル").font(.captionSmall)
-                            .foregroundStyle(Color.textSecondary)
+                        Text(group.name)
+                            .font(Theme.Font.body)
+                            .fontWeight(.semibold)
+                            .foregroundStyle(isAllowed ? Theme.Color.statusOK : Theme.Color.textPrimary)
+                        Text("\(group.channels.count)チャンネル")
+                            .font(Theme.Font.caption)
+                            .foregroundStyle(Theme.Color.textSecondary)
                     }
                     Spacer()
                     Image(systemName: isAllowed ? "checkmark.circle.fill" : "circle")
-                        .foregroundStyle(isAllowed ? Color.accentGreen : Color.textTertiary)
+                        .foregroundStyle(isAllowed ? Theme.Color.statusOK : Theme.Color.textTertiary)
                         .font(.system(size: 20))
                 }
             }
             .buttonStyle(.plain)
-            .padding(.horizontal, 16)
+            .padding(.horizontal, .spacing16)
             .padding(.vertical, 8)
 
             // カテゴリ内チャンネル一覧（表示のみ）
             ForEach(group.channels, id: \.id) { ch in
                 HStack(spacing: 8) {
-                    Image(systemName: "number").font(.captionSmall).foregroundStyle(Color.textTertiary)
-                    Text(ch.name).font(.captionSmall).foregroundStyle(Color.textSecondary)
+                    Image(systemName: "number")
+                        .font(Theme.Font.caption)
+                        .foregroundStyle(Theme.Color.textTertiary)
+                    Text(ch.name)
+                        .font(Theme.Font.caption)
+                        .foregroundStyle(Theme.Color.textSecondary)
                     Spacer()
                 }
                 .padding(.leading, 68)
@@ -643,15 +818,14 @@ struct VerifyCreateRoleSheet: View {
             }
             .padding(.bottom, 8)
         }
-        .background(Color(.secondarySystemGroupedBackground))
+        .background(Theme.Color.surface)
         .clipShape(RoundedRectangle(cornerRadius: 12))
-        .padding(.horizontal, 16)
+        .padding(.horizontal, .spacing16)
     }
 
     private func createRole() async {
         guard !roleName.trimmingCharacters(in: .whitespaces).isEmpty else { return }
         isCreating = true; errorMessage = nil
-        // カテゴリ単位で権限を設定 → カテゴリ内の全チャンネルに同じ権限を適用
         let inputs: [ChannelPermissionInput] = categoryGroups.flatMap { group in
             let perms = allowedPerms[group.id] ?? []
             guard !perms.isEmpty else { return [ChannelPermissionInput]() }
@@ -695,37 +869,52 @@ struct EditRolePermissionsSheet: View {
     var body: some View {
         NavigationStack {
             VStack(spacing: 0) {
-                // ヘッダー（ZStackでタイトルを完全中央揃え）
+                // ヘッダー
                 ZStack {
-                    Text(role.name).font(.bodySmall).fontWeight(.semibold).foregroundStyle(Color.textPrimary)
+                    Text(role.name)
+                        .font(Theme.Font.body)
+                        .fontWeight(.semibold)
+                        .foregroundStyle(Theme.Color.textPrimary)
                         .frame(maxWidth: .infinity)
                     HStack {
                         Button("キャンセル") {
                             if hasChanges { showDiscardAlert = true } else { dismiss() }
-                        }.foregroundStyle(Color.textSecondary)
+                        }
+                        .font(Theme.Font.body)
+                        .foregroundStyle(Theme.Color.textSecondary)
                         Spacer()
                         Button(isSaving ? "保存中..." : "保存") { Task { await savePermissions() } }
-                            .fontWeight(.semibold)
-                            .foregroundStyle(isSaving ? Color.textTertiary : Color.accentIndigo)
+                            .font(Theme.Font.bodyMedium)
+                            .foregroundStyle(isSaving ? Theme.Color.textTertiary : Theme.Color.accent)
                             .disabled(isSaving)
                     }
                 }
-                .padding(.horizontal, 16).padding(.vertical, 10)
-                .background(Color(.secondarySystemGroupedBackground))
-                .overlay(Divider(), alignment: .bottom)
+                .padding(.horizontal, .spacing16)
+                .padding(.vertical, .spacing10)
+                .background(Theme.Color.surface)
+                .overlay(
+                    Rectangle()
+                        .fill(Theme.Color.line)
+                        .frame(height: 1),
+                    alignment: .bottom
+                )
 
                 ScrollView {
-                    VStack(spacing: 16) {
+                    VStack(spacing: .spacing16) {
                         // ロール情報
-                        HStack(spacing: 12) {
-                            Circle().fill(Color(uiColor: UIColor(hex: UInt32(role.color)))).frame(width: 36, height: 36)
-                            Text("@\(role.name)").font(.bodySmall).fontWeight(.semibold).foregroundStyle(Color.textPrimary)
-                            Spacer()
+                        Card(padding: .spacing12, background: Theme.Color.surface, showBorder: true) {
+                            HStack(spacing: .spacing12) {
+                                Circle()
+                                    .fill(Color(uiColor: UIColor(hex: UInt32(role.color))))
+                                    .frame(width: 36, height: 36)
+                                Text("@\(role.name)")
+                                    .font(Theme.Font.body)
+                                    .fontWeight(.semibold)
+                                    .foregroundStyle(Theme.Color.textPrimary)
+                                Spacer()
+                            }
                         }
-                        .padding(12)
-                        .background(Color(.secondarySystemGroupedBackground))
-                        .clipShape(RoundedRectangle(cornerRadius: 12))
-                        .padding(.horizontal, 16)
+                        .padding(.horizontal, .spacing16)
 
                         // 権限タブバー
                         ScrollView(.horizontal, showsIndicators: false) {
@@ -736,39 +925,55 @@ struct EditRolePermissionsSheet: View {
                                         withAnimation(.easeInOut(duration: 0.15)) { activePermTab = perm }
                                     } label: {
                                         HStack(spacing: 5) {
-                                            Image(systemName: perm.icon).font(.system(size: 11))
-                                            Text(perm.label).font(.system(size: 11, weight: activePermTab == perm ? .semibold : .regular))
+                                            Image(systemName: perm.icon)
+                                                .font(.system(size: 11))
+                                            Text(perm.label)
+                                                .font(Theme.Font.caption)
+                                                .fontWeight(activePermTab == perm ? .semibold : .regular)
                                             if count > 0 {
-                                                Text("\(count)").font(.system(size: 9, weight: .bold)).foregroundStyle(.white)
-                                                    .padding(.horizontal, 5).padding(.vertical, 1)
-                                                    .background(Color.accentGreen).clipShape(Capsule())
+                                                Text("\(count)")
+                                                    .font(.system(size: 9, weight: .bold))
+                                                    .foregroundStyle(Theme.Color.accentInk)
+                                                    .padding(.horizontal, 5)
+                                                    .padding(.vertical, 1)
+                                                    .background(Theme.Color.statusOK)
+                                                    .clipShape(Capsule())
                                             }
                                         }
-                                        .padding(.horizontal, 10).padding(.vertical, 6)
-                                        .background(activePermTab == perm ? Color.accentIndigo : Color(.tertiarySystemGroupedBackground))
-                                        .foregroundStyle(activePermTab == perm ? .white : Color.textSecondary)
+                                        .padding(.horizontal, 10)
+                                        .padding(.vertical, 6)
+                                        .background(activePermTab == perm ? Theme.Color.accent : Theme.Color.surfaceRaised)
+                                        .foregroundStyle(activePermTab == perm ? Theme.Color.accentInk : Theme.Color.textSecondary)
                                         .clipShape(Capsule())
                                     }
                                     .buttonStyle(.plain)
                                 }
                             }
-                            .padding(.horizontal, 16)
+                            .padding(.horizontal, .spacing16)
                         }
 
                         // カテゴリ別チャンネルグリッド
-                        VStack(alignment: .leading, spacing: 16) {
+                        VStack(alignment: .leading, spacing: .spacing16) {
                             HStack {
                                 Button {
                                     for group in categoryGroups { allowedPerms[group.id, default: []].insert(activePermTab) }
-                                } label: { Text("全選択").font(.captionSmall).foregroundStyle(Color.accentIndigo) }
+                                } label: {
+                                    Text("全選択")
+                                        .font(Theme.Font.caption)
+                                        .foregroundStyle(Theme.Color.accent)
+                                }
                                 .buttonStyle(.plain)
                                 Spacer()
                                 Button {
                                     for group in categoryGroups { allowedPerms[group.id]?.remove(activePermTab) }
-                                } label: { Text("全解除").font(.captionSmall).foregroundStyle(Color.textTertiary) }
+                                } label: {
+                                    Text("全解除")
+                                        .font(Theme.Font.caption)
+                                        .foregroundStyle(Theme.Color.textTertiary)
+                                }
                                 .buttonStyle(.plain)
                             }
-                            .padding(.horizontal, 16)
+                            .padding(.horizontal, .spacing16)
 
                             ForEach(categoryGroups) { group in
                                 categoryToggleEdit(group: group)
@@ -777,21 +982,39 @@ struct EditRolePermissionsSheet: View {
 
                         if let err = errorMessage {
                             Label(err, systemImage: "exclamationmark.triangle.fill")
-                                .foregroundStyle(.orange).font(.captionSmall).padding(.horizontal, 16)
+                                .font(Theme.Font.caption)
+                                .foregroundStyle(Theme.Color.statusWarn)
+                                .padding(.horizontal, .spacing16)
                         }
                         Spacer(minLength: 20)
                     }
-                    .padding(.vertical, 16)
+                    .padding(.vertical, .spacing16)
                 }
-                .background(Color(.systemGroupedBackground))
+                .background(Theme.Color.bg)
             }
             .navigationTitle("権限を編集")
             .navigationBarTitleDisplayMode(.inline)
             .task { loadExistingPermissions() }
-            .alert("変更を破棄しますか？", isPresented: $showDiscardAlert) {
-                Button("破棄する", role: .destructive) { dismiss() }
-                Button("キャンセル", role: .cancel) {}
-            } message: { Text("行った変更は保存されません。") }
+            .overlay {
+                if showDiscardAlert {
+                    ConfirmModal(
+                        icon: "exclamationmark.triangle.fill",
+                        iconColor: Theme.Color.statusWarn,
+                        title: "変更を破棄しますか？",
+                        message: "行った変更は保存されません。",
+                        primaryLabel: "破棄する",
+                        primaryRole: .destructive,
+                        onPrimary: {
+                            dismiss()
+                            showDiscardAlert = false
+                        },
+                        onCancel: {
+                            showDiscardAlert = false
+                        }
+                    )
+                    .transition(.scale(scale: 0.92).combined(with: .opacity))
+                }
+            }
         }
     }
 
@@ -804,36 +1027,43 @@ struct EditRolePermissionsSheet: View {
                     else { allowedPerms[group.id, default: []].insert(activePermTab) }
                 }
             } label: {
-                HStack(spacing: 12) {
+                HStack(spacing: .spacing12) {
                     ZStack {
                         RoundedRectangle(cornerRadius: 8)
-                            .fill(isAllowed ? Color.accentGreen.opacity(0.15) : Color(.tertiarySystemGroupedBackground))
+                            .fill(isAllowed ? Theme.Color.statusOK.opacity(0.15) : Theme.Color.surfaceRaised)
                             .frame(width: 40, height: 40)
                         Image(systemName: "folder.fill")
                             .font(.system(size: 16))
-                            .foregroundStyle(isAllowed ? Color.accentGreen : Color.textTertiary)
+                            .foregroundStyle(isAllowed ? Theme.Color.statusOK : Theme.Color.textTertiary)
                     }
                     VStack(alignment: .leading, spacing: 2) {
-                        Text(group.name).font(.bodySmall).fontWeight(.semibold)
-                            .foregroundStyle(isAllowed ? Color.accentGreen : Color.textPrimary)
-                        Text("\(group.channels.count)チャンネル").font(.captionSmall)
-                            .foregroundStyle(Color.textSecondary)
+                        Text(group.name)
+                            .font(Theme.Font.body)
+                            .fontWeight(.semibold)
+                            .foregroundStyle(isAllowed ? Theme.Color.statusOK : Theme.Color.textPrimary)
+                        Text("\(group.channels.count)チャンネル")
+                            .font(Theme.Font.caption)
+                            .foregroundStyle(Theme.Color.textSecondary)
                     }
                     Spacer()
                     Image(systemName: isAllowed ? "checkmark.circle.fill" : "circle")
-                        .foregroundStyle(isAllowed ? Color.accentGreen : Color.textTertiary)
+                        .foregroundStyle(isAllowed ? Theme.Color.statusOK : Theme.Color.textTertiary)
                         .font(.system(size: 20))
                 }
             }
             .buttonStyle(.plain)
-            .padding(.horizontal, 16)
+            .padding(.horizontal, .spacing16)
             .padding(.vertical, 8)
 
             // カテゴリ内チャンネル一覧（表示のみ）
             ForEach(group.channels, id: \.id) { ch in
                 HStack(spacing: 8) {
-                    Image(systemName: "number").font(.captionSmall).foregroundStyle(Color.textTertiary)
-                    Text(ch.name).font(.captionSmall).foregroundStyle(Color.textSecondary)
+                    Image(systemName: "number")
+                        .font(Theme.Font.caption)
+                        .foregroundStyle(Theme.Color.textTertiary)
+                    Text(ch.name)
+                        .font(Theme.Font.caption)
+                        .foregroundStyle(Theme.Color.textSecondary)
                     Spacer()
                 }
                 .padding(.leading, 68)
@@ -841,9 +1071,9 @@ struct EditRolePermissionsSheet: View {
             }
             .padding(.bottom, 8)
         }
-        .background(Color(.secondarySystemGroupedBackground))
+        .background(Theme.Color.surface)
         .clipShape(RoundedRectangle(cornerRadius: 12))
-        .padding(.horizontal, 16)
+        .padding(.horizontal, .spacing16)
     }
 
     private func loadExistingPermissions() {
@@ -853,7 +1083,6 @@ struct EditRolePermissionsSheet: View {
 
     private func savePermissions() async {
         isSaving = true; errorMessage = nil
-        // カテゴリ単位で権限を設定 → カテゴリ内の全チャンネルに同じ権限を適用
         let inputs: [ChannelPermissionInput] = categoryGroups.flatMap { group in
             let perms = allowedPerms[group.id] ?? []
             guard !perms.isEmpty else { return [ChannelPermissionInput]() }
@@ -907,18 +1136,22 @@ struct EmojiPickerSheet: View {
             VStack(spacing: 0) {
                 HStack {
                     Image(systemName: "magnifyingglass")
-                        .foregroundStyle(Color.textTertiary)
+                        .foregroundStyle(Theme.Color.textTertiary)
                     TextField("絵文字を検索", text: $searchText)
-                        .font(.bodySmall)
+                        .font(Theme.Font.body)
                     if !searchText.isEmpty {
                         Button { searchText = "" } label: {
-                            Image(systemName: "xmark.circle.fill").foregroundStyle(Color.textTertiary)
-                        }.buttonStyle(.plain)
+                            Image(systemName: "xmark.circle.fill")
+                                .foregroundStyle(Theme.Color.textTertiary)
+                        }
+                        .buttonStyle(.plain)
                     }
                 }
-                .padding(10).background(Color(.tertiarySystemGroupedBackground))
+                .padding(.spacing10)
+                .background(Theme.Color.surfaceRaised)
                 .clipShape(RoundedRectangle(cornerRadius: 10))
-                .padding(.horizontal, 16).padding(.vertical, 8)
+                .padding(.horizontal, .spacing16)
+                .padding(.vertical, 8)
 
                 ScrollView(.horizontal, showsIndicators: false) {
                     HStack(spacing: 6) {
@@ -927,17 +1160,24 @@ struct EmojiPickerSheet: View {
                                 withAnimation { selectedCategory = idx }
                             } label: {
                                 HStack(spacing: 4) {
-                                    Text(cat.icon).font(.system(size: 14))
-                                    Text(cat.label).font(.system(size: 11, weight: selectedCategory == idx ? .semibold : .regular))
+                                    Text(cat.icon)
+                                        .font(.system(size: 14))
+                                    Text(cat.label)
+                                        .font(Theme.Font.caption)
+                                        .fontWeight(selectedCategory == idx ? .semibold : .regular)
                                 }
-                                .padding(.horizontal, 10).padding(.vertical, 6)
-                                .background(selectedCategory == idx ? Color.accentIndigo : Color(.tertiarySystemGroupedBackground))
-                                .foregroundStyle(selectedCategory == idx ? .white : Color.textSecondary)
+                                .padding(.horizontal, 10)
+                                .padding(.vertical, 6)
+                                .background(selectedCategory == idx ? Theme.Color.accent : Theme.Color.surfaceRaised)
+                                .foregroundStyle(selectedCategory == idx ? Theme.Color.accentInk : Theme.Color.textSecondary)
                                 .clipShape(Capsule())
-                            }.buttonStyle(.plain)
+                            }
+                            .buttonStyle(.plain)
                         }
-                    }.padding(.horizontal, 16)
-                }.padding(.bottom, 8)
+                    }
+                    .padding(.horizontal, .spacing16)
+                }
+                .padding(.bottom, 8)
 
                 let columns = [GridItem(.flexible()), GridItem(.flexible()), GridItem(.flexible()), GridItem(.flexible()), GridItem(.flexible())]
                 ScrollView {
@@ -947,16 +1187,20 @@ struct EmojiPickerSheet: View {
                                 selectedEmoji = emoji
                                 dismiss()
                             } label: {
-                                Text(emoji).font(.system(size: 28))
+                                Text(emoji)
+                                    .font(.system(size: 28))
                                     .frame(width: 56, height: 56)
-                                    .background(selectedEmoji == emoji ? Color.accentIndigo.opacity(0.15) : Color.clear)
+                                    .background(selectedEmoji == emoji ? Theme.Color.accent.opacity(0.15) : Color.clear)
                                     .clipShape(RoundedRectangle(cornerRadius: 8))
-                            }.buttonStyle(.plain)
+                            }
+                            .buttonStyle(.plain)
                         }
-                    }.padding(.horizontal, 8).padding(.bottom, 20)
+                    }
+                    .padding(.horizontal, 8)
+                    .padding(.bottom, 20)
                 }
             }
-            .background(Color(.systemGroupedBackground))
+            .background(Theme.Color.bg)
             .navigationTitle("絵文字を選択")
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
@@ -978,8 +1222,8 @@ enum EmojiCategory: String, CaseIterable {
 
     var icon: String {
         switch self {
-        case .faces: "😊"; case .gestures: "👋"; case .symbols: "✅"
-        case .objects: "⭐"; case .nature: "🌸"
+        case .faces: "face.smiling"; case .gestures: "hand.wave.fill"; case .symbols: "checkmark.circle.fill"
+        case .objects: "star.fill"; case .nature: "leaf.fill"
         }
     }
     var label: String { rawValue }
@@ -1014,4 +1258,12 @@ enum EmojiCategory: String, CaseIterable {
              "❄️", "☃️", "⛄", "🌬", "💨", "🌪", "🌫", "🔥", "💧", "🌙"]
         }
     }
+}
+
+#Preview {
+    NavigationStack {
+        VerifyPanelEditView(guildId: "g001") { _ in }
+    }
+    .environment(\.services, ServiceContainer.live())
+    .environment(AppState())
 }

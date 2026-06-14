@@ -165,23 +165,23 @@ enum MockData {
         // t001 のメッセージ
         TicketMessage(id: "tm001", ticketId: "t001", userId: "m002", username: "ShadowFox",
                       content: "/helpコマンドを打っても反応がありません。他のコマンドは動いています。", isStaff: false,
-                      createdAt: date(hoursAgo: 2)),
+                      createdAt: date(hoursAgo: 2), source: nil),
         TicketMessage(id: "tm002", ticketId: "t001", userId: "staff001", username: "Admin",
                       content: "ご報告ありがとうございます。Botの設定を確認します。少々お待ちください。", isStaff: true,
-                      createdAt: date(minutesAgo: 90)),
+                      createdAt: date(minutesAgo: 90), source: "app"),
         TicketMessage(id: "tm003", ticketId: "t001", userId: "m002", username: "ShadowFox",
                       content: "了解です。よろしくお願いします。", isStaff: false,
-                      createdAt: date(minutesAgo: 60)),
+                      createdAt: date(minutesAgo: 60), source: nil),
         // t002 のメッセージ
         TicketMessage(id: "tm004", ticketId: "t002", userId: "m003", username: "NeonByte",
                       content: "Embedのカラーを変更して保存しても、次回開いたときに元に戻っています。", isStaff: false,
-                      createdAt: date(hoursAgo: 26)),
+                      createdAt: date(hoursAgo: 26), source: nil),
         TicketMessage(id: "tm005", ticketId: "t002", userId: "staff001", username: "Admin",
                       content: "再現確認できました。修正対応中です。", isStaff: true,
-                      createdAt: date(hoursAgo: 20)),
+                      createdAt: date(hoursAgo: 20), source: "discord"),
         TicketMessage(id: "tm006", ticketId: "t002", userId: "m003", username: "NeonByte",
                       content: "ありがとうございます。修正完了したら教えてください。", isStaff: false,
-                      createdAt: date(hoursAgo: 18)),
+                      createdAt: date(hoursAgo: 18), source: nil),
     ]
 
     nonisolated static let autoResponses: [AutoResponse] = [

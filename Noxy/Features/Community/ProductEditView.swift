@@ -303,8 +303,15 @@ struct ProductEditView: View {
 
     private var basicInfoSection: some View {
         Section {
-            LabeledContent("商品名") {
+            LabeledContent {
                 TextField("商品名", text: $name).multilineTextAlignment(.trailing)
+            } label: {
+                HStack(spacing: 3) {
+                    Text("商品名")
+                    Text("*")
+                        .font(.system(size: 13, weight: .bold))
+                        .foregroundStyle(Theme.Color.statusBad)
+                }
             }
             VStack(alignment: .leading, spacing: 6) {
                 Text("説明").font(.captionSmall).foregroundStyle(Color.textTertiary)

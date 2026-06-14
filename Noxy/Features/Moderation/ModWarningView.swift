@@ -27,29 +27,35 @@ struct ModWarningView: View {
     }
 
     var body: some View {
-        ZStack(alignment: .bottom) {
-            Color.bgPrimary.ignoresSafeArea()
+        ZStack(alignment: .bottomTrailing) {
+            Theme.Color.bg.ignoresSafeArea()
             mainContent
             if let msg = toast {
                 ModSuccessToast(message: msg)
-                    .padding(.bottom, .spacing32)
+                    .padding(.bottom, Theme.Spacing.xl)
+                    .frame(maxWidth: .infinity, alignment: .center)
                     .transition(.move(edge: .bottom).combined(with: .opacity))
             }
+            // FAB
+            Button {
+                showAddSheet = true
+            } label: {
+                Image(systemName: "plus")
+                    .font(.system(size: 22, weight: .semibold))
+                    .foregroundStyle(Theme.Color.accentInk)
+                    .frame(width: 56, height: 56)
+                    .background(Theme.Color.accent)
+                    .clipShape(Circle())
+                    .shadow(color: Theme.Color.accent.opacity(0.3), radius: 8, x: 0, y: 4)
+            }
+            .padding(.trailing, Theme.Spacing.lg)
+            .padding(.bottom, Theme.Spacing.xl)
         }
         .animation(.spring(duration: 0.3), value: toast != nil)
         .task { await load() }
         .refreshable { await load() }
         .sheet(item: $selectedMember) { member in
             MemberDetailView(member: member, guildId: guildId, allRoles: [], onAction: { _ in })
-        }
-        .toolbar {
-            ToolbarItem(placement: .navigationBarTrailing) {
-                Button {
-                    showAddSheet = true
-                } label: {
-                    Image(systemName: "plus").foregroundStyle(Color.accentIndigo)
-                }
-            }
         }
         .sheet(isPresented: $showAddSheet) {
             AddWarningSheet(guildId: guildId, service: service) { newW in
@@ -76,66 +82,95 @@ struct ModWarningView: View {
 
     private func warningList(_ warnings: [ModWarning]) -> some View {
         let groups = grouped(warnings)
-        return ScrollView {
-            LazyVStack(spacing: .spacing12) {
-                Color.clear.frame(height: .spacing8)
+        return VStack(spacing: 0) {
+            // 固定ヘッダー（スクロールしない）
+            VStack(spacing: Theme.Spacing.sm) {
                 escalationCard
                 filterControl(warnings)
-                if groups.isEmpty {
-                    ModEmptyView(icon: "checkmark.circle",
-                                 title: "警告はありません").padding(.top, .spacing32)
-                } else {
-                    ForEach(groups, id: \.userId) { g in
-                        UserWarningCard(
-                            userId: g.userId, displayName: g.displayName,
-                            warnings: g.warnings,
-                            onRevoke: { id in revokeWarning(id) },
-                            onSelectUser: {
-                                selectedMember = memberFromWarning(userId: g.userId,
-                                    username: g.warnings.first?.username ?? g.userId,
-                                    displayName: g.displayName)
-                            }
-                        )
-                    }
-                }
-                bottomPad
             }
-            .padding(.horizontal, .spacing16)
-            .padding(.top, .spacing12)
+            .padding(.top, Theme.Spacing.sm)
+            .background(Theme.Color.bg)
+
+            Divider().background(Theme.Color.line)
+
+            // スクロール部分
+            ScrollView {
+                LazyVStack(spacing: Theme.Spacing.md) {
+                    Color.clear.frame(height: Theme.Spacing.xs)
+                    if groups.isEmpty {
+                        ModEmptyView(icon: "checkmark.circle",
+                                     title: "警告はありません")
+                            .padding(.top, Theme.Spacing.xl)
+                    } else {
+                        VStack(spacing: 0) {
+                            ForEach(Array(groups.enumerated()), id: \.element.userId) { idx, g in
+                                UserWarningRow(
+                                    userId: g.userId,
+                                    displayName: g.displayName,
+                                    warnings: g.warnings,
+                                    onRevoke: { id in revokeWarning(id) },
+                                    onSelectUser: {
+                                        selectedMember = memberFromWarning(
+                                            userId: g.userId,
+                                            username: g.warnings.first?.username ?? g.userId,
+                                            displayName: g.displayName
+                                        )
+                                    }
+                                )
+                                if idx < groups.count - 1 {
+                                    Divider()
+                                        .background(Theme.Color.line)
+                                        .padding(.leading, 60)
+                                }
+                            }
+                        }
+                        .background(Theme.Color.surface)
+                        .clipShape(RoundedRectangle(cornerRadius: Theme.Radius.card))
+                        .padding(.horizontal, Theme.Spacing.md)
+                    }
+                    bottomPad
+                    Color.clear.frame(height: 80)
+                }
+                .padding(.top, Theme.Spacing.md)
+            }
         }
     }
 
     private var escalationCard: some View {
-        VStack(alignment: .leading, spacing: .spacing10) {
-            Label("自動エスカレーション", systemImage: "arrow.triangle.2.circlepath")
-                .font(.bodySmall).fontWeight(.semibold).foregroundStyle(Color.textPrimary)
-            ForEach(EscalationRule.defaults) { rule in
-                HStack(spacing: .spacing8) {
-                    Image(systemName: rule.action.icon)
-                        .font(.system(size: 12)).foregroundStyle(rule.action.color).frame(width: 16)
-                    Text(rule.label).font(.captionRegular).foregroundStyle(Color.textSecondary)
+        FormSection("自動エスカレーション", icon: "arrow.triangle.2.circlepath") {
+            VStack(alignment: .leading, spacing: Theme.Spacing.sm) {
+                ForEach(EscalationRule.defaults) { rule in
+                    HStack(alignment: .top, spacing: Theme.Spacing.xs) {
+                        Image(systemName: rule.action.icon)
+                            .font(.system(size: 12))
+                            .foregroundStyle(rule.action.color)
+                            .frame(width: 16)
+                            .padding(.top, 1)
+                        Text(rule.label)
+                            .font(Theme.Font.caption)
+                            .foregroundStyle(Theme.Color.textSecondary)
+                            .fixedSize(horizontal: false, vertical: true)
+                    }
                 }
             }
         }
-        .padding(.spacing12)
-        .background(Color.accentPurple.opacity(0.06))
-        .clipShape(RoundedRectangle(cornerRadius: .cornerRadiusMedium))
-        .overlay(RoundedRectangle(cornerRadius: .cornerRadiusMedium)
-            .stroke(Color.accentPurple.opacity(0.2), lineWidth: 1))
+        .padding(.horizontal, Theme.Spacing.md)
     }
 
     private func filterControl(_ warnings: [ModWarning]) -> some View {
         HStack {
-            sectionHeader(icon: "exclamationmark.triangle.fill", color: .accentOrange,
-                          title: "\(grouped(warnings).count)人に警告あり")
+            SectionLabel(title: "警告リスト")
+            Spacer()
             Button {
                 withAnimation { showRevoked.toggle() }
             } label: {
                 Label(showRevoked ? "取り消し済みを隠す" : "取り消し済みを表示",
                       systemImage: showRevoked ? "eye.slash" : "eye")
-                    .font(.captionSmall).foregroundStyle(Color.accentIndigo)
+                    .font(Theme.Font.caption2)
+                    .foregroundStyle(Theme.Color.accent)
             }
         }
+        .padding(.horizontal, Theme.Spacing.md)
     }
 
     private func load() async {
@@ -182,9 +217,9 @@ struct ModWarningView: View {
     }
 }
 
-// MARK: - UserWarningCard
+// MARK: - UserWarningRow
 
-private struct UserWarningCard: View {
+private struct UserWarningRow: View {
     let userId: String
     let displayName: String
     let warnings: [ModWarning]
@@ -195,9 +230,9 @@ private struct UserWarningCard: View {
     private var activeCount: Int { warnings.filter { !$0.isRevoked }.count }
     private var nextRule: EscalationRule? { EscalationRule.defaults.first { $0.threshold > activeCount } }
     private var accentColor: Color {
-        if activeCount >= 7 { return .accentRed }
-        if activeCount >= 3 { return .accentOrange }
-        return .accentIndigo
+        if activeCount >= 7 { return Theme.Color.statusBad }
+        if activeCount >= 3 { return Theme.Color.statusWarn }
+        return Theme.Color.accent
     }
 
     var body: some View {
@@ -206,52 +241,64 @@ private struct UserWarningCard: View {
                 withAnimation(.spring(duration: 0.25)) { isExpanded.toggle() }
                 UIImpactFeedbackGenerator(style: .light).impactOccurred()
             } label: {
-                HStack(spacing: .spacing12) {
+                HStack(spacing: Theme.Spacing.sm) {
                     ZStack(alignment: .topTrailing) {
                         Avatar(name: displayName, size: 40, accentColor: accentColor)
                         Text("\(activeCount)")
-                            .font(.system(size: 10, weight: .bold)).foregroundStyle(.white)
-                            .padding(4).background(accentColor).clipShape(Circle())
+                            .font(.system(size: 10, weight: .bold))
+                            .foregroundStyle(Theme.Color.accentInk)
+                            .padding(4)
+                            .background(Theme.Color.accent)
+                            .clipShape(Circle())
                             .offset(x: 4, y: -4)
                     }
                     VStack(alignment: .leading, spacing: 2) {
                         Button(action: onSelectUser) {
                             Text(displayName)
-                                .font(.bodySmall).fontWeight(.semibold).foregroundStyle(Color.textPrimary)
+                                .font(Theme.Font.bodyMedium)
+                                .fontWeight(.semibold)
+                                .foregroundStyle(Theme.Color.textPrimary)
                         }
                         .buttonStyle(.plain)
                         if let rule = nextRule {
                             Label("次: \(rule.label)", systemImage: "arrow.right.circle.fill")
-                                .font(.captionSmall).foregroundStyle(rule.action.color)
+                                .font(Theme.Font.caption2)
+                                .foregroundStyle(rule.action.color)
                         } else {
                             Text("BAN閾値に達しています")
-                                .font(.captionSmall).foregroundStyle(Color.accentRed)
+                                .font(Theme.Font.caption2)
+                                .foregroundStyle(Theme.Color.statusBad)
                         }
                     }
                     Spacer()
                     Image(systemName: "chevron.down")
-                        .font(.captionSmall).foregroundStyle(Color.textTertiary)
+                        .font(Theme.Font.caption2)
+                        .foregroundStyle(Theme.Color.textTertiary)
                         .rotationEffect(.degrees(isExpanded ? 0 : -90))
                 }
-                .padding(.spacing12)
+                .padding(.horizontal, Theme.Spacing.sm)
+                .padding(.vertical, Theme.Spacing.sm)
             }
             .buttonStyle(.plain)
 
             if isExpanded {
-                Divider().padding(.horizontal, .spacing12)
-                VStack(spacing: 2) {
-                    ForEach(warnings.sorted { $0.createdAt > $1.createdAt }) { w in
+                Divider()
+                    .background(Theme.Color.line)
+                    .padding(.horizontal, Theme.Spacing.sm)
+                VStack(spacing: 0) {
+                    ForEach(Array(warnings.sorted { $0.createdAt > $1.createdAt }.enumerated()), id: \.element.id) { idx, w in
                         WarningRowView(warning: w) { onRevoke(w.id) }
+                        if idx < warnings.count - 1 {
+                            Divider()
+                                .background(Theme.Color.line)
+                                .padding(.leading, 40)
+                        }
                     }
                 }
-                .padding(.spacing8)
+                .padding(Theme.Spacing.xs)
                 .transition(.opacity.combined(with: .move(edge: .top)))
             }
         }
-        .background(Color.bgSurface)
-        .clipShape(RoundedRectangle(cornerRadius: .cornerRadiusMedium))
-        .overlay(RoundedRectangle(cornerRadius: .cornerRadiusMedium)
-            .stroke(accentColor.opacity(0.25), lineWidth: 1))
         .animation(.spring(duration: 0.25), value: isExpanded)
     }
 }
@@ -261,39 +308,48 @@ private struct WarningRowView: View {
     let onRevoke: () -> Void
 
     var body: some View {
-        HStack(spacing: .spacing8) {
+        HStack(spacing: Theme.Spacing.xs) {
             Image(systemName: warning.isRevoked ? "checkmark.circle" : "exclamationmark.circle.fill")
                 .font(.system(size: 13))
-                .foregroundStyle(warning.isRevoked ? Color.textTertiary : Color.accentOrange)
+                .foregroundStyle(warning.isRevoked ? Theme.Color.textTertiary : Theme.Color.statusWarn)
             VStack(alignment: .leading, spacing: 2) {
                 Text(warning.reason)
-                    .font(.captionRegular).fontWeight(.medium)
-                    .foregroundStyle(warning.isRevoked ? Color.textTertiary : Color.textPrimary)
+                    .font(Theme.Font.caption)
+                    .fontWeight(.medium)
+                    .foregroundStyle(warning.isRevoked ? Theme.Color.textTertiary : Theme.Color.textPrimary)
                     .strikethrough(warning.isRevoked)
                 HStack(spacing: 4) {
                     Text(warning.staffName)
                     Text("·")
                     Text(warning.createdAt.formatted(.relative(presentation: .named)))
+                        .monospaced()
                 }
-                .font(.captionSmall).foregroundStyle(Color.textTertiary)
+                .font(Theme.Font.caption2)
+                .foregroundStyle(Theme.Color.textTertiary)
             }
             Spacer()
             if !warning.isRevoked {
                 Button("取り消し", action: onRevoke)
-                    .font(.captionSmall).foregroundStyle(Color.textTertiary)
-                    .padding(.horizontal, .spacing8).padding(.vertical, 3)
-                    .background(Color.bgElevated).clipShape(Capsule())
+                    .font(Theme.Font.caption2)
+                    .foregroundStyle(Theme.Color.textSecondary)
+                    .padding(.horizontal, Theme.Spacing.xs)
+                    .padding(.vertical, 3)
+                    .background(Theme.Color.surfaceRaised)
+                    .clipShape(Capsule())
             } else {
-                Text("取り消し済み").font(.captionSmall).foregroundStyle(Color.textTertiary)
+                Text("取り消し済み")
+                    .font(Theme.Font.caption2)
+                    .foregroundStyle(Theme.Color.textTertiary)
             }
         }
-        .padding(.horizontal, .spacing8).padding(.vertical, .spacing6)
-        .background(warning.isRevoked ? Color.clear : Color.bgElevated.opacity(0.4))
-        .clipShape(RoundedRectangle(cornerRadius: .cornerRadiusSmall))
+        .padding(.horizontal, Theme.Spacing.xs)
+        .padding(.vertical, Theme.Spacing.xs)
+        .background(warning.isRevoked ? Color.clear : Theme.Color.surfaceRaised.opacity(0.4))
+        .clipShape(RoundedRectangle(cornerRadius: Theme.Radius.chip))
     }
 }
 
-// MARK: - AddWarningSheet（メンバー選択式）
+// MARK: - AddWarningSheet
 
 struct AddWarningSheet: View {
     let guildId: String
@@ -320,19 +376,24 @@ struct AddWarningSheet: View {
 
     var body: some View {
         NavigationView {
-            ZStack { Color.bgPrimary.ignoresSafeArea(); form }
+            ZStack {
+                Theme.Color.bg.ignoresSafeArea()
+                form
+            }
             .navigationTitle("警告を追加")
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
                 ToolbarItem(placement: .navigationBarLeading) {
-                    Button("キャンセル") { dismiss() }.foregroundStyle(Color.textSecondary)
+                    Button("キャンセル") { dismiss() }
+                        .foregroundStyle(Theme.Color.textSecondary)
                 }
                 ToolbarItem(placement: .navigationBarTrailing) {
                     if isSubmitting {
                         ProgressView().scaleEffect(0.8)
                     } else {
                         Button("追加") { Task { await submit() } }
-                            .fontWeight(.semibold).foregroundStyle(Color.accentOrange)
+                            .fontWeight(.semibold)
+                            .foregroundStyle(Theme.Color.accent)
                             .disabled(selectedMember == nil || reason.trimmingCharacters(in: .whitespaces).isEmpty)
                     }
                 }
@@ -343,87 +404,106 @@ struct AddWarningSheet: View {
 
     private var form: some View {
         ScrollView {
-            VStack(spacing: .spacing20) {
+            VStack(spacing: Theme.Spacing.md) {
                 memberPickerSection
                 reasonSection
             }
-            .padding(.spacing16)
+            .padding(Theme.Spacing.md)
         }
     }
 
     // MARK: - Member Picker
 
     private var memberPickerSection: some View {
-        VStack(alignment: .leading, spacing: .spacing10) {
-            Text("対象メンバー")
-                .font(.captionSmall).foregroundStyle(Color.textTertiary)
-
-            // 選択中のメンバー表示
-            if let m = selectedMember {
-                HStack(spacing: .spacing10) {
-                    Avatar(name: m.displayName, size: 36, accentColor: .accentIndigo)
-                    VStack(alignment: .leading, spacing: 2) {
-                        Text(m.displayName).font(.bodySmall).fontWeight(.semibold).foregroundStyle(Color.textPrimary)
-                        Text("@\(m.username)").font(.captionSmall).foregroundStyle(Color.textTertiary)
-                    }
-                    Spacer()
-                    Button {
-                        withAnimation { selectedMember = nil }
-                    } label: {
-                        Image(systemName: "xmark.circle.fill")
-                            .foregroundStyle(Color.textTertiary).font(.system(size: 18))
-                    }
-                }
-                .padding(.spacing10)
-                .background(Color.accentIndigo.opacity(0.08))
-                .clipShape(RoundedRectangle(cornerRadius: .cornerRadiusSmall))
-                .overlay(RoundedRectangle(cornerRadius: .cornerRadiusSmall)
-                    .stroke(Color.accentIndigo.opacity(0.3), lineWidth: 1))
-            }
-
-            // 検索フィールド
-            HStack(spacing: .spacing8) {
-                Image(systemName: "magnifyingglass").foregroundStyle(Color.textTertiary)
-                TextField("名前で検索", text: $memberSearch)
-                    .font(.bodySmall)
-                if !memberSearch.isEmpty {
-                    Button { memberSearch = "" } label: {
-                        Image(systemName: "xmark.circle.fill").foregroundStyle(Color.textTertiary)
-                    }
-                }
-            }
-            .padding(.spacing10)
-            .background(Color.bgSurface)
-            .clipShape(RoundedRectangle(cornerRadius: .cornerRadiusSmall))
-            .overlay(RoundedRectangle(cornerRadius: .cornerRadiusSmall).stroke(Color.border, lineWidth: 1))
-
-            // メンバーリスト
-            if isLoadingMembers {
-                HStack { Spacer(); ProgressView().tint(Color.accentIndigo); Spacer() }
-                    .padding(.spacing16)
-            } else {
-                VStack(spacing: 2) {
-                    ForEach(filteredMembers.prefix(30)) { member in
-                        MemberPickerRow(
-                            member: member,
-                            isSelected: selectedMember?.id == member.id
-                        ) {
-                            withAnimation(.easeInOut(duration: 0.15)) {
-                                selectedMember = member
-                                memberSearch = ""
-                            }
-                            UIImpactFeedbackGenerator(style: .light).impactOccurred()
+        FormSection("対象メンバー", icon: "person", isRequired: true) {
+            VStack(alignment: .leading, spacing: Theme.Spacing.sm) {
+                if let m = selectedMember {
+                    HStack(spacing: Theme.Spacing.sm) {
+                        Avatar(name: m.displayName, size: 36, accentColor: Theme.Color.accent)
+                        VStack(alignment: .leading, spacing: 2) {
+                            Text(m.displayName)
+                                .font(Theme.Font.body)
+                                .fontWeight(.semibold)
+                                .foregroundStyle(Theme.Color.textPrimary)
+                            Text("@\(m.username)")
+                                .font(Theme.Font.caption2)
+                                .foregroundStyle(Theme.Color.textTertiary)
+                        }
+                        Spacer()
+                        Button {
+                            withAnimation { selectedMember = nil }
+                        } label: {
+                            Image(systemName: "xmark.circle.fill")
+                                .foregroundStyle(Theme.Color.textTertiary)
+                                .font(.system(size: 18))
                         }
                     }
-                    if filteredMembers.count > 30 {
-                        Text("さらに\(filteredMembers.count - 30)人います。検索で絞り込んでください。")
-                            .font(.captionSmall).foregroundStyle(Color.textTertiary)
-                            .padding(.top, .spacing6)
+                    .padding(Theme.Spacing.xs)
+                    .background(Theme.Color.accentDim)
+                    .clipShape(RoundedRectangle(cornerRadius: Theme.Radius.button))
+                    .overlay(
+                        RoundedRectangle(cornerRadius: Theme.Radius.button)
+                            .stroke(Theme.Color.accent.opacity(0.3), lineWidth: 1)
+                    )
+                }
+
+                HStack(spacing: Theme.Spacing.xs) {
+                    Image(systemName: "magnifyingglass")
+                        .foregroundStyle(Theme.Color.textTertiary)
+                    TextField("名前で検索", text: $memberSearch)
+                        .font(Theme.Font.body)
+                    if !memberSearch.isEmpty {
+                        Button { memberSearch = "" } label: {
+                            Image(systemName: "xmark.circle.fill")
+                                .foregroundStyle(Theme.Color.textTertiary)
+                        }
                     }
                 }
-                .background(Color.bgSurface)
-                .clipShape(RoundedRectangle(cornerRadius: .cornerRadiusSmall))
-                .overlay(RoundedRectangle(cornerRadius: .cornerRadiusSmall).stroke(Color.border, lineWidth: 1))
+                .padding(Theme.Spacing.xs)
+                .background(Theme.Color.surface)
+                .clipShape(RoundedRectangle(cornerRadius: Theme.Radius.button))
+                .overlay(
+                    RoundedRectangle(cornerRadius: Theme.Radius.button)
+                        .stroke(Theme.Color.line, lineWidth: 1)
+                )
+
+                if isLoadingMembers {
+                    HStack { Spacer(); ProgressView().tint(Theme.Color.accent); Spacer() }
+                        .padding(Theme.Spacing.md)
+                } else {
+                    VStack(spacing: 0) {
+                        ForEach(Array(filteredMembers.prefix(30).enumerated()), id: \.element.id) { idx, member in
+                            MemberPickerRow(
+                                member: member,
+                                isSelected: selectedMember?.id == member.id
+                            ) {
+                                withAnimation(.easeInOut(duration: 0.15)) {
+                                    selectedMember = member
+                                    memberSearch = ""
+                                }
+                                UIImpactFeedbackGenerator(style: .light).impactOccurred()
+                            }
+                            if idx < min(filteredMembers.count, 30) - 1 {
+                                Divider()
+                                    .background(Theme.Color.line)
+                                    .padding(.leading, 52)
+                            }
+                        }
+                    }
+                    .background(Theme.Color.surface)
+                    .clipShape(RoundedRectangle(cornerRadius: Theme.Radius.button))
+                    .overlay(
+                        RoundedRectangle(cornerRadius: Theme.Radius.button)
+                            .stroke(Theme.Color.line, lineWidth: 1)
+                    )
+
+                    if filteredMembers.count > 30 {
+                        Text("さらに\(filteredMembers.count - 30)人います。検索で絞り込んでください。")
+                            .font(Theme.Font.caption2)
+                            .foregroundStyle(Theme.Color.textTertiary)
+                            .padding(.top, Theme.Spacing.xs)
+                    }
+                }
             }
         }
     }
@@ -431,54 +511,63 @@ struct AddWarningSheet: View {
     // MARK: - Reason
 
     private var reasonSection: some View {
-        VStack(alignment: .leading, spacing: .spacing10) {
-            Text("理由")
-                .font(.captionSmall).foregroundStyle(Color.textTertiary)
-
-            LazyVGrid(columns: [.init(.flexible()), .init(.flexible()), .init(.flexible())], spacing: .spacing8) {
-                ForEach(presets, id: \.self) { preset in
-                    Button {
-                        reason = preset
-                        UIImpactFeedbackGenerator(style: .light).impactOccurred()
-                    } label: {
-                        Text(preset)
-                            .font(.captionRegular).fontWeight(.medium)
-                            .foregroundStyle(reason == preset ? .white : Color.textSecondary)
-                            .frame(maxWidth: .infinity).padding(.vertical, .spacing8)
-                            .background(reason == preset ? Color.accentOrange : Color.bgSurface)
-                            .clipShape(RoundedRectangle(cornerRadius: .cornerRadiusSmall))
-                            .overlay(RoundedRectangle(cornerRadius: .cornerRadiusSmall).stroke(Color.border, lineWidth: 1))
+        FormSection("理由", icon: "text.bubble", isRequired: true) {
+            VStack(alignment: .leading, spacing: Theme.Spacing.sm) {
+                LazyVGrid(columns: [.init(.flexible()), .init(.flexible()), .init(.flexible())], spacing: Theme.Spacing.xs) {
+                    ForEach(presets, id: \.self) { preset in
+                        Button {
+                            reason = preset
+                            UIImpactFeedbackGenerator(style: .light).impactOccurred()
+                        } label: {
+                            Text(preset)
+                                .font(Theme.Font.caption)
+                                .fontWeight(.medium)
+                                .foregroundStyle(reason == preset ? Theme.Color.accentInk : Theme.Color.textSecondary)
+                                .frame(maxWidth: .infinity)
+                                .padding(.vertical, Theme.Spacing.xs)
+                                .background(reason == preset ? Theme.Color.accent : Theme.Color.surface)
+                                .clipShape(RoundedRectangle(cornerRadius: Theme.Radius.button))
+                                .overlay(
+                                    RoundedRectangle(cornerRadius: Theme.Radius.button)
+                                        .stroke(Theme.Color.line, lineWidth: 1)
+                                )
+                        }
+                        .buttonStyle(.plain)
                     }
-                    .buttonStyle(.plain)
                 }
-            }
 
-            TextField("詳細・カスタム理由を入力", text: $reason, axis: .vertical)
-                .font(.bodySmall).padding(.spacing12).lineLimit(2...4)
-                .background(Color.bgSurface)
-                .clipShape(RoundedRectangle(cornerRadius: .cornerRadiusSmall))
-                .overlay(RoundedRectangle(cornerRadius: .cornerRadiusSmall).stroke(Color.border, lineWidth: 1))
+                TextField("詳細・カスタム理由を入力", text: $reason, axis: .vertical)
+                    .font(Theme.Font.body)
+                    .padding(Theme.Spacing.sm)
+                    .lineLimit(2...4)
+                    .background(Theme.Color.surface)
+                    .clipShape(RoundedRectangle(cornerRadius: Theme.Radius.button))
+                    .overlay(
+                        RoundedRectangle(cornerRadius: Theme.Radius.button)
+                            .stroke(Theme.Color.line, lineWidth: 1)
+                    )
 
-            // 次のエスカレーションプレビュー
-            if let member = selectedMember {
-                escalationPreview(for: member)
+                if let member = selectedMember {
+                    escalationPreview(for: member)
+                }
             }
         }
     }
 
     private func escalationPreview(for member: Member) -> some View {
-        // モックでは常にルール1が次になる（実際はDBから現在の警告数を取得）
         let rule = EscalationRule.defaults.first
         return Group {
             if let rule {
-                HStack(spacing: .spacing8) {
-                    Image(systemName: rule.action.icon).foregroundStyle(rule.action.color)
+                HStack(spacing: Theme.Spacing.xs) {
+                    Image(systemName: rule.action.icon)
+                        .foregroundStyle(rule.action.color)
                     Text("この警告で \(rule.label) が自動実行されます")
-                        .font(.captionSmall).foregroundStyle(Color.textSecondary)
+                        .font(Theme.Font.caption2)
+                        .foregroundStyle(Theme.Color.textSecondary)
                 }
-                .padding(.spacing10)
+                .padding(Theme.Spacing.xs)
                 .background(rule.action.color.opacity(0.07))
-                .clipShape(RoundedRectangle(cornerRadius: .cornerRadiusSmall))
+                .clipShape(RoundedRectangle(cornerRadius: Theme.Radius.button))
             }
         }
     }
@@ -523,22 +612,27 @@ private struct MemberPickerRow: View {
 
     var body: some View {
         Button(action: onTap) {
-            HStack(spacing: .spacing10) {
-                Avatar(name: member.displayName, size: 32, accentColor: .accentIndigo)
+            HStack(spacing: Theme.Spacing.sm) {
+                Avatar(name: member.displayName, size: 32, accentColor: Theme.Color.accent)
                 VStack(alignment: .leading, spacing: 1) {
                     Text(member.displayName)
-                        .font(.bodySmall).fontWeight(.medium).foregroundStyle(Color.textPrimary)
+                        .font(Theme.Font.body)
+                        .fontWeight(.medium)
+                        .foregroundStyle(Theme.Color.textPrimary)
                     Text("@\(member.username)")
-                        .font(.captionSmall).foregroundStyle(Color.textTertiary)
+                        .font(Theme.Font.caption2)
+                        .foregroundStyle(Theme.Color.textTertiary)
                 }
                 Spacer()
                 if isSelected {
                     Image(systemName: "checkmark.circle.fill")
-                        .foregroundStyle(Color.accentIndigo).font(.system(size: 18))
+                        .foregroundStyle(Theme.Color.accent)
+                        .font(.system(size: 18))
                 }
             }
-            .padding(.horizontal, .spacing10).padding(.vertical, .spacing8)
-            .background(isSelected ? Color.accentIndigo.opacity(0.08) : Color.clear)
+            .padding(.horizontal, Theme.Spacing.sm)
+            .padding(.vertical, Theme.Spacing.xs)
+            .background(isSelected ? Theme.Color.accentDim : Color.clear)
         }
         .buttonStyle(.plain)
     }

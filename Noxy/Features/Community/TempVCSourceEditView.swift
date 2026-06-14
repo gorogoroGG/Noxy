@@ -1,5 +1,32 @@
 import SwiftUI
 
+private extension View {
+    func noxyTextInputStyle() -> some View {
+        self
+            .font(Theme.Font.body)
+            .padding(.horizontal, Theme.Spacing.md)
+            .padding(.vertical, Theme.Spacing.sm)
+            .background(Theme.Color.surfaceRaised)
+            .clipShape(RoundedRectangle(cornerRadius: Theme.Radius.button))
+            .overlay(
+                RoundedRectangle(cornerRadius: Theme.Radius.button)
+                    .stroke(Theme.Color.line, lineWidth: 1)
+            )
+    }
+
+    func noxyMenuInputStyle() -> some View {
+        self
+            .padding(.horizontal, Theme.Spacing.md)
+            .padding(.vertical, Theme.Spacing.sm)
+            .background(Theme.Color.surfaceRaised)
+            .clipShape(RoundedRectangle(cornerRadius: Theme.Radius.button))
+            .overlay(
+                RoundedRectangle(cornerRadius: Theme.Radius.button)
+                    .stroke(Theme.Color.line, lineWidth: 1)
+            )
+    }
+}
+
 struct TempVCSourceEditView: View {
     let guildId: String
     let source: TempVCSource
@@ -10,7 +37,6 @@ struct TempVCSourceEditView: View {
     @Environment(AppState.self) private var appState
     @State private var editedSource: TempVCSource
     @State private var isSaving = false
-    // テキストチャンネル作成トグル（有料のみ設定可、無料は常にfalse）
     @State private var createTextChannel = true
 
     private let delayOptions = [
@@ -33,101 +59,130 @@ struct TempVCSourceEditView: View {
         self.categories = categories
         self.onSave = onSave
         _editedSource = State(initialValue: source)
-        // textChannelCategoryIdが空でなければ「作成する」とみなす
         _createTextChannel = State(initialValue: !source.textChannelCategoryId.isEmpty)
     }
 
     var body: some View {
         ScrollView {
-            VStack(spacing: .spacing16) {
-                FormSection("基本設定", icon: "gear",
-                            footer: "トリガーVC: ユーザーが最初に参加するVCです。保存時に自動作成されます。\nテキストチャンネル: Proプランでは一時VCと同時にテキストチャンネルも作成できます。") {
-                    VStack(spacing: .spacing12) {
-                        FormField.text(
-                            label: "トリガーVCの名前",
-                            text: Binding(
+            VStack(spacing: Theme.Spacing.lg) {
+                NoxySection(title: "基本設定", icon: "gear",
+                            footer: "トリガーVC: ユーザーが最初に参加するVCです。保存時に自動作成されます。") {
+                    VStack(spacing: Theme.Spacing.md) {
+                        NoxyField(label: "トリガーVCの名前", isRequired: true) {
+                            TextField("例: 一時VCを作ろう", text: Binding(
                                 get: { editedSource.triggerVcName },
                                 set: { editedSource.triggerVcName = $0 }
-                            ),
-                            placeholder: "例: 一時VCを作ろう"
-                        )
-
-                        FormField.picker(
-                            label: "一時VCの作成先カテゴリ",
-                            selection: Binding(
-                                get: { editedSource.vcCategoryId },
-                                set: { editedSource.vcCategoryId = $0 }
+                            ))
+                            
+                            .font(Theme.Font.body)
+                            .padding(.horizontal, Theme.Spacing.md)
+                            .padding(.vertical, Theme.Spacing.sm)
+                            .background(Theme.Color.surfaceRaised)
+                            .clipShape(RoundedRectangle(cornerRadius: Theme.Radius.button))
+                            .overlay(
+                                RoundedRectangle(cornerRadius: Theme.Radius.button)
+                                    .stroke(Theme.Color.line, lineWidth: 1)
                             )
-                        ) {
-                            Text("選択してください").tag("")
-                            ForEach(categories, id: \.id) {
-                                Text($0.name).tag($0.id)
-                            }
                         }
 
-                        // テキストチャンネル作成トグル（Proのみ）
+                        NoxyRowField(label: "一時VCの作成先カテゴリ", isRequired: true) {
+                            Picker("カテゴリを選択", selection: Binding(
+                                get: { editedSource.vcCategoryId },
+                                set: { editedSource.vcCategoryId = $0 }
+                            )) {
+                                Text("選択してください").tag("")
+                                ForEach(categories, id: \.id) {
+                                    Text($0.name).tag($0.id)
+                                }
+                            }
+                            .pickerStyle(.menu)
+                            .tint(Theme.Color.accent)
+                        }
+
                         if appState.isPro {
-                            FormField.toggle(
-                                label: "テキストチャンネルも作成する",
-                                isOn: Binding(
+                            NoxyRowField(label: "テキストチャンネルも作成する") {
+                                Toggle("", isOn: Binding(
                                     get: { createTextChannel },
                                     set: { newValue in
                                         createTextChannel = newValue
                                         if !newValue { editedSource.textChannelCategoryId = "" }
                                     }
-                                )
-                            )
+                                ))
+                                .tint(Theme.Color.accent)
+                                .labelsHidden()
+                            }
 
                             if createTextChannel {
-                                FormField.picker(
-                                    label: "テキストチャンネルのカテゴリ",
-                                    selection: Binding(
+                                NoxyRowField(label: "テキストチャンネルのカテゴリ", isRequired: true) {
+                                    Picker("カテゴリを選択", selection: Binding(
                                         get: { editedSource.textChannelCategoryId },
                                         set: { editedSource.textChannelCategoryId = $0 }
-                                    )
-                                ) {
-                                    Text("選択してください").tag("")
-                                    ForEach(categories, id: \.id) { Text($0.name).tag($0.id) }
+                                    )) {
+                                        Text("選択してください").tag("")
+                                        ForEach(categories, id: \.id) { Text($0.name).tag($0.id) }
+                                    }
+                                    .pickerStyle(.menu)
+                                    .tint(Theme.Color.accent)
                                 }
                             }
                         } else {
                             HStack {
                                 Text("テキストチャンネルも作成する")
-                                    .font(.bodySmall)
-                                    .foregroundStyle(Color.textTertiary)
+                                    .font(Theme.Font.body)
+                                    .foregroundStyle(Theme.Color.textTertiary)
                                 Spacer()
-                                Badge(text: "Pro", color: .accentOrange)
+                                Text("Pro")
+                                    .font(Theme.Font.caption2)
+                                    .fontWeight(.semibold)
+                                    .foregroundStyle(Theme.Color.accentInk)
+                                    .padding(.horizontal, 6)
+                                    .padding(.vertical, 2)
+                                    .background(Theme.Color.accent)
+                                    .clipShape(RoundedRectangle(cornerRadius: Theme.Radius.chip))
                             }
-                            .inputStyle(height: 44)
+                            .padding(.vertical, Theme.Spacing.sm)
                         }
                     }
                 }
 
-                FormSection("一時VC名フォーマット", icon: "textformat",
+                NoxySection(title: "一時VC名フォーマット", icon: "textformat",
                             footer: appState.isPro ? "{user-name}=最初の参加者  {count}=連番" : "Proプランでカスタム名を設定できます。") {
-                    VStack(spacing: .spacing8) {
-                        FormField(label: "フォーマット") {
+                    VStack(spacing: Theme.Spacing.md) {
+                        NoxyField(label: "フォーマット") {
                             TextField("例: {user-name}のVC", text: Binding(
                                 get: { editedSource.vcNameFormat },
                                 set: { editedSource.vcNameFormat = $0 }
                             ))
-                            .font(.bodySmall)
-                            .inputStyle()
+                            .font(Theme.Font.body)
+                            
+                            .font(Theme.Font.body)
+                            .padding(.horizontal, Theme.Spacing.md)
+                            .padding(.vertical, Theme.Spacing.sm)
+                            .background(Theme.Color.surfaceRaised)
+                            .clipShape(RoundedRectangle(cornerRadius: Theme.Radius.button))
+                            .overlay(
+                                RoundedRectangle(cornerRadius: Theme.Radius.button)
+                                    .stroke(Theme.Color.line, lineWidth: 1)
+                            )
                             .disabled(!appState.isPro)
-                            .foregroundStyle(appState.isPro ? Color.textPrimary : Color.textTertiary)
+                            .opacity(appState.isPro ? 1 : 0.6)
                         }
-                        .opacity(appState.isPro ? 1 : 0.6)
 
                         if appState.isPro {
                             ScrollView(.horizontal, showsIndicators: false) {
                                 HStack(spacing: 6) {
                                     ForEach(["{user-name}", "{count}"], id: \.self) { v in
                                         Button { editedSource.vcNameFormat += v } label: {
-                                            Text(v).font(.system(size: 11, weight: .semibold))
-                                                .foregroundStyle(Color.accentIndigo)
-                                                .padding(.horizontal, 8).padding(.vertical, 4)
-                                                .background(Color.accentIndigo.opacity(0.1)).clipShape(Capsule())
-                                        }.buttonStyle(.plain)
+                                            Text(v)
+                                                .font(Theme.Font.caption2)
+                                                .fontWeight(.semibold)
+                                                .foregroundStyle(Theme.Color.accent)
+                                                .padding(.horizontal, 8)
+                                                .padding(.vertical, 4)
+                                                .background(Theme.Color.accentDim)
+                                                .clipShape(RoundedRectangle(cornerRadius: Theme.Radius.chip))
+                                        }
+                                        .buttonStyle(.plain)
                                     }
                                 }
                             }
@@ -135,106 +190,140 @@ struct TempVCSourceEditView: View {
                     }
                 }
 
-                FormSection("テキストチャンネル名フォーマット", icon: "textformat") {
-                    VStack(spacing: .spacing8) {
-                        FormField(label: "フォーマット") {
+                NoxySection(title: "テキストチャンネル名フォーマット", icon: "textformat") {
+                    VStack(spacing: Theme.Spacing.md) {
+                        NoxyField(label: "フォーマット") {
                             TextField("例: {user-name}の部屋", text: Binding(
                                 get: { editedSource.channelNameFormat },
                                 set: { editedSource.channelNameFormat = $0 }
                             ))
-                            .font(.bodySmall)
-                            .inputStyle()
+                            .font(Theme.Font.body)
+                            
+                            .font(Theme.Font.body)
+                            .padding(.horizontal, Theme.Spacing.md)
+                            .padding(.vertical, Theme.Spacing.sm)
+                            .background(Theme.Color.surfaceRaised)
+                            .clipShape(RoundedRectangle(cornerRadius: Theme.Radius.button))
+                            .overlay(
+                                RoundedRectangle(cornerRadius: Theme.Radius.button)
+                                    .stroke(Theme.Color.line, lineWidth: 1)
+                            )
                         }
 
                         ScrollView(.horizontal, showsIndicators: false) {
                             HStack(spacing: 6) {
                                 ForEach(["{user-name}", "{count}"], id: \.self) { v in
                                     Button { editedSource.channelNameFormat += v } label: {
-                                        Text(v).font(.system(size: 11, weight: .semibold))
-                                            .foregroundStyle(Color.accentIndigo)
-                                            .padding(.horizontal, 8).padding(.vertical, 4)
-                                            .background(Color.accentIndigo.opacity(0.1)).clipShape(Capsule())
-                                    }.buttonStyle(.plain)
+                                        Text(v)
+                                            .font(Theme.Font.caption2)
+                                            .fontWeight(.semibold)
+                                            .foregroundStyle(Theme.Color.accent)
+                                            .padding(.horizontal, 8)
+                                            .padding(.vertical, 4)
+                                            .background(Theme.Color.accentDim)
+                                            .clipShape(RoundedRectangle(cornerRadius: Theme.Radius.chip))
+                                    }
+                                    .buttonStyle(.plain)
                                 }
                             }
                         }
                     }
                 }
 
-                FormSection("人数制限", icon: "person.2", footer: "0に設定すると無制限になります。") {
-                    FormField.stepper(
-                        label: "人数制限",
-                        value: Binding(
-                            get: { editedSource.userLimit },
-                            set: { editedSource.userLimit = $0 }
-                        ),
-                        range: 0...99,
-                        helper: editedSource.userLimit == 0 ? "無制限" : "\(editedSource.userLimit)人"
-                    )
+                NoxySection(title: "人数制限", icon: "person.2", footer: "0に設定すると無制限になります。") {
+                    HStack {
+                        Text("人数制限")
+                            .font(Theme.Font.body)
+                            .foregroundStyle(Theme.Color.textPrimary)
+                        Spacer()
+                        HStack(spacing: Theme.Spacing.sm) {
+                            Text(editedSource.userLimit == 0 ? "無制限" : "\(editedSource.userLimit)人")
+                                .font(Theme.Font.body)
+                                .foregroundStyle(Theme.Color.textSecondary)
+                                .monospaced()
+                                .monospaced()
+                            Stepper("", value: Binding(
+                                get: { editedSource.userLimit },
+                                set: { editedSource.userLimit = $0 }
+                            ), in: 0...99)
+                            .labelsHidden()
+                            .tint(Theme.Color.accent)
+                        }
+                    }
+                    .padding(.vertical, Theme.Spacing.sm)
                 }
 
-                FormSection("自動削除", icon: "trash",
+                NoxySection(title: "自動削除", icon: "trash",
                             footer: appState.isPro ? "猶予時間を設けると、全員退室後もその間はメッセージを読めます。" : "猶予時間の設定はProプランで利用できます。") {
-                    VStack(spacing: .spacing12) {
-                        FormField.toggle(
-                            label: "全員退室後に自動削除",
-                            isOn: Binding(
+                    VStack(spacing: Theme.Spacing.md) {
+                        NoxyRowField(label: "全員退室後に自動削除") {
+                            Toggle("", isOn: Binding(
                                 get: { editedSource.autoDelete },
                                 set: { editedSource.autoDelete = $0 }
-                            )
-                        )
+                            ))
+                            .tint(Theme.Color.accent)
+                            .labelsHidden()
+                        }
 
                         if editedSource.autoDelete {
                             if appState.isPro {
-                                FormField.picker(
-                                    label: "削除までの猶予",
-                                    selection: Binding(
+                                NoxyRowField(label: "削除までの猶予") {
+                                    Picker("猶予を選択", selection: Binding(
                                         get: { editedSource.deleteDelayMinutes },
                                         set: { editedSource.deleteDelayMinutes = $0 }
-                                    )
-                                ) {
-                                    ForEach(delayOptions, id: \.0) { sec, label in
-                                        Text(label).tag(sec)
+                                    )) {
+                                        ForEach(delayOptions, id: \.0) { sec, label in
+                                            Text(label).tag(sec)
+                                        }
                                     }
+                                    .pickerStyle(.menu)
+                                    .tint(Theme.Color.accent)
                                 }
                             } else {
-                                HStack {
-                                    Text("削除までの猶予")
-                                        .font(.bodySmall)
-                                        .foregroundStyle(Color.textTertiary)
-                                    Spacer()
-                                    Text("即座に削除").font(.captionRegular).foregroundStyle(Color.textTertiary)
-                                    Badge(text: "Pro", color: .accentOrange)
+                                NoxyRowField(label: "削除までの猶予") {
+                                    HStack(spacing: Theme.Spacing.xs) {
+                                        Text("即座に削除")
+                                            .font(Theme.Font.caption2)
+                                            .foregroundStyle(Theme.Color.textTertiary)
+                                        Text("Pro")
+                                            .font(Theme.Font.caption2)
+                                            .fontWeight(.semibold)
+                                            .foregroundStyle(Theme.Color.accentInk)
+                                            .padding(.horizontal, 6)
+                                            .padding(.vertical, 2)
+                                            .background(Theme.Color.accent)
+                                            .clipShape(RoundedRectangle(cornerRadius: Theme.Radius.chip))
+                                    }
                                 }
-                                .inputStyle(height: 44)
                             }
                         }
                     }
                 }
 
-                FormSection("待機室認証", icon: "lock.shield",
-                            footer: "オンにすると、一般ユーザーが直接メインVCに入れなくなります。待機室から入室リクエストを送り、メインVC内のメンバーまたは管理者が承認/拒否できます。") {
-                    VStack(spacing: .spacing12) {
-                        FormField.toggle(
-                            label: "待機室認証を有効にする",
-                            isOn: Binding(
+                NoxySection(title: "待機室認証", icon: "lock.shield",
+                            footer: "オンにすると、一般ユーザーが直接メインVCに入れなくなります。") {
+                    VStack(spacing: Theme.Spacing.md) {
+                        NoxyRowField(label: "待機室認証を有効にする") {
+                            Toggle("", isOn: Binding(
                                 get: { editedSource.waitingRoomEnabled },
                                 set: { editedSource.waitingRoomEnabled = $0 }
-                            )
-                        )
+                            ))
+                            .tint(Theme.Color.accent)
+                            .labelsHidden()
+                        }
 
                         if editedSource.waitingRoomEnabled {
-                            HStack(alignment: .top, spacing: .spacing12) {
+                            HStack(alignment: .top, spacing: Theme.Spacing.md) {
                                 Image(systemName: "info.circle.fill")
                                     .font(.system(size: 14))
-                                    .foregroundStyle(Color.accentIndigo)
+                                    .foregroundStyle(Theme.Color.accent)
                                 VStack(alignment: .leading, spacing: 4) {
                                     Text("VC作成時に「〇〇のVC-待機室」が自動作成されます。")
-                                        .font(.captionSmall)
-                                        .foregroundStyle(Color.textSecondary)
+                                        .font(Theme.Font.caption2)
+                                        .foregroundStyle(Theme.Color.textSecondary)
                                     Text("待機室は全員が見えますが、メインVCは作成者・管理者のみ表示されます。")
-                                        .font(.captionSmall)
-                                        .foregroundStyle(Color.textTertiary)
+                                        .font(Theme.Font.caption2)
+                                        .foregroundStyle(Theme.Color.textTertiary)
                                 }
                             }
                             .padding(.vertical, 4)
@@ -242,26 +331,28 @@ struct TempVCSourceEditView: View {
                     }
                 }
 
-                FormSection("通知", icon: "bell") {
-                    FormField.toggle(
-                        label: "参加/退出の通知",
-                        isOn: Binding(
+                NoxySection(title: "通知", icon: "bell") {
+                    NoxyRowField(label: "参加/退出の通知") {
+                        Toggle("", isOn: Binding(
                             get: { editedSource.joinLeaveNotification },
                             set: { editedSource.joinLeaveNotification = $0 }
-                        )
-                    )
+                        ))
+                        .tint(Theme.Color.accent)
+                        .labelsHidden()
+                    }
                 }
-
             }
-            .padding(.spacing16)
+            .padding(.horizontal, Theme.Spacing.md)
+            .padding(.vertical, Theme.Spacing.md)
             .padding(.bottom, 24)
         }
-        .background(Color.bgPrimary)
+        .background(Theme.Color.bg)
         .navigationTitle(source.id == nil ? "新規作成" : "編集")
         .navigationBarTitleDisplayMode(.inline)
         .toolbar {
             ToolbarItem(placement: .cancellationAction) {
                 Button("キャンセル") { dismiss() }
+                    .foregroundStyle(Theme.Color.textSecondary)
             }
             ToolbarItem(placement: .confirmationAction) {
                 Button(isSaving ? "保存中..." : "保存") {
@@ -269,16 +360,20 @@ struct TempVCSourceEditView: View {
                 }
                 .fontWeight(.semibold)
                 .disabled(isSaving || !isValid)
+                .foregroundStyle(isSaving || !isValid ? Theme.Color.textTertiary : Theme.Color.accent)
             }
         }
     }
 
+    // MARK: - Valid
+
     private var isValid: Bool {
         !editedSource.triggerVcName.isEmpty &&
         !editedSource.vcCategoryId.isEmpty &&
-        // テキストチャンネル作成オフの場合はカテゴリ不要
         (!createTextChannel || !editedSource.textChannelCategoryId.isEmpty)
     }
+
+    // MARK: - Save
 
     private func save() async {
         isSaving = true
@@ -286,6 +381,118 @@ struct TempVCSourceEditView: View {
         isSaving = false
         dismiss()
     }
+
+    // MARK: - Components
+
+    private struct NoxySection<Content: View>: View {
+        let title: String
+        let icon: String?
+        let footer: String?
+        let content: Content
+
+        init(title: String, icon: String? = nil, footer: String? = nil, @ViewBuilder content: () -> Content) {
+            self.title = title
+            self.icon = icon
+            self.footer = footer
+            self.content = content()
+        }
+
+        var body: some View {
+            VStack(alignment: .leading, spacing: Theme.Spacing.sm) {
+                HStack(spacing: Theme.Spacing.xs) {
+                    if let icon {
+                        Image(systemName: icon)
+                            .font(Theme.Font.caption2)
+                            .foregroundStyle(Theme.Color.textTertiary)
+                    }
+                    SectionLabel(title: title)
+                }
+                VStack(spacing: 0) {
+                    content
+                }
+                .padding(Theme.Spacing.md)
+                .background(Theme.Color.surface)
+                .clipShape(RoundedRectangle(cornerRadius: Theme.Radius.card))
+                .overlay(
+                    RoundedRectangle(cornerRadius: Theme.Radius.card)
+                        .stroke(Theme.Color.line, lineWidth: 1)
+                )
+                if let footer, !footer.isEmpty {
+                    Text(footer)
+                        .font(Theme.Font.caption2)
+                        .foregroundStyle(Theme.Color.textTertiary)
+                }
+            }
+        }
+    }
+
+    private struct NoxyField<Content: View>: View {
+        let label: String
+        let isRequired: Bool
+        let helper: String?
+        let content: Content
+
+        init(label: String, isRequired: Bool = false, helper: String? = nil, @ViewBuilder content: () -> Content) {
+            self.label = label
+            self.isRequired = isRequired
+            self.helper = helper
+            self.content = content()
+        }
+
+        var body: some View {
+            VStack(alignment: .leading, spacing: Theme.Spacing.xs) {
+                HStack(spacing: 3) {
+                    Text(label.uppercased())
+                        .font(Theme.Font.sectionLabel)
+                        .tracking(Theme.sectionLabelTracking)
+                        .foregroundStyle(Theme.Color.textTertiary)
+                    if isRequired {
+                        Text("*")
+                            .font(.system(size: 11, weight: .bold))
+                            .foregroundStyle(Theme.Color.statusBad)
+                    }
+                }
+                content
+                if let helper, !helper.isEmpty {
+                    Text(helper)
+                        .font(Theme.Font.caption2)
+                        .foregroundStyle(Theme.Color.textTertiary)
+                }
+            }
+        }
+    }
+
+    // トグル・ピッカー向けの行レイアウト
+    private struct NoxyRowField<Content: View>: View {
+        let label: String
+        let isRequired: Bool
+        let content: Content
+
+        init(label: String, isRequired: Bool = false, @ViewBuilder content: () -> Content) {
+            self.label = label
+            self.isRequired = isRequired
+            self.content = content()
+        }
+
+        var body: some View {
+            HStack {
+                HStack(spacing: 3) {
+                    Text(label)
+                        .font(Theme.Font.body)
+                        .foregroundStyle(Theme.Color.textPrimary)
+                    if isRequired {
+                        Text("*")
+                            .font(.system(size: 13, weight: .bold))
+                            .foregroundStyle(Theme.Color.statusBad)
+                    }
+                }
+                Spacer()
+                content
+            }
+            .padding(.vertical, Theme.Spacing.xs)
+        }
+    }
+
 }
 
 #Preview {

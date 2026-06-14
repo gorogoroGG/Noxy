@@ -8,21 +8,21 @@ struct EmptyStateView: View {
     var action: (() -> Void)? = nil
 
     var body: some View {
-        VStack(spacing: .spacing16) {
+        VStack(spacing: Theme.Spacing.md) {
             Image(systemName: icon)
                 .font(.system(size: 48, weight: .light))
-                .foregroundStyle(Color.textTertiary)
+                .foregroundStyle(Theme.Color.textTertiary)
 
-            VStack(spacing: .spacing8) {
+            VStack(spacing: Theme.Spacing.xs) {
                 Text(title)
-                    .font(.titleMedium)
-                    .foregroundStyle(Color.textPrimary)
+                    .font(Theme.Font.title3)
+                    .foregroundStyle(Theme.Color.textPrimary)
                     .multilineTextAlignment(.center)
 
                 if let description {
                     Text(description)
-                        .font(.bodySmall)
-                        .foregroundStyle(Color.textSecondary)
+                        .font(Theme.Font.body)
+                        .foregroundStyle(Theme.Color.textSecondary)
                         .multilineTextAlignment(.center)
                 }
             }
@@ -31,7 +31,7 @@ struct EmptyStateView: View {
                 PrimaryButton(actionTitle, style: .filled, size: .medium, action: action)
             }
         }
-        .padding(.spacing32)
+        .padding(Theme.Spacing.xxl)
         .frame(maxWidth: .infinity)
     }
 }

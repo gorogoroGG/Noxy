@@ -224,7 +224,10 @@ struct AutoResponseEditorView: View {
                     TextField("例: ルール", text: $trigger)
                         .font(.bodyRegular)
                 } header: {
-                    Text("キーワード")
+                    HStack(spacing: 3) {
+                        Text("キーワード")
+                        Text("*").font(.system(size: 11, weight: .bold)).foregroundStyle(Theme.Color.statusBad)
+                    }
                 } footer: {
                     Text("メッセージがこのキーワードと完全一致したとき返信します。")
                 }
@@ -236,7 +239,10 @@ struct AutoResponseEditorView: View {
                         .lineLimit(3...8)
                     variableHints
                 } header: {
-                    Text("返信")
+                    HStack(spacing: 3) {
+                        Text("返信")
+                        Text("*").font(.system(size: 11, weight: .bold)).foregroundStyle(Theme.Color.statusBad)
+                    }
                 }
 
                 // ── 権限 ──

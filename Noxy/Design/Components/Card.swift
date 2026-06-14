@@ -19,9 +19,9 @@ struct Card: View {
     }
 
     init(
-        padding: CGFloat = .spacing12,
-        background: Color = .bgSurface,
-        cornerRadius: CGFloat = .cornerRadiusMedium,
+        padding: CGFloat = Theme.Spacing.sm,
+        background: Color = Theme.Color.surface,
+        cornerRadius: CGFloat = Theme.Radius.card,
         showBorder: Bool = false,
         shadow: ShadowStyle? = nil,
         @ViewBuilder content: () -> some View
@@ -42,7 +42,7 @@ struct Card: View {
             .overlay(
                 showBorder
                 ? RoundedRectangle(cornerRadius: cornerRadius, style: .continuous)
-                    .stroke(Color.border.opacity(0.5), lineWidth: 0.5)
+                    .stroke(Theme.Color.line, lineWidth: 1)
                 : nil
             )
             .shadow(
@@ -89,6 +89,7 @@ struct Card: View {
 struct FormSection: View {
     let title: String
     let icon: String?
+    let isRequired: Bool
     let footer: String?
     let shadow: Card.ShadowStyle?
     let content: AnyView
@@ -96,12 +97,14 @@ struct FormSection: View {
     init(
         _ title: String,
         icon: String? = nil,
+        isRequired: Bool = false,
         footer: String? = nil,
         shadow: Card.ShadowStyle? = nil,
         @ViewBuilder content: () -> some View
     ) {
         self.title = title
         self.icon = icon
+        self.isRequired = isRequired
         self.footer = footer
         self.shadow = shadow
         self.content = AnyView(content())
@@ -109,19 +112,24 @@ struct FormSection: View {
 
     var body: some View {
         Card(shadow: shadow) {
-            VStack(alignment: .leading, spacing: .spacing12) {
+            VStack(alignment: .leading, spacing: Theme.Spacing.sm) {
                 // Header
-                HStack(spacing: .spacing6) {
+                HStack(spacing: Theme.Spacing.xs) {
                     if let icon {
                         Image(systemName: icon)
-                            .font(.captionRegular)
-                            .foregroundStyle(Color.textTertiary)
+                            .font(Theme.Font.caption)
+                            .foregroundStyle(Theme.Color.textTertiary)
                     }
                     Text(title)
-                        .font(.captionSmall)
+                        .font(Theme.Font.caption2)
                         .fontWeight(.semibold)
-                        .foregroundStyle(Color.textTertiary)
+                        .foregroundStyle(Theme.Color.textTertiary)
                         .textCase(.uppercase)
+                    if isRequired {
+                        Text("*")
+                            .font(.system(size: 12, weight: .bold))
+                            .foregroundStyle(Theme.Color.statusBad)
+                    }
                 }
                 .frame(maxWidth: .infinity, alignment: .leading)
 
@@ -131,8 +139,8 @@ struct FormSection: View {
                 // Footer
                 if let footer {
                     Text(footer)
-                        .font(.captionSmall)
-                        .foregroundStyle(Color.textTertiary)
+                        .font(Theme.Font.caption2)
+                        .foregroundStyle(Theme.Color.textTertiary)
                 }
             }
         }
@@ -141,21 +149,21 @@ struct FormSection: View {
 
 #Preview {
     ScrollView {
-        VStack(spacing: .spacing16) {
+        VStack(spacing: Theme.Spacing.md) {
             Card {
-                Text("シンプルカード").font(.bodyRegular)
+                Text("シンプルカード").font(Theme.Font.body)
             }
             Card(showBorder: true) {
-                Text("ボーダー付き").font(.bodyRegular)
+                Text("ボーダー付き").font(Theme.Font.body)
             }
             Card(shadow: .medium) {
-                Text("シャドウ付き").font(.bodyRegular)
+                Text("シャドウ付き").font(Theme.Font.body)
             }
             FormSection("基本設定", icon: "gear", footer: "変更は即座に反映されます") {
-                Text("内容").font(.bodyRegular)
+                Text("内容").font(Theme.Font.body)
             }
         }
-        .padding(.spacing16)
+        .padding(Theme.Spacing.md)
     }
-    .background(Color.bgPrimary)
+    .background(Theme.Color.bg)
 }

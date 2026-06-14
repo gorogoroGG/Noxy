@@ -19,70 +19,180 @@ struct GoodbyeMessageView: View {
     @State private var dmEnabled = false
     @State private var dmMessage = ""
 
+    @FocusState private var focusedField: FieldFocus?
+
+    enum FieldFocus: Hashable {
+        case message, dmMessage
+    }
+
     var body: some View {
-        List {
-            Section {
-                Toggle("退室メッセージを有効にする", isOn: $enabled.animation())
-                    .tint(Color.accentPink)
-            }
+        ScrollView(.vertical, showsIndicators: false) {
+            VStack(spacing: Theme.Spacing.md) {
+                if isLoading {
+                    ProgressView()
+                        .frame(maxWidth: .infinity)
+                        .padding(.top, Theme.Spacing.xxl)
+                } else {
+                    // ON/OFF
+                    FormSection("退室設定", icon: "arrow.left.circle") {
+                        HStack {
+                            Text("退室メッセージを有効にする")
+                                .font(Theme.Font.body)
+                                .foregroundStyle(Theme.Color.textPrimary)
+                            Spacer()
+                            Toggle("", isOn: $enabled.animation())
+                                .tint(Theme.Color.accent)
+                                .labelsHidden()
+                        }
+                        .padding(.vertical, Theme.Spacing.xs)
+                    }
 
-            if enabled {
-                Section {
-                    if channels.isEmpty {
-                        ProgressView("チャンネルを読み込み中...").frame(maxWidth: .infinity)
-                    } else {
-                        Picker("チャンネル", selection: $channelId) {
-                            Text("チャンネルを選択").tag("")
-                            ForEach(channels.filter { $0.type == .text || $0.type == .announcement }) { ch in
-                                Label("#\(ch.name)", systemImage: ch.type == .announcement ? "megaphone" : "number").tag(ch.id)
+                    if enabled {
+                        // チャンネル選択
+                        FormSection("送信先チャンネル", icon: "number") {
+                            VStack(alignment: .leading, spacing: Theme.Spacing.sm) {
+                                if channels.isEmpty {
+                                    HStack(spacing: Theme.Spacing.xs) {
+                                        ProgressView().scaleEffect(0.7)
+                                        Text("読み込み中...")
+                                            .font(Theme.Font.caption2)
+                                            .foregroundStyle(Theme.Color.textTertiary)
+                                    }
+                                    .padding(.horizontal, Theme.Spacing.sm)
+                                    .padding(.vertical, Theme.Spacing.sm)
+                                    .frame(maxWidth: .infinity, alignment: .leading)
+                                    .background(Theme.Color.surfaceRaised)
+                                    .clipShape(RoundedRectangle(cornerRadius: Theme.Radius.button))
+                                } else {
+                                    let textChs = channels.filter { $0.type == .text || $0.type == .announcement }
+                                    Menu {
+                                        if !channelId.isEmpty {
+                                            Button(role: .destructive) {
+                                                channelId = ""
+                                                channelName = ""
+                                            } label: { Label("選択を解除", systemImage: "xmark") }
+                                            Divider()
+                                        }
+                                        ForEach(textChs) { ch in
+                                            Button {
+                                                channelId = ch.id
+                                                channelName = ch.name
+                                            } label: {
+                                                Label(ch.name, systemImage: ch.type == .announcement ? "megaphone" : "number")
+                                            }
+                                        }
+                                    } label: {
+                                        HStack(spacing: Theme.Spacing.xs) {
+                                            if channelId.isEmpty {
+                                                Image(systemName: "number")
+                                                    .font(Theme.Font.caption)
+                                                    .foregroundStyle(Theme.Color.textTertiary)
+                                                Text("チャンネルを選択...")
+                                                    .font(Theme.Font.body)
+                                                    .foregroundStyle(Theme.Color.textTertiary)
+                                            } else {
+                                                let sel = textChs.first(where: { $0.id == channelId })
+                                                Image(systemName: sel?.type == .announcement ? "megaphone" : "number")
+                                                    .font(Theme.Font.caption)
+                                                    .foregroundStyle(Theme.Color.accent)
+                                                Text(channelName)
+                                                    .font(Theme.Font.body)
+                                                    .fontWeight(.medium)
+                                                    .foregroundStyle(Theme.Color.textPrimary)
+                                            }
+                                            Spacer()
+                                            Image(systemName: "chevron.up.chevron.down")
+                                                .font(.system(size: 11, weight: .medium))
+                                                .foregroundStyle(Theme.Color.textTertiary)
+                                        }
+                                        .padding(.horizontal, Theme.Spacing.sm)
+                                        .padding(.vertical, Theme.Spacing.sm)
+                                        .background(Theme.Color.surfaceRaised)
+                                        .clipShape(RoundedRectangle(cornerRadius: Theme.Radius.button))
+                                    }
+                                    .buttonStyle(.plain)
+                                }
                             }
                         }
-                        .onChange(of: channelId) { _, id in
-                            channelName = channels.first(where: { $0.id == id })?.name ?? ""
-                        }
-                    }
-                } header: { Text("送信先チャンネル") }
-                  footer: { Text("メンバーが退室したときにメッセージを送るチャンネルです。") }
 
-                Section {
-                    ZStack(alignment: .topLeading) {
-                        if message.isEmpty {
-                            Text("メッセージを入力...").foregroundStyle(Color.textTertiary).font(.bodyRegular)
-                                .padding(.top, 8).padding(.leading, 4).allowsHitTesting(false)
-                        }
-                        TextEditor(text: $message).font(.bodyRegular).frame(minHeight: 80).scrollContentBackground(.hidden)
-                    }
-                    variableChips(for: $message, color: .accentPink)
-                } header: { Text("チャンネルメッセージ") }
-                  footer: { Text("退室時は {user.mention} は使用できません。") }
+                        // メッセージ
+                        FormSection("メッセージ", icon: "message") {
+                            VStack(alignment: .leading, spacing: Theme.Spacing.sm) {
+                                ZStack(alignment: .topLeading) {
+                                    if message.isEmpty {
+                                        Text("メッセージを入力...")
+                                            .font(Theme.Font.body)
+                                            .foregroundStyle(Theme.Color.textTertiary)
+                                            .padding(.top, 10)
+                                            .padding(.leading, 14)
+                                            .allowsHitTesting(false)
+                                    }
+                                    TextEditor(text: $message)
+                                        .font(Theme.Font.body)
+                                        .foregroundStyle(Theme.Color.textPrimary)
+                                        .scrollContentBackground(.hidden)
+                                        .background(.clear)
+                                        .frame(minHeight: 80, maxHeight: 140)
+                                        .focused($focusedField, equals: .message)
+                                }
+                                .padding(2)
+                                .background(Theme.Color.surfaceRaised)
+                                .clipShape(RoundedRectangle(cornerRadius: Theme.Radius.button))
 
-                Section {
-                    discordChannelPreview(text: buildHighlighted(message, color: .accentPink))
-                } header: { Text("チャンネルメッセージ プレビュー") }
+                                variableChips(for: $message)
 
-                Section {
-                    Toggle("退室前にDMを送信", isOn: $dmEnabled.animation()).tint(Color.accentPink)
-                    if dmEnabled {
-                        ZStack(alignment: .topLeading) {
-                            if dmMessage.isEmpty {
-                                Text("DMメッセージを入力...").foregroundStyle(Color.textTertiary).font(.bodyRegular)
-                                    .padding(.top, 8).padding(.leading, 4).allowsHitTesting(false)
+                                Text("{user.mention} は退室時には使用できません")
+                                    .font(Theme.Font.caption2)
+                                    .foregroundStyle(Theme.Color.textTertiary)
                             }
-                            TextEditor(text: $dmMessage).font(.bodyRegular).frame(minHeight: 60).scrollContentBackground(.hidden)
                         }
-                        variableChips(for: $dmMessage, color: .accentPink)
-                    }
-                } header: { Text("ダイレクトメッセージ") }
-                  footer: { dmEnabled ? Text("退室処理前に本人へDMで送信されます。") : nil }
 
-                if dmEnabled {
-                    Section {
-                        dmPreview(text: buildHighlighted(dmMessage, color: .accentPink))
-                    } header: { Text("DM プレビュー") }
+                        // DM
+                        FormSection("ダイレクトメッセージ", icon: "envelope") {
+                            VStack(alignment: .leading, spacing: Theme.Spacing.sm) {
+                                HStack {
+                                    Text("退室前にDMを送信")
+                                        .font(Theme.Font.body)
+                                        .foregroundStyle(Theme.Color.textPrimary)
+                                    Spacer()
+                                    Toggle("", isOn: $dmEnabled.animation())
+                                        .tint(Theme.Color.accent)
+                                        .labelsHidden()
+                                }
+
+                                if dmEnabled {
+                                    ZStack(alignment: .topLeading) {
+                                        if dmMessage.isEmpty {
+                                            Text("DMメッセージを入力...")
+                                                .font(Theme.Font.body)
+                                                .foregroundStyle(Theme.Color.textTertiary)
+                                                .padding(.top, 10)
+                                                .padding(.leading, 14)
+                                                .allowsHitTesting(false)
+                                        }
+                                        TextEditor(text: $dmMessage)
+                                            .font(Theme.Font.body)
+                                            .foregroundStyle(Theme.Color.textPrimary)
+                                            .scrollContentBackground(.hidden)
+                                            .background(.clear)
+                                            .frame(minHeight: 60, maxHeight: 120)
+                                            .focused($focusedField, equals: .dmMessage)
+                                    }
+                                    .padding(2)
+                                    .background(Theme.Color.surfaceRaised)
+                                    .clipShape(RoundedRectangle(cornerRadius: Theme.Radius.button))
+
+                                    variableChips(for: $dmMessage)
+                                }
+                            }
+                        }
+                    }
                 }
             }
+            .padding(.horizontal, Theme.Spacing.md)
+            .padding(.vertical, Theme.Spacing.md)
         }
-        .listStyle(.insetGrouped)
+        .background(Theme.Color.bg)
         .navigationTitle("退室メッセージ")
         .navigationBarTitleDisplayMode(.large)
         .toolbar {
@@ -93,88 +203,64 @@ struct GoodbyeMessageView: View {
                 }
                 .disabled(isSaving)
             }
+            ToolbarItemGroup(placement: .keyboard) {
+                ScrollView(.horizontal, showsIndicators: false) {
+                    HStack(spacing: Theme.Spacing.xs) {
+                        ForEach(variables, id: \.self) { v in
+                            Button { insertVariable(v) } label: {
+                                Text(v)
+                                    .font(.system(size: 12, weight: .semibold))
+                                    .foregroundStyle(Theme.Color.accent)
+                                    .padding(.horizontal, 10)
+                                    .padding(.vertical, 5)
+                                    .background(Theme.Color.accentDim)
+                                    .clipShape(Capsule())
+                            }
+                            .buttonStyle(.plain)
+                        }
+                    }
+                }
+                .frame(height: 34)
+                .clipped()
+
+                Button("完了") { focusedField = nil }
+                    .font(Theme.Font.caption)
+                    .fontWeight(.semibold)
+                    .foregroundStyle(Theme.Color.accent)
+                    .padding(.leading, Theme.Spacing.xs)
+            }
         }
         .toast($toast)
         .task { await load() }
         .redacted(reason: isLoading ? .placeholder : [])
     }
 
-    private func variableChips(for text: Binding<String>, color: Color) -> some View {
+    private func insertVariable(_ v: String) {
+        switch focusedField {
+        case .message: message += v
+        case .dmMessage: dmMessage += v
+        case .none: break
+        }
+    }
+
+    private func variableChips(for text: Binding<String>) -> some View {
         ScrollView(.horizontal, showsIndicators: false) {
-            HStack(spacing: .spacing8) {
+            HStack(spacing: Theme.Spacing.xs) {
                 ForEach(variables, id: \.self) { v in
                     Button { text.wrappedValue += v } label: {
-                        Text(v).font(.caption).fontWeight(.medium).foregroundStyle(color)
-                            .padding(.horizontal, .spacing8).padding(.vertical, 4)
-                            .background(color.opacity(0.12)).clipShape(Capsule())
-                            .overlay(Capsule().strokeBorder(color.opacity(0.3), lineWidth: 1))
-                    }.buttonStyle(.plain)
+                        Text(v)
+                            .font(.system(size: 12, weight: .semibold))
+                            .foregroundStyle(Theme.Color.accent)
+                            .padding(.horizontal, 10)
+                            .padding(.vertical, 5)
+                            .background(Theme.Color.accentDim)
+                            .clipShape(Capsule())
+                    }
+                    .buttonStyle(.plain)
                 }
-            }.padding(.vertical, 2)
+            }
+            .padding(.vertical, 2)
         }
-    }
-
-    private func discordChannelPreview(text: AttributedString) -> some View {
-        HStack(alignment: .top, spacing: .spacing12) {
-            ZStack {
-                Circle().fill(LinearGradient(colors: [.accentPink, .accentPurple], startPoint: .topLeading, endPoint: .bottomTrailing)).frame(width: 36, height: 36)
-                Image(systemName: "hand.wave.fill").font(.system(size: 14, weight: .semibold)).foregroundStyle(.white)
-            }
-            VStack(alignment: .leading, spacing: 4) {
-                HStack(spacing: .spacing6) {
-                    Text("Noxy").font(.bodySmall).fontWeight(.semibold).foregroundStyle(Color.textPrimary)
-                    Text("BOT").font(.system(size: 9, weight: .bold)).foregroundStyle(.white)
-                        .padding(.horizontal, 4).padding(.vertical, 2).background(Color.accentIndigo).clipShape(RoundedRectangle(cornerRadius: 3))
-                }
-                Text(text).font(.bodySmall).foregroundStyle(Color.textPrimary)
-            }
-        }.padding(.vertical, .spacing4)
-    }
-
-    private func dmPreview(text: AttributedString) -> some View {
-        VStack(alignment: .leading, spacing: .spacing8) {
-            HStack(spacing: .spacing6) {
-                Image(systemName: "envelope.fill").font(.captionSmall).foregroundStyle(Color.accentPink)
-                Text("ダイレクトメッセージ").font(.captionSmall).foregroundStyle(Color.accentPink)
-            }
-            HStack(alignment: .top, spacing: .spacing10) {
-                ZStack {
-                    Circle().fill(LinearGradient(colors: [.accentPink, .accentPurple], startPoint: .topLeading, endPoint: .bottomTrailing)).frame(width: 32, height: 32)
-                    Image(systemName: "hand.wave.fill").font(.system(size: 12, weight: .semibold)).foregroundStyle(.white)
-                }
-                VStack(alignment: .leading, spacing: 4) {
-                    Text("Noxy").font(.captionRegular).fontWeight(.semibold).foregroundStyle(Color.textPrimary)
-                    Text(text).font(.captionRegular).foregroundStyle(Color.textPrimary)
-                }
-                .padding(.horizontal, .spacing10).padding(.vertical, .spacing8)
-                .background(Color.bgElevated).clipShape(RoundedRectangle(cornerRadius: 8))
-            }
-        }.padding(.vertical, .spacing4)
-    }
-
-    private func buildHighlighted(_ raw: String, color: Color) -> AttributedString {
-        let map: [(String, String)] = [
-            ("{user.name}", "OldMember"),
-            ("{server.name}", appState.selectedGuild?.name ?? "サーバー"),
-            ("{member.count}", "1,233"),
-        ]
-        var result = AttributedString()
-        var remaining = raw
-        while !remaining.isEmpty {
-            var matched = false
-            for (variable, replacement) in map {
-                if remaining.hasPrefix(variable) {
-                    var chunk = AttributedString(replacement)
-                    chunk.foregroundColor = UIColor(color)
-                    chunk.font = UIFont.boldSystemFont(ofSize: UIFont.systemFontSize)
-                    result.append(chunk)
-                    remaining = String(remaining.dropFirst(variable.count))
-                    matched = true; break
-                }
-            }
-            if !matched { result.append(AttributedString(String(remaining.removeFirst()))) }
-        }
-        return result
     }
 
     private func load() async {
@@ -209,8 +295,16 @@ struct GoodbyeMessageView: View {
     }
 }
 
-#Preview {
+#Preview("Dark") {
     NavigationStack { GoodbyeMessageView() }
         .environment(\.services, ServiceContainer.live())
         .environment(AppState())
+        .preferredColorScheme(.dark)
+}
+
+#Preview("Light") {
+    NavigationStack { GoodbyeMessageView() }
+        .environment(\.services, ServiceContainer.live())
+        .environment(AppState())
+        .preferredColorScheme(.light)
 }

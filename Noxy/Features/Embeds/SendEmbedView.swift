@@ -48,13 +48,13 @@ struct SendEmbedView: View {
                     mainContent
                 }
             }
-            .background(Color.bgPrimary)
+            .background(Theme.Color.bg)
             .navigationTitle("チャンネルを選択")
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
                 ToolbarItem(placement: .topBarLeading) {
                     Button("キャンセル") { dismiss() }
-                        .foregroundStyle(Color.textSecondary)
+                        .foregroundStyle(Theme.Color.textSecondary)
                 }
             }
         }
@@ -67,11 +67,11 @@ struct SendEmbedView: View {
     private var mainContent: some View {
         VStack(spacing: 0) {
             // Discord Preview
-            VStack(alignment: .leading, spacing: .spacing8) {
+            VStack(alignment: .leading, spacing: Theme.Spacing.xs) {
                 Text("送信するEmbed")
-                    .font(.captionSmall)
+                    .font(Theme.Font.caption2)
                     .fontWeight(.semibold)
-                    .foregroundStyle(Color.textTertiary)
+                    .foregroundStyle(Theme.Color.textTertiary)
                     .textCase(.uppercase)
                     .tracking(0.5)
                     .padding(.horizontal)
@@ -81,17 +81,17 @@ struct SendEmbedView: View {
                     .padding(.horizontal)
                     .padding(.bottom)
             }
-            .background(Color.bgElevated)
+            .background(Theme.Color.surfaceRaised)
 
-            Divider().background(Color.border)
+            Divider().background(Theme.Color.line)
 
             if let errorMessage {
-                HStack(spacing: .spacing8) {
+                HStack(spacing: Theme.Spacing.xs) {
                     Image(systemName: "exclamationmark.triangle.fill")
-                        .foregroundStyle(.red)
+                        .foregroundStyle(Theme.Color.statusBad)
                     Text(errorMessage)
-                        .font(.captionRegular)
-                        .foregroundStyle(.red)
+                        .font(Theme.Font.caption)
+                        .foregroundStyle(Theme.Color.statusBad)
                 }
                 .padding()
             }
@@ -99,33 +99,38 @@ struct SendEmbedView: View {
             if isLoading {
                 ProgressView().frame(maxWidth: .infinity, minHeight: 120)
             } else if groupedChannels.isEmpty {
-                VStack(spacing: .spacing8) {
+                VStack(spacing: Theme.Spacing.xs) {
                     Image(systemName: "number")
                         .font(.system(size: 28))
-                        .foregroundStyle(Color.textTertiary)
+                        .foregroundStyle(Theme.Color.textTertiary)
                     Text("送信可能なチャンネルがありません")
-                        .font(.bodySmall)
-                        .foregroundStyle(Color.textTertiary)
+                        .font(Theme.Font.body)
+                        .foregroundStyle(Theme.Color.textTertiary)
                 }
                 .frame(maxWidth: .infinity, minHeight: 120)
             } else {
-                List {
-                    ForEach(groupedChannels, id: \.category) { group in
-                        Section {
-                            ForEach(group.channels) { ch in
-                                channelRow(ch)
+                ScrollView {
+                    LazyVStack(spacing: 0) {
+                        ForEach(groupedChannels, id: \.category) { group in
+                            SectionLabel(title: group.category)
+                                .padding(.horizontal, Theme.Spacing.md)
+                                .padding(.top, Theme.Spacing.sm)
+                            VStack(spacing: 0) {
+                                ForEach(group.channels) { ch in
+                                    channelRow(ch)
+                                }
                             }
-                        } header: {
-                            Text(group.category)
-                                .font(.captionSmall)
-                                .fontWeight(.semibold)
-                                .foregroundStyle(Color.textSecondary)
-                                .textCase(.uppercase)
+                            .background(Theme.Color.surface)
+                            .clipShape(RoundedRectangle(cornerRadius: Theme.Radius.card))
+                            .overlay(
+                                RoundedRectangle(cornerRadius: Theme.Radius.card)
+                                    .stroke(Theme.Color.line, lineWidth: 1)
+                            )
+                            .padding(.horizontal, Theme.Spacing.md)
+                            .padding(.bottom, Theme.Spacing.sm)
                         }
                     }
                 }
-                .listStyle(.insetGrouped)
-                .scrollContentBackground(.hidden)
                 .searchable(text: $channelSearchText, prompt: "チャンネルを検索")
             }
 
@@ -136,25 +141,40 @@ struct SendEmbedView: View {
                 } label: {
                     HStack {
                         if isSending {
-                            ProgressView().tint(.white).scaleEffect(0.85)
+                            ProgressView().tint(Theme.Color.accentInk).scaleEffect(0.85)
                         } else {
                             Image(systemName: "paperplane.fill")
                             Text("#\(ch.name) に送信する")
                         }
                     }
-                    .font(.titleMedium)
-                    .foregroundStyle(.white)
+                    .font(Theme.Font.title3)
+                    .foregroundStyle(Theme.Color.accentInk)
                     .frame(maxWidth: .infinity)
                     .frame(height: 52)
-                    .background(Color.accentIndigo)
-                    .clipShape(RoundedRectangle(cornerRadius: .cornerRadiusMedium))
+                    .background(Theme.Color.accent)
+                    .clipShape(RoundedRectangle(cornerRadius: Theme.Radius.card))
                 }
                 .padding()
                 .disabled(isSending)
                 .buttonStyle(ScalePressButtonStyle())
-                .alert("#\(ch.name) に送信しますか？", isPresented: $showConfirm) {
-                    Button("送信する") { Task { await sendEmbed() } }
-                    Button("キャンセル", role: .cancel) { }
+                .overlay {
+                    if showConfirm {
+                        ConfirmModal(
+                            icon: "paperplane.fill",
+                            iconColor: Theme.Color.accent,
+                            title: "Embedを送信しますか？",
+                            message: "#\(ch.name) に送信されます。",
+                            primaryLabel: "送信する",
+                            primaryRole: nil,
+                            onPrimary: {
+                                showConfirm = false
+                                Task { await sendEmbed() }
+                            },
+                            onCancel: {
+                                showConfirm = false
+                            }
+                        )
+                    }
                 }
             }
         }
@@ -167,27 +187,29 @@ struct SendEmbedView: View {
         Button {
             selectedChannel = ch
         } label: {
-            HStack(spacing: .spacing10) {
+            HStack(spacing: Theme.Spacing.sm) {
                 Image(systemName: "number")
-                    .font(.captionRegular)
-                    .foregroundStyle(Color.textTertiary)
+                    .font(Theme.Font.caption)
+                    .foregroundStyle(Theme.Color.textTertiary)
                     .frame(width: 16)
                 Text(ch.name)
-                    .font(.bodySmall)
-                    .foregroundStyle(Color.textPrimary)
+                    .font(Theme.Font.body)
+                    .foregroundStyle(Theme.Color.textPrimary)
                 Spacer()
                 if selectedChannel?.id == ch.id {
                     Image(systemName: "checkmark.circle.fill")
-                        .foregroundStyle(Color.accentIndigo)
+                        .foregroundStyle(Theme.Color.accent)
                 }
             }
+            .padding(.horizontal, Theme.Spacing.md)
+            .padding(.vertical, Theme.Spacing.sm)
+            .background(
+                selectedChannel?.id == ch.id
+                    ? Theme.Color.accentDim
+                    : Theme.Color.surface
+            )
         }
         .buttonStyle(.plain)
-        .listRowBackground(
-            selectedChannel?.id == ch.id
-                ? Color.accentIndigo.opacity(0.1)
-                : Color.bgSurface
-        )
     }
 
     // MARK: - Actions
@@ -242,28 +264,28 @@ struct SendSuccessView: View {
     @State private var opacity: Double = 0
 
     var body: some View {
-        VStack(spacing: .spacing24) {
+        VStack(spacing: Theme.Spacing.xl) {
             Spacer()
 
             ZStack {
                 Circle()
-                    .fill(Color.accentGreen.opacity(0.15))
+                    .fill(Theme.Color.statusOK.opacity(0.15))
                     .frame(width: 120, height: 120)
                 Image(systemName: "checkmark.circle.fill")
                     .font(.system(size: 72))
-                    .foregroundStyle(Color.accentGreen)
+                    .foregroundStyle(Theme.Color.statusOK)
                     .scaleEffect(scale)
                     .opacity(opacity)
             }
 
-            VStack(spacing: .spacing8) {
+            VStack(spacing: Theme.Spacing.xs) {
                 Text("送信完了！")
-                    .font(.displayMedium)
-                    .foregroundStyle(Color.textPrimary)
+                    .font(Theme.Font.title2)
+                    .foregroundStyle(Theme.Color.textPrimary)
                 if let ch = channel {
                     Text("#\(ch.name) に送信しました")
-                        .font(.bodyRegular)
-                        .foregroundStyle(Color.textSecondary)
+                        .font(Theme.Font.body)
+                        .foregroundStyle(Theme.Color.textSecondary)
                 }
             }
 

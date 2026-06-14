@@ -121,6 +121,36 @@ struct AutoModSettingsView: View {
     @State private var saveSuccess = false
     @State private var newKeyword = ""
     @State private var expandedSection: AutoModSection? = nil
+    @State private var useAutoSettings = true
+    @State private var selectedSeverity: Severity = .medium
+
+    enum Severity: String, CaseIterable {
+        case large = "大"
+        case medium = "中"
+        case small = "小"
+
+        var description: String {
+            switch self {
+            case .large:  "最も厳格な設定。スパム・不適切コンテンツを徹底的にブロック"
+            case .medium: "バランス重視。一般的なコミュニティに最適"
+            case .small:  "最低限の保護。誤検知を最小限に抑えたい場合に"
+            }
+        }
+        var color: Color {
+            switch self {
+            case .large:  .accentRed
+            case .medium: .accentOrange
+            case .small:  .accentGreen
+            }
+        }
+        var icon: String {
+            switch self {
+            case .large:  "shield.slash.fill"
+            case .medium: "shield.fill"
+            case .small:  "shield"
+            }
+        }
+    }
 
     enum AutoModSection: String, CaseIterable {
         case spam     = "スパム対策"
@@ -156,18 +186,23 @@ struct AutoModSettingsView: View {
         ZStack(alignment: .bottom) {
             ScrollView {
                 LazyVStack(spacing: .spacing8) {
-                    overviewBanner
-                    ForEach(AutoModSection.allCases, id: \.self) { section in
-                        AutoModSectionCard(
-                            section: section,
-                            isExpanded: expandedSection == section
-                        ) {
-                            withAnimation(.spring(duration: 0.3)) {
-                                expandedSection = expandedSection == section ? nil : section
+                    autoSettingsCard
+                        .padding(.top, .spacing8)
+
+                    if !useAutoSettings {
+                        overviewBanner
+                        ForEach(AutoModSection.allCases, id: \.self) { section in
+                            AutoModSectionCard(
+                                section: section,
+                                isExpanded: expandedSection == section
+                            ) {
+                                withAnimation(.spring(duration: 0.3)) {
+                                    expandedSection = expandedSection == section ? nil : section
+                                }
+                                UIImpactFeedbackGenerator(style: .light).impactOccurred()
+                            } content: {
+                                sectionContent(section)
                             }
-                            UIImpactFeedbackGenerator(style: .light).impactOccurred()
-                        } content: {
-                            sectionContent(section)
                         }
                     }
                     Color.clear.frame(height: 80)
@@ -183,6 +218,161 @@ struct AutoModSettingsView: View {
         }
         .animation(.spring(duration: 0.3), value: hasChanges)
         .background(Color.bgPrimary)
+    }
+
+    // MARK: - Auto Settings Card
+
+    private var autoSettingsCard: some View {
+        VStack(alignment: .leading, spacing: .spacing10) {
+            // ヘッダー行（自動設定トグル）
+            HStack(spacing: .spacing8) {
+                Image(systemName: "sparkles")
+                    .font(.system(size: 13, weight: .semibold))
+                    .foregroundStyle(Color.accentIndigo)
+                VStack(alignment: .leading, spacing: 1) {
+                    Text("自動設定")
+                        .font(.bodySmall).fontWeight(.bold).foregroundStyle(Color.textPrimary)
+                    Text("推奨設定に基づいてすべて自動管理")
+                        .font(.captionSmall).foregroundStyle(Color.textTertiary)
+                }
+                Spacer()
+                Toggle("", isOn: $useAutoSettings.animation(.easeInOut(duration: 0.25)))
+                    .tint(Color.accentIndigo)
+                    .labelsHidden()
+                    .onChange(of: useAutoSettings) { _, on in
+                        if on { applySeverity(selectedSeverity); hasChanges = true }
+                    }
+            }
+
+            if useAutoSettings {
+                Divider()
+
+                // 深刻度セレクター
+                HStack(spacing: .spacing8) {
+                    ForEach(Severity.allCases, id: \.self) { severity in
+                        Button {
+                            selectedSeverity = severity
+                            applySeverity(severity)
+                            UIImpactFeedbackGenerator(style: .light).impactOccurred()
+                        } label: {
+                            HStack(spacing: 4) {
+                                Image(systemName: severity.icon)
+                                    .font(.system(size: 12, weight: .semibold))
+                                Text(severity.rawValue)
+                                    .font(.captionSmall).fontWeight(.bold)
+                            }
+                            .foregroundStyle(selectedSeverity == severity ? .white : severity.color)
+                            .frame(maxWidth: .infinity)
+                            .padding(.vertical, .spacing8)
+                            .background(selectedSeverity == severity ? severity.color : severity.color.opacity(0.1))
+                            .clipShape(RoundedRectangle(cornerRadius: .cornerRadiusSmall))
+                            .overlay(RoundedRectangle(cornerRadius: .cornerRadiusSmall)
+                                .stroke(severity.color.opacity(0.4), lineWidth: 1))
+                        }
+                        .buttonStyle(.plain)
+                    }
+                }
+
+                Text(selectedSeverity.description)
+                    .font(.captionSmall).foregroundStyle(Color.textSecondary)
+
+                Divider()
+
+                // 設定内容一覧
+                VStack(alignment: .leading, spacing: .spacing6) {
+                    Text("適用される設定")
+                        .font(.captionSmall).fontWeight(.semibold).foregroundStyle(Color.textTertiary)
+                    ForEach(severityRuleLabels(selectedSeverity), id: \.self) { label in
+                        HStack(spacing: 6) {
+                            Image(systemName: "checkmark.circle.fill")
+                                .font(.system(size: 11))
+                                .foregroundStyle(selectedSeverity.color)
+                            Text(label)
+                                .font(.captionSmall).foregroundStyle(Color.textSecondary)
+                        }
+                    }
+                }
+            }
+        }
+        .padding(.spacing12)
+        .background(Color.bgSurface)
+        .clipShape(RoundedRectangle(cornerRadius: .cornerRadiusMedium))
+        .overlay(RoundedRectangle(cornerRadius: .cornerRadiusMedium).stroke(Color.border, lineWidth: 1))
+        .animation(.easeInOut(duration: 0.25), value: useAutoSettings)
+        .animation(.easeInOut(duration: 0.18), value: selectedSeverity)
+        .onAppear {
+            if useAutoSettings {
+                applySeverity(selectedSeverity)
+                hasChanges = false
+            }
+        }
+    }
+
+    private func severityRuleLabels(_ severity: Severity) -> [String] {
+        switch severity {
+        case .large:
+            return ["メッセージスパム検知（3件/5秒）", "重複メッセージ検知（2回）",
+                    "メンションスパム（3件以上）", "絵文字スパム（5個以上）",
+                    "大文字スパム（60%以上）", "キーワードフィルター",
+                    "Discord招待リンクブロック", "フィッシングリンク検出",
+                    "アカウント年齢制限（14日）", "新規メンバー制限（30分）",
+                    "レイド保護", "アンチヌーク保護"]
+        case .medium:
+            return ["メッセージスパム検知（5件/5秒）", "メンションスパム（5件以上）",
+                    "大文字スパム（70%以上）", "キーワードフィルター",
+                    "Discord招待リンクブロック", "フィッシングリンク検出"]
+        case .small:
+            return ["メッセージスパム検知（8件/10秒）", "@everyone/@here スパム検知",
+                    "フィッシングリンク検出"]
+        }
+    }
+
+    private func applySeverity(_ severity: Severity) {
+        hasChanges = true
+        switch severity {
+        case .large:
+            settings.msgSpamEnabled = true;  settings.msgSpamCount = 3;  settings.msgSpamSeconds = 5
+            settings.dupMsgEnabled = true;   settings.dupMsgCount = 2
+            settings.mentionEnabled = true;  settings.mentionLimit = 3
+            settings.massMentionEnabled = true
+            settings.emojiEnabled = true;    settings.emojiLimit = 5
+            settings.capsEnabled = true;     settings.capsPercent = 60
+            settings.keywordEnabled = true
+            settings.inviteLinkEnabled = true
+            settings.phishingEnabled = true
+            settings.minAgeEnabled = true;   settings.minAgeDays = 14
+            settings.newMemberEnabled = true; settings.newMemberMins = 30
+            settings.raidEnabled = true
+            settings.antiNukeEnabled = true
+        case .medium:
+            settings.msgSpamEnabled = true;  settings.msgSpamCount = 5;  settings.msgSpamSeconds = 5
+            settings.dupMsgEnabled = false
+            settings.mentionEnabled = true;  settings.mentionLimit = 5
+            settings.massMentionEnabled = true
+            settings.emojiEnabled = false
+            settings.capsEnabled = true;     settings.capsPercent = 70
+            settings.keywordEnabled = true
+            settings.inviteLinkEnabled = true
+            settings.phishingEnabled = true
+            settings.minAgeEnabled = false
+            settings.newMemberEnabled = false
+            settings.raidEnabled = false
+            settings.antiNukeEnabled = false
+        case .small:
+            settings.msgSpamEnabled = true;  settings.msgSpamCount = 8;  settings.msgSpamSeconds = 10
+            settings.dupMsgEnabled = false
+            settings.mentionEnabled = false
+            settings.massMentionEnabled = true
+            settings.emojiEnabled = false
+            settings.capsEnabled = false
+            settings.keywordEnabled = false
+            settings.inviteLinkEnabled = false
+            settings.phishingEnabled = true
+            settings.minAgeEnabled = false
+            settings.newMemberEnabled = false
+            settings.raidEnabled = false
+            settings.antiNukeEnabled = false
+        }
     }
 
     // MARK: - Overview
@@ -766,7 +956,7 @@ struct AutoModSettingsView: View {
                 if isExpanded {
                     Divider()
                     content()
-                        .transition(.opacity.combined(with: .move(edge: .top)))
+                        .transition(.opacity.combined(with: .move(edge: .bottom)))
                 }
             }
             .background(Color.bgSurface)
@@ -815,7 +1005,7 @@ private struct RuleRow<Detail: View>: View {
                 detail()
                     .padding(.horizontal, .spacing12)
                     .padding(.bottom, .spacing10)
-                    .transition(.opacity.combined(with: .move(edge: .top)))
+                    .transition(.opacity.combined(with: .move(edge: .bottom)))
             }
         }
         .animation(.easeInOut(duration: 0.2), value: isOn)
@@ -920,9 +1110,8 @@ private struct ExemptEditor: View {
     }
 }
 
-// MARK: - FlowLayout（タグの折り返し）
-
-private struct FlowLayout: Layout {
+// FlowLayout は Theme/Components/FlowLayout.swift で共通定義済み
+private struct _AutoModFlowLayout: Layout {
     var spacing: CGFloat = 8
 
     func sizeThatFits(proposal: ProposedViewSize, subviews: Subviews, cache: inout ()) -> CGSize {

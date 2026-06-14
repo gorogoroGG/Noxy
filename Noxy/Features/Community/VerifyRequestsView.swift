@@ -11,41 +11,38 @@ struct VerifyRequestsView: View {
     @State private var toast: ToastMessage? = nil
 
     var body: some View {
-        List {
-            if isLoading {
-                HStack { Spacer(); ProgressView(); Spacer() }
-                    .listRowBackground(Color(.systemGroupedBackground))
-                    .listRowSeparator(.hidden).padding(.top, 30)
-            } else if requests.isEmpty {
-                VStack(spacing: .spacing12) {
-                    Image(systemName: "person.badge.clock.fill")
-                        .font(.system(size: 36)).foregroundStyle(Color.textTertiary)
-                    Text("承認待ちの申請はありません")
-                        .font(.titleMedium).foregroundStyle(Color.textPrimary)
+        ScrollView {
+            VStack(spacing: 0) {
+                if isLoading {
+                    HStack { Spacer(); ProgressView(); Spacer() }
+                        .padding(.top, 30)
+                } else if requests.isEmpty {
+                    VStack(spacing: .spacing12) {
+                        Image(systemName: "person.badge.clock.fill")
+                            .font(.system(size: 36)).foregroundStyle(Theme.Color.textTertiary)
+                        Text("承認待ちの申請はありません")
+                            .font(Theme.Font.title3).foregroundStyle(Theme.Color.textPrimary)
+                    }
+                    .frame(maxWidth: .infinity).padding(.top, 60)
+                } else {
+                    LazyVStack(spacing: .spacing12) {
+                        ForEach(requests) { req in
+                            RequestRow(
+                                request: req,
+                                isProcessing: processingId == req.id,
+                                onApprove: { Task { await approve(req) } },
+                                onDeny: { Task { await deny(req) } }
+                            )
+                            .padding(.horizontal, .spacing16)
+                        }
+                    }
                 }
-                .frame(maxWidth: .infinity).padding(.top, 60)
-                .listRowBackground(Color(.systemGroupedBackground))
-                .listRowSeparator(.hidden)
-            } else {
-                ForEach(requests) { req in
-                    RequestRow(
-                        request: req,
-                        isProcessing: processingId == req.id,
-                        onApprove: { Task { await approve(req) } },
-                        onDeny: { Task { await deny(req) } }
-                    )
-                    .listRowInsets(EdgeInsets(top: 5, leading: 16, bottom: 5, trailing: 16))
-                    .listRowBackground(Color(.systemGroupedBackground))
-                    .listRowSeparator(.hidden)
-                }
-            }
 
-            Color.clear.frame(height: 40)
-                .listRowBackground(Color(.systemGroupedBackground))
-                .listRowSeparator(.hidden)
+                Color.clear.frame(height: 40)
+            }
+            .padding(.top, .spacing12)
         }
-        .listStyle(.plain)
-        .background(Color(.systemGroupedBackground))
+        .background(Theme.Color.bg)
         .refreshable { await load() }
         .navigationTitle("承認待ち")
         .navigationBarTitleDisplayMode(.large)
@@ -64,7 +61,7 @@ struct VerifyRequestsView: View {
         do {
             _ = try await services.verify.approveRequest(id: req.id)
             requests.removeAll { $0.id == req.id }
-            toast = ToastMessage(type: .success, message: "✅ 承認しました")
+            toast = ToastMessage(type: .success, message: "承認しました")
         } catch {
             toast = ToastMessage(type: .error, message: "承認に失敗しました")
         }
@@ -98,27 +95,27 @@ private struct RequestRow: View {
                 // アバター
                 ZStack {
                     Circle()
-                        .fill(Color.accentIndigo.opacity(0.15))
+                        .fill(Theme.Color.accent.opacity(0.15))
                         .frame(width: 40, height: 40)
                     if let avatarUrl = request.avatarUrl, let url = URL(string: avatarUrl) {
                         AsyncImage(url: url) { image in
                             image.resizable().scaledToFill()
                         } placeholder: {
                             Image(systemName: "person.fill")
-                                .font(.system(size: 16)).foregroundStyle(Color.accentIndigo)
+                                .font(.system(size: 16)).foregroundStyle(Theme.Color.accent)
                         }
                         .frame(width: 40, height: 40).clipShape(Circle())
                     } else {
                         Image(systemName: "person.fill")
-                            .font(.system(size: 16)).foregroundStyle(Color.accentIndigo)
+                            .font(.system(size: 16)).foregroundStyle(Theme.Color.accent)
                     }
                 }
 
                 VStack(alignment: .leading, spacing: 3) {
                     Text("@\(request.username)")
-                        .font(.bodySmall).fontWeight(.semibold).foregroundStyle(Color.textPrimary)
+                        .font(Theme.Font.body).fontWeight(.semibold).foregroundStyle(Theme.Color.textPrimary)
                     Text(request.createdAt.formatted(.relative(presentation: .named)))
-                        .font(.captionSmall).foregroundStyle(Color.textTertiary)
+                        .font(Theme.Font.caption2).foregroundStyle(Theme.Color.textTertiary)
                 }
                 Spacer()
             }
@@ -133,8 +130,8 @@ private struct RequestRow: View {
                             ProgressView().scaleEffect(0.7)
                         } else {
                             Label("承認", systemImage: "checkmark.circle.fill")
-                                .font(.captionRegular).fontWeight(.semibold)
-                                .foregroundStyle(Color.accentGreen)
+                                .font(Theme.Font.caption).fontWeight(.semibold)
+                                .foregroundStyle(Theme.Color.statusOK)
                         }
                     }
                     .frame(maxWidth: .infinity).padding(.vertical, .spacing10)
@@ -145,14 +142,18 @@ private struct RequestRow: View {
 
                 Button(action: onDeny) {
                     Label("拒否", systemImage: "xmark.circle.fill")
-                        .font(.captionRegular).fontWeight(.semibold).foregroundStyle(.red)
+                        .font(Theme.Font.caption).fontWeight(.semibold).foregroundStyle(Theme.Color.statusBad)
                         .frame(maxWidth: .infinity).padding(.vertical, .spacing10)
                 }
                 .buttonStyle(.plain).disabled(isProcessing)
             }
-            .background(Color(.tertiarySystemGroupedBackground))
+            .background(Theme.Color.surfaceRaised)
         }
-        .background(Color(.secondarySystemGroupedBackground))
-        .clipShape(RoundedRectangle(cornerRadius: 14))
+        .background(Theme.Color.surface)
+        .clipShape(RoundedRectangle(cornerRadius: Theme.Radius.card))
+        .overlay(
+            RoundedRectangle(cornerRadius: Theme.Radius.card)
+                .stroke(Theme.Color.line, lineWidth: 1)
+        )
     }
 }

@@ -5,7 +5,7 @@ struct ColorPickerSheet: View {
     @Environment(\.dismiss) private var dismiss
     @State private var hexInput: String = ""
     @State private var hexError = false
-    @State private var nativeColor: Color = .accentIndigo
+    @State private var nativeColor: Color = Theme.Color.accent
 
     private let presets: [(String, UInt32)] = [
         ("Indigo",  0x5865F2), ("Pink",   0xEC4899), ("Purple", 0x7C3AED),
@@ -16,32 +16,32 @@ struct ColorPickerSheet: View {
 
     var body: some View {
         NavigationStack {
-            VStack(alignment: .leading, spacing: .spacing24) {
+            VStack(alignment: .leading, spacing: Theme.Spacing.xl) {
                 // Current color preview
-                HStack(spacing: .spacing16) {
-                    RoundedRectangle(cornerRadius: .cornerRadiusMedium)
+                HStack(spacing: Theme.Spacing.md) {
+                    RoundedRectangle(cornerRadius: Theme.Radius.card)
                         .fill(Color(uiColor: UIColor(hex: selectedHex)))
                         .frame(width: 56, height: 56)
                         .overlay(
-                            RoundedRectangle(cornerRadius: .cornerRadiusMedium)
-                                .strokeBorder(Color.border, lineWidth: 1)
+                            RoundedRectangle(cornerRadius: Theme.Radius.card)
+                                .strokeBorder(Theme.Color.line, lineWidth: 1)
                         )
                     VStack(alignment: .leading) {
                         Text("選択中のカラー")
-                            .font(.titleMedium)
-                            .foregroundStyle(Color.textPrimary)
+                            .font(Theme.Font.title3)
+                            .foregroundStyle(Theme.Color.textPrimary)
                         Text(String(format: "#%06X", selectedHex))
-                            .font(.mono)
-                            .foregroundStyle(Color.textSecondary)
+                            .font(Theme.Font.mono)
+                            .foregroundStyle(Theme.Color.textSecondary)
                     }
                 }
                 .padding(.horizontal)
 
                 // Native ColorPicker
-                VStack(alignment: .leading, spacing: .spacing8) {
+                VStack(alignment: .leading, spacing: Theme.Spacing.xs) {
                     Text("カラーピッカー".uppercased())
-                        .font(.captionSmall)
-                        .foregroundStyle(Color.textTertiary)
+                        .font(Theme.Font.caption2)
+                        .foregroundStyle(Theme.Color.textTertiary)
                         .tracking(0.8)
                         .padding(.horizontal)
 
@@ -56,16 +56,16 @@ struct ColorPickerSheet: View {
                 }
 
                 // Presets grid
-                VStack(alignment: .leading, spacing: .spacing12) {
+                VStack(alignment: .leading, spacing: Theme.Spacing.sm) {
                     Text("プリセット".uppercased())
-                        .font(.captionSmall)
-                        .foregroundStyle(Color.textTertiary)
+                        .font(Theme.Font.caption2)
+                        .foregroundStyle(Theme.Color.textTertiary)
                         .tracking(0.8)
                         .padding(.horizontal)
 
                     LazyVGrid(
-                        columns: Array(repeating: GridItem(.flexible(), spacing: .spacing8), count: 6),
-                        spacing: .spacing8
+                        columns: Array(repeating: GridItem(.flexible(), spacing: Theme.Spacing.xs), count: 6),
+                        spacing: Theme.Spacing.xs
                     ) {
                         ForEach(presets, id: \.1) { name, hex in
                             Button {
@@ -79,9 +79,9 @@ struct ColorPickerSheet: View {
                                     .overlay {
                                         if selectedHex == hex {
                                             Image(systemName: "checkmark")
-                                                .font(.captionSmall)
+                                                .font(Theme.Font.caption2)
                                                 .fontWeight(.bold)
-                                                .foregroundStyle(.white)
+                                                .foregroundStyle(Theme.Color.accentInk)
                                         }
                                     }
                             }
@@ -92,19 +92,19 @@ struct ColorPickerSheet: View {
                 }
 
                 // Custom HEX input
-                VStack(alignment: .leading, spacing: .spacing8) {
+                VStack(alignment: .leading, spacing: Theme.Spacing.xs) {
                     Text("カスタムHEX".uppercased())
-                        .font(.captionSmall)
-                        .foregroundStyle(Color.textTertiary)
+                        .font(Theme.Font.caption2)
+                        .foregroundStyle(Theme.Color.textTertiary)
                         .tracking(0.8)
 
-                    HStack(spacing: .spacing8) {
+                    HStack(spacing: Theme.Spacing.xs) {
                         Text("#")
-                            .font(.mono)
-                            .foregroundStyle(Color.textSecondary)
+                            .font(Theme.Font.mono)
+                            .foregroundStyle(Theme.Color.textSecondary)
 
                         TextField("5865F2", text: $hexInput)
-                            .font(.mono)
+                            .font(Theme.Font.mono)
                             .textInputAutocapitalization(.characters)
                             .autocorrectionDisabled()
                             .onChange(of: hexInput) { _, new in
@@ -116,37 +116,37 @@ struct ColorPickerSheet: View {
                                 hexInput = ""
                             } label: {
                                 Image(systemName: "xmark.circle.fill")
-                                    .foregroundStyle(Color.textTertiary)
+                                    .foregroundStyle(Theme.Color.textTertiary)
                             }
                         }
                     }
-                    .padding(.spacing12)
-                    .background(Color.bgSurface)
-                    .clipShape(RoundedRectangle(cornerRadius: .cornerRadiusSmall))
+                    .padding(Theme.Spacing.sm)
+                    .background(Theme.Color.surface)
+                    .clipShape(RoundedRectangle(cornerRadius: Theme.Radius.button))
                     .overlay(
-                        RoundedRectangle(cornerRadius: .cornerRadiusSmall)
-                            .strokeBorder(hexError ? Color.accentPink : Color.clear, lineWidth: 1)
+                        RoundedRectangle(cornerRadius: Theme.Radius.button)
+                            .strokeBorder(hexError ? Theme.Color.statusBad : Color.clear, lineWidth: 1)
                     )
 
                     if hexError {
                         Text("無効なHEXカラーです")
-                            .font(.captionSmall)
-                            .foregroundStyle(Color.accentPink)
+                            .font(Theme.Font.caption2)
+                            .foregroundStyle(Theme.Color.statusBad)
                     }
                 }
                 .padding(.horizontal)
 
                 Spacer()
             }
-            .padding(.top, .spacing24)
-            .background(Color.bgPrimary)
+            .padding(.top, Theme.Spacing.xl)
+            .background(Theme.Color.bg)
             .navigationTitle("カラーを選択")
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
                 ToolbarItem(placement: .topBarTrailing) {
                     Button("完了") { dismiss() }
                         .fontWeight(.semibold)
-                        .foregroundStyle(Color.accentIndigo)
+                        .foregroundStyle(Theme.Color.accent)
                 }
             }
             .onAppear {

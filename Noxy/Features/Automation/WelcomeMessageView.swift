@@ -64,38 +64,33 @@ struct WelcomeMessageView: View {
         }
     }
 
-    private var welcomeGradient: LinearGradient {
-        LinearGradient(colors: [.accentGreen, .accentIndigo], startPoint: .topLeading, endPoint: .bottomTrailing)
-    }
-    private var goodbyeGradient: LinearGradient {
-        LinearGradient(colors: [.accentPink, .accentPurple], startPoint: .topLeading, endPoint: .bottomTrailing)
-    }
-
     // MARK: - Body
 
     var body: some View {
         ScrollView(.vertical, showsIndicators: false) {
-            VStack(spacing: .spacing16) {
+            VStack(spacing: Theme.Spacing.md) {
                 // タブ
                 Picker("", selection: $selectedTab.animation()) {
                     ForEach(MessageTab.allCases, id: \.self) { Text($0.rawValue).tag($0) }
                 }
                 .pickerStyle(.segmented)
-                .padding(.horizontal, .spacing16)
+                .padding(.horizontal, Theme.Spacing.md)
 
                 if isLoading {
-                    ProgressView().frame(maxWidth: .infinity).padding(.top, 40)
+                    ProgressView()
+                        .frame(maxWidth: .infinity)
+                        .padding(.top, Theme.Spacing.xxl)
                 } else if selectedTab == .welcome {
                     welcomeTabContent
                 } else {
                     goodbyeTabContent
                 }
             }
-            .padding(.vertical, .spacing16)
+            .padding(.vertical, Theme.Spacing.md)
             .padding(.bottom, keyboardHeight > 0 ? keyboardHeight : 0)
         }
         .scrollDismissesKeyboard(.never)
-        .background(Color(.systemGroupedBackground))
+        .background(Theme.Color.bg)
         .navigationTitle("入退室メッセージ")
         .navigationBarTitleDisplayMode(.large)
         .toolbar {
@@ -128,18 +123,17 @@ struct WelcomeMessageView: View {
     private var keyboardToolbar: some ToolbarContent {
         ToolbarItemGroup(placement: .keyboard) {
             ScrollView(.horizontal, showsIndicators: false) {
-                HStack(spacing: .spacing6) {
+                HStack(spacing: Theme.Spacing.xs) {
                     ForEach(currentVars, id: \.0) { label, value in
                         Button {
                             insertVariable(value)
                         } label: {
                             Text(label)
                                 .font(.system(size: 12, weight: .semibold))
-                                .foregroundStyle(selectedTab == .welcome ? Color.accentGreen : Color.accentPink)
-                                .padding(.horizontal, 10).padding(.vertical, 5)
-                                .background(
-                                    (selectedTab == .welcome ? Color.accentGreen : Color.accentPink).opacity(0.1)
-                                )
+                                .foregroundStyle(Theme.Color.accent)
+                                .padding(.horizontal, 10)
+                                .padding(.vertical, 5)
+                                .background(Theme.Color.accentDim)
                                 .clipShape(Capsule())
                         }
                         .buttonStyle(.plain)
@@ -150,9 +144,10 @@ struct WelcomeMessageView: View {
             .clipped()
 
             Button("完了") { focusedField = nil }
-                .font(.captionRegular).fontWeight(.semibold)
-                .foregroundStyle(selectedTab == .welcome ? Color.accentGreen : Color.accentPink)
-                .padding(.leading, .spacing8)
+                .font(Theme.Font.caption)
+                .fontWeight(.semibold)
+                .foregroundStyle(Theme.Color.accent)
+                .padding(.leading, Theme.Spacing.xs)
         }
     }
 
@@ -169,37 +164,56 @@ struct WelcomeMessageView: View {
     // MARK: - 入室タブ
 
     private var welcomeTabContent: some View {
-        VStack(spacing: .spacing16) {
+        VStack(spacing: Theme.Spacing.md) {
             // ON/OFF
-            Card {
+            FormSection("入室設定", icon: "arrow.right.circle") {
                 HStack {
-                    Label("入室メッセージを送信する", systemImage: "arrow.right.circle.fill")
-                        .font(.bodySmall).fontWeight(.semibold)
-                        .foregroundStyle(Color.accentGreen)
+                    VStack(alignment: .leading, spacing: 2) {
+                        Text("入室メッセージを送信する")
+                            .font(Theme.Font.body)
+                            .foregroundStyle(Theme.Color.textPrimary)
+                        Text(welcomeEnabled ? "有効" : "無効")
+                            .font(Theme.Font.caption2)
+                            .foregroundStyle(welcomeEnabled ? Theme.Color.statusOK : Theme.Color.textTertiary)
+                    }
                     Spacer()
                     Toggle("", isOn: $welcomeEnabled.animation())
-                        .tint(Color.accentGreen)
+                        .tint(Theme.Color.accent)
                         .labelsHidden()
                 }
+                .padding(.vertical, Theme.Spacing.xs)
             }
 
             if welcomeEnabled {
                 // チャンネル選択
-                channelPickerCard(
+                channelPickerSection(
                     id: $welcomeChannelId,
-                    name: $welcomeChannelName,
-                    accentColor: Color.accentGreen
+                    name: $welcomeChannelName
                 )
 
                 // チャンネルメッセージ
-                inlineMessageEditor(
-                    text: $welcomeMessage,
-                    placeholder: "入室メッセージを入力...",
-                    focusValue: .welcomeMsg,
-                    accentColor: Color.accentGreen,
-                    gradient: welcomeGradient,
-                    botIcon: "bolt.fill"
-                )
+                FormSection("メッセージ", icon: "message") {
+                    ZStack(alignment: .topLeading) {
+                        if welcomeMessage.isEmpty {
+                            Text("入室メッセージを入力...")
+                                .font(Theme.Font.body)
+                                .foregroundStyle(Theme.Color.textTertiary)
+                                .padding(.top, 10)
+                                .padding(.leading, 14)
+                                .allowsHitTesting(false)
+                        }
+                        TextEditor(text: $welcomeMessage)
+                            .font(Theme.Font.body)
+                            .foregroundStyle(Theme.Color.textPrimary)
+                            .scrollContentBackground(.hidden)
+                            .background(.clear)
+                            .frame(minHeight: 80, maxHeight: 140)
+                            .focused($focusedField, equals: .welcomeMsg)
+                    }
+                    .padding(2)
+                    .background(Theme.Color.surfaceRaised)
+                    .clipShape(RoundedRectangle(cornerRadius: Theme.Radius.button))
+                }
 
                 // DM
                 dmSection(
@@ -207,58 +221,73 @@ struct WelcomeMessageView: View {
                     message: $welcomeDmMessage,
                     focusValue: .welcomeDmMsg,
                     enableLabel: "新メンバーにDMを送信",
-                    placeholder: "DMメッセージを入力...",
-                    accentColor: Color.accentGreen,
-                    gradient: welcomeGradient,
-                    botIcon: "bolt.fill"
+                    placeholder: "DMメッセージを入力..."
                 )
 
                 // ロール付与
                 roleSection
             }
         }
-        .padding(.horizontal, .spacing16)
+        .padding(.horizontal, Theme.Spacing.md)
     }
 
     // MARK: - 退室タブ
 
     private var goodbyeTabContent: some View {
-        VStack(spacing: .spacing16) {
+        VStack(spacing: Theme.Spacing.md) {
             // ON/OFF
-            Card {
+            FormSection("退室設定", icon: "arrow.left.circle") {
                 HStack {
-                    Label("退室メッセージを送信する", systemImage: "arrow.left.circle.fill")
-                        .font(.bodySmall).fontWeight(.semibold)
-                        .foregroundStyle(Color.accentPink)
+                    VStack(alignment: .leading, spacing: 2) {
+                        Text("退室メッセージを送信する")
+                            .font(Theme.Font.body)
+                            .foregroundStyle(Theme.Color.textPrimary)
+                        Text(goodbyeEnabled ? "有効" : "無効")
+                            .font(Theme.Font.caption2)
+                            .foregroundStyle(goodbyeEnabled ? Theme.Color.statusOK : Theme.Color.textTertiary)
+                    }
                     Spacer()
                     Toggle("", isOn: $goodbyeEnabled.animation())
-                        .tint(Color.accentPink)
+                        .tint(Theme.Color.accent)
                         .labelsHidden()
                 }
+                .padding(.vertical, Theme.Spacing.xs)
             }
 
             if goodbyeEnabled {
                 // チャンネル選択
-                channelPickerCard(
+                channelPickerSection(
                     id: $goodbyeChannelId,
-                    name: $goodbyeChannelName,
-                    accentColor: Color.accentPink
+                    name: $goodbyeChannelName
                 )
 
                 // チャンネルメッセージ
-                inlineMessageEditor(
-                    text: $goodbyeMessage,
-                    placeholder: "退室メッセージを入力...",
-                    focusValue: .goodbyeMsg,
-                    accentColor: Color.accentPink,
-                    gradient: goodbyeGradient,
-                    botIcon: "hand.wave.fill"
-                )
+                FormSection("メッセージ", icon: "message") {
+                    ZStack(alignment: .topLeading) {
+                        if goodbyeMessage.isEmpty {
+                            Text("退室メッセージを入力...")
+                                .font(Theme.Font.body)
+                                .foregroundStyle(Theme.Color.textTertiary)
+                                .padding(.top, 10)
+                                .padding(.leading, 14)
+                                .allowsHitTesting(false)
+                        }
+                        TextEditor(text: $goodbyeMessage)
+                            .font(Theme.Font.body)
+                            .foregroundStyle(Theme.Color.textPrimary)
+                            .scrollContentBackground(.hidden)
+                            .background(.clear)
+                            .frame(minHeight: 80, maxHeight: 140)
+                            .focused($focusedField, equals: .goodbyeMsg)
+                    }
+                    .padding(2)
+                    .background(Theme.Color.surfaceRaised)
+                    .clipShape(RoundedRectangle(cornerRadius: Theme.Radius.button))
+                }
 
                 Text("{user.mention} は退室時には使用できません")
-                    .font(.captionSmall)
-                    .foregroundStyle(Color.textTertiary)
-                    .padding(.horizontal, .spacing4)
+                    .font(Theme.Font.caption2)
+                    .foregroundStyle(Theme.Color.textTertiary)
 
                 // DM
                 dmSection(
@@ -266,74 +295,11 @@ struct WelcomeMessageView: View {
                     message: $goodbyeDmMessage,
                     focusValue: .goodbyeDmMsg,
                     enableLabel: "退室前にDMを送信",
-                    placeholder: "DMメッセージを入力...",
-                    accentColor: Color.accentPink,
-                    gradient: goodbyeGradient,
-                    botIcon: "hand.wave.fill"
+                    placeholder: "DMメッセージを入力..."
                 )
             }
         }
-        .padding(.horizontal, .spacing16)
-    }
-
-    // MARK: - インラインメッセージエディタ
-
-    private func inlineMessageEditor(
-        text: Binding<String>,
-        placeholder: String,
-        focusValue: FieldFocus,
-        accentColor: Color,
-        gradient: LinearGradient,
-        botIcon: String
-    ) -> some View {
-        HStack(alignment: .top, spacing: .spacing12) {
-            ZStack {
-                Circle().fill(gradient).frame(width: 40, height: 40)
-                Image(systemName: botIcon)
-                    .font(.system(size: 16, weight: .semibold))
-                    .foregroundStyle(.white)
-            }
-
-            VStack(alignment: .leading, spacing: .spacing4) {
-                HStack(spacing: .spacing6) {
-                    Text("Noxy")
-                        .font(.system(size: 14, weight: .semibold))
-                        .foregroundStyle(accentColor)
-                    Text("BOT")
-                        .font(.system(size: 9, weight: .bold))
-                        .foregroundStyle(.white)
-                        .padding(.horizontal, 4).padding(.vertical, 1)
-                        .background(Color.accentIndigo)
-                        .clipShape(RoundedRectangle(cornerRadius: 3))
-                    (Text("今日 ") + Text(Date(), style: .time))
-                        .font(.captionSmall)
-                        .foregroundStyle(Color.textTertiary)
-                    Spacer()
-                }
-
-                ZStack(alignment: .topLeading) {
-                    if text.wrappedValue.isEmpty {
-                        Text(placeholder)
-                            .font(.system(size: 14))
-                            .foregroundStyle(Color.textTertiary)
-                            .padding(.top, 8).padding(.leading, 4)
-                            .allowsHitTesting(false)
-                    }
-                    TextEditor(text: text)
-                        .font(.system(size: 14))
-                        .foregroundStyle(Color.textPrimary)
-                        .scrollContentBackground(.hidden)
-                        .background(.clear)
-                        .frame(minHeight: 56, maxHeight: 140)
-                        .focused($focusedField, equals: focusValue)
-                }
-                .padding(2)
-                .embedDashedBorder(focused: focusedField == focusValue)
-            }
-        }
-        .padding(.spacing12)
-        .background(Color.bgSurface)
-        .clipShape(RoundedRectangle(cornerRadius: 4))
+        .padding(.horizontal, Theme.Spacing.md)
     }
 
     // MARK: - DM セクション
@@ -343,67 +309,49 @@ struct WelcomeMessageView: View {
         message: Binding<String>,
         focusValue: FieldFocus,
         enableLabel: String,
-        placeholder: String,
-        accentColor: Color,
-        gradient: LinearGradient,
-        botIcon: String
+        placeholder: String
     ) -> some View {
-        Card {
-            VStack(alignment: .leading, spacing: .spacing12) {
+        FormSection("ダイレクトメッセージ", icon: "envelope") {
+            VStack(alignment: .leading, spacing: Theme.Spacing.sm) {
                 HStack {
-                    Label(enableLabel, systemImage: "envelope.fill")
-                        .font(.bodySmall).fontWeight(.semibold)
-                        .foregroundStyle(accentColor)
+                    Text(enableLabel)
+                        .font(Theme.Font.body)
+                        .foregroundStyle(Theme.Color.textPrimary)
                     Spacer()
                     if !appState.isPro {
-                        Badge(text: "Pro", color: .accentOrange)
+                        Badge(text: "Pro", color: Theme.Color.statusWarn)
                     } else {
                         Toggle("", isOn: enabled.animation())
-                            .tint(accentColor)
+                            .tint(Theme.Color.accent)
                             .labelsHidden()
                     }
                 }
 
                 if !appState.isPro {
                     Text("Proプランで利用可能")
-                        .font(.captionSmall)
-                        .foregroundStyle(Color.textTertiary)
+                        .font(Theme.Font.caption2)
+                        .foregroundStyle(Theme.Color.textTertiary)
                 } else if enabled.wrappedValue {
-                    // DM インライン編集
-                    HStack(alignment: .top, spacing: .spacing10) {
-                        ZStack {
-                            Circle().fill(gradient).frame(width: 32, height: 32)
-                            Image(systemName: botIcon)
-                                .font(.system(size: 12, weight: .semibold))
-                                .foregroundStyle(.white)
+                    ZStack(alignment: .topLeading) {
+                        if message.wrappedValue.isEmpty {
+                            Text(placeholder)
+                                .font(Theme.Font.body)
+                                .foregroundStyle(Theme.Color.textTertiary)
+                                .padding(.top, 10)
+                                .padding(.leading, 14)
+                                .allowsHitTesting(false)
                         }
-
-                        VStack(alignment: .leading, spacing: .spacing4) {
-                            Text("Noxy")
-                                .font(.system(size: 12, weight: .semibold))
-                                .foregroundStyle(accentColor)
-
-                            ZStack(alignment: .topLeading) {
-                                if message.wrappedValue.isEmpty {
-                                    Text(placeholder)
-                                        .font(.system(size: 13))
-                                        .foregroundStyle(Color.textTertiary)
-                                        .padding(.top, 6).padding(.leading, 4)
-                                        .allowsHitTesting(false)
-                                }
-                                TextEditor(text: message)
-                                    .font(.system(size: 13))
-                                    .foregroundStyle(Color.textPrimary)
-                                    .scrollContentBackground(.hidden)
-                                    .background(.clear)
-                                    .frame(minHeight: 48, maxHeight: 120)
-                                    .focused($focusedField, equals: focusValue)
-                            }
-                            .padding(.horizontal, .spacing10).padding(.vertical, .spacing8)
-                            .background(Color.bgElevated)
-                            .clipShape(RoundedRectangle(cornerRadius: 8))
-                        }
+                        TextEditor(text: message)
+                            .font(Theme.Font.body)
+                            .foregroundStyle(Theme.Color.textPrimary)
+                            .scrollContentBackground(.hidden)
+                            .background(.clear)
+                            .frame(minHeight: 60, maxHeight: 120)
+                            .focused($focusedField, equals: focusValue)
                     }
+                    .padding(2)
+                    .background(Theme.Color.surfaceRaised)
+                    .clipShape(RoundedRectangle(cornerRadius: Theme.Radius.button))
                 }
             }
         }
@@ -412,32 +360,35 @@ struct WelcomeMessageView: View {
     // MARK: - ロール付与セクション
 
     private var roleSection: some View {
-        Card {
-            VStack(alignment: .leading, spacing: .spacing12) {
+        FormSection("ロール付与", icon: "person.badge.plus") {
+            VStack(alignment: .leading, spacing: Theme.Spacing.sm) {
                 HStack {
-                    Label("参加時ロール付与", systemImage: "person.badge.plus.fill")
-                        .font(.bodySmall).fontWeight(.semibold)
-                        .foregroundStyle(Color.accentGreen)
+                    Text("参加時ロール付与")
+                        .font(Theme.Font.body)
+                        .foregroundStyle(Theme.Color.textPrimary)
                     Spacer()
                     if !appState.isPro {
-                        Badge(text: "Pro", color: .accentOrange)
+                        Badge(text: "Pro", color: Theme.Color.statusWarn)
                     } else {
                         Toggle("", isOn: $welcomeRoleEnabled.animation())
-                            .tint(Color.accentGreen)
+                            .tint(Theme.Color.accent)
                             .labelsHidden()
                     }
                 }
 
                 if !appState.isPro {
                     Text("Proプランで利用可能")
-                        .font(.captionSmall)
-                        .foregroundStyle(Color.textTertiary)
+                        .font(Theme.Font.caption2)
+                        .foregroundStyle(Theme.Color.textTertiary)
                 } else if welcomeRoleEnabled {
                     rolePicker(id: $welcomeRoleId, name: $welcomeRoleName)
                     if !welcomeRoleName.isEmpty {
-                        Label("全参加者に @\(welcomeRoleName) を付与します", systemImage: "checkmark.circle.fill")
-                            .font(.captionSmall)
-                            .foregroundStyle(Color.accentGreen)
+                        HStack(spacing: Theme.Spacing.xs) {
+                            StatusDot(color: Theme.Color.statusOK)
+                            Text("全参加者に @\(welcomeRoleName) を付与します")
+                                .font(Theme.Font.caption2)
+                                .foregroundStyle(Theme.Color.textSecondary)
+                        }
                     }
                 }
             }
@@ -447,22 +398,21 @@ struct WelcomeMessageView: View {
     // MARK: - UI ヘルパー
 
     @ViewBuilder
-    private func channelPickerCard(id: Binding<String>, name: Binding<String>, accentColor: Color) -> some View {
-        Card {
-            VStack(alignment: .leading, spacing: .spacing10) {
-                Text("送信先チャンネル")
-                    .font(.captionSmall).fontWeight(.semibold)
-                    .foregroundStyle(Color.textTertiary).textCase(.uppercase)
-
+    private func channelPickerSection(id: Binding<String>, name: Binding<String>) -> some View {
+        FormSection("送信先チャンネル", icon: "number") {
+            VStack(alignment: .leading, spacing: Theme.Spacing.sm) {
                 if channels.isEmpty {
-                    HStack(spacing: .spacing8) {
+                    HStack(spacing: Theme.Spacing.xs) {
                         ProgressView().scaleEffect(0.7)
-                        Text("読み込み中...").font(.captionSmall).foregroundStyle(Color.textTertiary)
+                        Text("読み込み中...")
+                            .font(Theme.Font.caption2)
+                            .foregroundStyle(Theme.Color.textTertiary)
                     }
-                    .padding(.horizontal, .spacing12).padding(.vertical, .spacing10)
+                    .padding(.horizontal, Theme.Spacing.sm)
+                    .padding(.vertical, Theme.Spacing.sm)
                     .frame(maxWidth: .infinity, alignment: .leading)
-                    .background(Color.bgElevated)
-                    .clipShape(RoundedRectangle(cornerRadius: 8))
+                    .background(Theme.Color.surfaceRaised)
+                    .clipShape(RoundedRectangle(cornerRadius: Theme.Radius.button))
                 } else {
                     let textChs = channels.filter { $0.type == .text || $0.type == .announcement }
                     Menu {
@@ -482,31 +432,33 @@ struct WelcomeMessageView: View {
                             }
                         }
                     } label: {
-                        HStack(spacing: .spacing8) {
+                        HStack(spacing: Theme.Spacing.xs) {
                             if id.wrappedValue.isEmpty {
                                 Image(systemName: "number")
-                                    .font(.system(size: 13))
-                                    .foregroundStyle(Color.textTertiary)
+                                    .font(Theme.Font.caption)
+                                    .foregroundStyle(Theme.Color.textTertiary)
                                 Text("チャンネルを選択...")
-                                    .font(.bodySmall)
-                                    .foregroundStyle(Color.textTertiary)
+                                    .font(Theme.Font.body)
+                                    .foregroundStyle(Theme.Color.textTertiary)
                             } else {
                                 let sel = textChs.first(where: { $0.id == id.wrappedValue })
                                 Image(systemName: sel?.type == .announcement ? "megaphone" : "number")
-                                    .font(.system(size: 13))
-                                    .foregroundStyle(accentColor)
+                                    .font(Theme.Font.caption)
+                                    .foregroundStyle(Theme.Color.accent)
                                 Text(name.wrappedValue)
-                                    .font(.bodySmall).fontWeight(.medium)
-                                    .foregroundStyle(Color.textPrimary)
+                                    .font(Theme.Font.body)
+                                    .fontWeight(.medium)
+                                    .foregroundStyle(Theme.Color.textPrimary)
                             }
                             Spacer()
                             Image(systemName: "chevron.up.chevron.down")
                                 .font(.system(size: 11, weight: .medium))
-                                .foregroundStyle(Color.textTertiary)
+                                .foregroundStyle(Theme.Color.textTertiary)
                         }
-                        .padding(.horizontal, .spacing12).padding(.vertical, .spacing10)
-                        .background(Color.bgElevated)
-                        .clipShape(RoundedRectangle(cornerRadius: 8))
+                        .padding(.horizontal, Theme.Spacing.sm)
+                        .padding(.vertical, Theme.Spacing.sm)
+                        .background(Theme.Color.surfaceRaised)
+                        .clipShape(RoundedRectangle(cornerRadius: Theme.Radius.button))
                     }
                     .buttonStyle(.plain)
                 }
@@ -517,7 +469,8 @@ struct WelcomeMessageView: View {
     @ViewBuilder
     private func rolePicker(id: Binding<String>, name: Binding<String>) -> some View {
         if roles.isEmpty {
-            ProgressView().frame(maxWidth: .infinity)
+            ProgressView()
+                .frame(maxWidth: .infinity)
         } else {
             Picker("ロール", selection: id) {
                 Text("ロールを選択").tag("")
@@ -526,7 +479,7 @@ struct WelcomeMessageView: View {
                 }
             }
             .pickerStyle(.menu)
-            .tint(Color.textSecondary)
+            .tint(Theme.Color.textSecondary)
             .onChange(of: id.wrappedValue) { _, newId in
                 name.wrappedValue = roles.first(where: { $0.id == newId })?.name ?? ""
             }
@@ -587,8 +540,16 @@ struct WelcomeMessageView: View {
     }
 }
 
-#Preview {
+#Preview("Dark") {
     NavigationStack { WelcomeMessageView() }
         .environment(\.services, ServiceContainer.live())
         .environment(AppState())
+        .preferredColorScheme(.dark)
+}
+
+#Preview("Light") {
+    NavigationStack { WelcomeMessageView() }
+        .environment(\.services, ServiceContainer.live())
+        .environment(AppState())
+        .preferredColorScheme(.light)
 }

@@ -60,4 +60,6 @@ struct TicketMessage: Identifiable, Codable {
     let content: String
     let isStaff: Bool
     let createdAt: Date
+    // "app" = アプリから送信、"discord" = Discordから送信、nil = 不明
+    let source: String?
 }

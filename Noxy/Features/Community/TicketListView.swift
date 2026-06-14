@@ -1,8 +1,7 @@
 import SwiftUI
 
 // MARK: - TicketListView
-// 届いたチケットの一覧・検索・フィルタ・ソートを行う。
-// 未対応（Open/Pending）チケットを優先して表示し、スタッフがスムーズに対応できるよう設計。
+// Noxy Design Language に厳密に従った再設計。
 
 struct TicketListView: View {
     let guildId: String
@@ -53,58 +52,33 @@ struct TicketListView: View {
     private var pendingCount: Int { tickets.filter { $0.status == .pending }.count }
     private var closedCount:  Int { tickets.filter { $0.status == .closed  }.count }
 
+    // MARK: - Body
+
     var body: some View {
         VStack(spacing: 0) {
-            statsHeader
-            statusTabBar
+            statTabBar
 
-            List {
-                filterRow
-                    .listRowInsets(EdgeInsets(top: 6, leading: 16, bottom: 2, trailing: 16))
-                    .listRowBackground(Color(.systemGroupedBackground))
-                    .listRowSeparator(.hidden)
+            ScrollView {
+                LazyVStack(spacing: 0, pinnedViews: [.sectionHeaders]) {
+                    filterRow
 
-                if isLoading {
-                    loadingCell
-                        .transition(.opacity)
-                } else if let err = loadError {
-                    errorCell(err)
-                        .transition(.opacity)
-                } else if filtered.isEmpty {
-                    emptyCell
-                        .transition(.opacity)
-                } else {
-                    countCell
-                    ForEach(filtered) { ticket in
-                        TicketCard(ticket: ticket)
-                            .contentShape(Rectangle())
-                            .onTapGesture { selectedTicket = ticket }
-                            .listRowInsets(EdgeInsets(top: 4, leading: 16, bottom: 4, trailing: 16))
-                            .listRowBackground(Color(.systemGroupedBackground))
-                            .listRowSeparator(.hidden)
-                            .swipeActions(edge: .trailing, allowsFullSwipe: false) {
-                                if ticket.status == .pending {
-                                    Button {
-                                        Task { await closeTicket(ticket) }
-                                    } label: {
-                                        Label("クローズ", systemImage: "lock.fill")
-                                    }
-                                    .tint(Color.accentOrange)
-                                }
-                            }
+                    if isLoading {
+                        loadingContent
+                    } else if let err = loadError {
+                        errorContent(err)
+                    } else if filtered.isEmpty {
+                        emptyContent
+                    } else {
+                        listContent
                     }
                 }
-
-                Color.clear.frame(height: 60)
-                    .listRowBackground(Color(.systemGroupedBackground))
-                    .listRowSeparator(.hidden)
+                .padding(.horizontal, .spacing16)
+                .padding(.top, .spacing12)
             }
-            .listStyle(.plain)
-            .background(Color(.systemGroupedBackground))
             .searchable(text: $searchText, prompt: "件名・開設者・担当者で検索")
             .refreshable { await load() }
         }
-        .background(Color(.systemGroupedBackground))
+        .background(Theme.Color.bg)
         .sheet(item: $selectedTicket) { ticket in
             TicketDetailView(ticket: ticket, guildId: guildId) { updated in
                 if let idx = tickets.firstIndex(where: { $0.id == updated.id }) {
@@ -124,75 +98,62 @@ struct TicketListView: View {
             ToolbarItem(placement: .topBarTrailing) {
                 Button { showCreateSheet = true } label: {
                     Image(systemName: "plus.circle.fill")
-                        .font(.system(size: 18))
-                        .foregroundStyle(Color.accentIndigo)
+                        .font(.system(size: 18, weight: .semibold))
+                        .foregroundStyle(Theme.Color.accent)
                 }
             }
         }
         .task { await load() }
     }
 
-    // MARK: - Header
+    // MARK: - Stat Tab Bar (統計数 + タブ選択を統合)
 
-    private var statsHeader: some View {
+    private var statTabBar: some View {
         HStack(spacing: 0) {
-            statCell(value: "\(openCount)",    label: "オープン",   color: .accentGreen)
-            Divider().frame(height: 32)
-            statCell(value: "\(pendingCount)", label: "対応中",   color: .accentOrange)
-            Divider().frame(height: 32)
-            statCell(value: "\(closedCount)",  label: "クローズ", color: Color.textTertiary)
-        }
-        .padding(.vertical, .spacing12)
-        .background(Color(.secondarySystemGroupedBackground))
-        .overlay(Divider(), alignment: .bottom)
-    }
-
-    private func statCell(value: String, label: String, color: Color) -> some View {
-        VStack(spacing: 2) {
-            Text(value)
-                .font(.system(size: 22, weight: .bold, design: .rounded))
-                .foregroundStyle(color)
-            Text(label)
-                .font(.captionSmall)
-                .foregroundStyle(Color.textTertiary)
-        }
-        .frame(maxWidth: .infinity)
-    }
-
-    // MARK: - Status Tab Bar
-
-    private var statusTabBar: some View {
-        HStack(spacing: 0) {
-            ForEach([TicketStatus.open, .pending, .closed], id: \.self) { s in
-                Button {
-                    withAnimation(.easeInOut(duration: 0.18)) { selectedStatus = s }
-                } label: {
-                    VStack(spacing: 5) {
-                        HStack(spacing: 5) {
-                            Image(systemName: s.icon)
-                                .font(.system(size: 11, weight: .semibold))
-                            Text(s.label)
-                                .font(.captionRegular)
-                                .fontWeight(.semibold)
-                        }
-                        .foregroundStyle(selectedStatus == s ? s.chipColor : Color.textTertiary)
-                        Capsule()
-                            .fill(selectedStatus == s ? s.chipColor : Color.clear)
-                            .frame(height: 2)
-                    }
-                    .frame(maxWidth: .infinity)
-                    .padding(.vertical, .spacing8)
-                    .contentShape(Rectangle())
-                }
-                .buttonStyle(.plain)
-            }
+            statTabCell(status: .open,    count: openCount)
+            statTabCell(status: .pending, count: pendingCount)
+            statTabCell(status: .closed,  count: closedCount)
         }
         .padding(.horizontal, .spacing8)
-        .background(Color(.secondarySystemGroupedBackground))
-        .overlay(Divider(), alignment: .bottom)
+        .background(Theme.Color.surface)
+        .overlay(
+            Rectangle()
+                .fill(Theme.Color.line)
+                .frame(height: 1),
+            alignment: .bottom
+        )
+    }
+
+    private func statTabCell(status: TicketStatus, count: Int) -> some View {
+        Button {
+            withAnimation(.easeInOut(duration: 0.18)) { selectedStatus = status }
+        } label: {
+            VStack(spacing: 4) {
+                MonoText(
+                    value: "\(count)",
+                    font: Theme.Font.mono,
+                    color: selectedStatus == status ? status.chipColor : Theme.Color.textTertiary
+                )
+                HStack(spacing: 4) {
+                    Image(systemName: status.icon)
+                        .font(.system(size: 10, weight: .semibold))
+                    Text(status.label)
+                        .font(Theme.Font.caption)
+                }
+                .foregroundStyle(selectedStatus == status ? status.chipColor : Theme.Color.textTertiary)
+                Capsule()
+                    .fill(selectedStatus == status ? status.chipColor : Color.clear)
+                    .frame(height: 2)
+            }
+            .frame(maxWidth: .infinity)
+            .padding(.vertical, .spacing8)
+            .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
     }
 
     // MARK: - Filter Row
+    // Noxy §4: フィルタータグ - border: 1px solid var(--line2), border-radius: 9px, padding: 5px 11px
 
     private var filterRow: some View {
         ScrollView(.horizontal, showsIndicators: false) {
@@ -201,17 +162,18 @@ struct TicketListView: View {
                 if let p = selectedPriority {
                     Button { withAnimation { selectedPriority = nil } } label: {
                         HStack(spacing: 4) {
-                            Circle().fill(p.color).frame(width: 7, height: 7)
+                            StatusDot(color: p.color)
                             Text(p.label)
-                                .font(.captionSmall)
-                                .fontWeight(.semibold)
+                                .font(Theme.Font.caption)
                                 .foregroundStyle(p.color)
                             Image(systemName: "xmark")
                                 .font(.system(size: 9, weight: .bold))
                                 .foregroundStyle(p.color)
                         }
-                        .padding(.horizontal, 10).padding(.vertical, 5)
-                        .background(p.color.opacity(0.12)).clipShape(Capsule())
+                        .padding(.horizontal, 10)
+                        .padding(.vertical, 5)
+                        .background(p.color.opacity(0.12))
+                        .clipShape(Capsule())
                     }
                     .buttonStyle(.plain)
                 }
@@ -231,13 +193,22 @@ struct TicketListView: View {
                         Image(systemName: selectedPriority != nil ? "flag.fill" : "flag")
                             .font(.system(size: 11))
                         Text(selectedPriority == nil ? "優先度" : "変更")
-                            .font(.captionSmall)
+                            .font(Theme.Font.caption)
                             .fontWeight(.medium)
-                        Image(systemName: "chevron.down").font(.system(size: 9))
+                        Image(systemName: "chevron.down")
+                            .font(.system(size: 9))
                     }
-                    .foregroundStyle(selectedPriority != nil ? Color.accentOrange : Color.textSecondary)
-                    .padding(.horizontal, 10).padding(.vertical, 5)
-                    .background(Color(.tertiarySystemGroupedBackground)).clipShape(Capsule())
+                    .foregroundStyle(selectedPriority != nil ? Theme.Color.statusWarn : Theme.Color.textSecondary)
+                    .padding(.horizontal, 11)
+                    .padding(.vertical, 5)
+                    .background(
+                        selectedPriority != nil ? Theme.Color.surfaceRaised : Color.clear,
+                        in: RoundedRectangle(cornerRadius: 9)
+                    )
+                    .overlay(
+                        RoundedRectangle(cornerRadius: 9)
+                            .stroke(Theme.Color.lineStrong, lineWidth: 1)
+                    )
                 }
 
                 // 並び順メニュー
@@ -247,13 +218,25 @@ struct TicketListView: View {
                     }
                 } label: {
                     HStack(spacing: 4) {
-                        Image(systemName: "arrow.up.arrow.down").font(.system(size: 11))
-                        Text(sortOrder.rawValue).font(.captionSmall).fontWeight(.medium)
-                        Image(systemName: "chevron.down").font(.system(size: 9))
+                        Image(systemName: "arrow.up.arrow.down")
+                            .font(.system(size: 11))
+                        Text(sortOrder.rawValue)
+                            .font(Theme.Font.caption)
+                            .fontWeight(.medium)
+                        Image(systemName: "chevron.down")
+                            .font(.system(size: 9))
                     }
-                    .foregroundStyle(Color.textSecondary)
-                    .padding(.horizontal, 10).padding(.vertical, 5)
-                    .background(Color(.tertiarySystemGroupedBackground)).clipShape(Capsule())
+                    .foregroundStyle(Theme.Color.textSecondary)
+                    .padding(.horizontal, 11)
+                    .padding(.vertical, 5)
+                    .background(
+                        Color.clear,
+                        in: RoundedRectangle(cornerRadius: 9)
+                    )
+                    .overlay(
+                        RoundedRectangle(cornerRadius: 9)
+                            .stroke(Theme.Color.lineStrong, lineWidth: 1)
+                    )
                 }
 
                 Spacer()
@@ -262,86 +245,58 @@ struct TicketListView: View {
         .padding(.vertical, 2)
     }
 
-    // MARK: - List Cells
+    // MARK: - List Content
 
-    private var loadingCell: some View {
-        ForEach(0..<3) { _ in
-            VStack(alignment: .leading, spacing: .spacing8) {
-                HStack(spacing: .spacing8) {
-                    RoundedRectangle(cornerRadius: 4)
-                        .fill(Color.textTertiary.opacity(0.2))
-                        .frame(width: 80, height: 14)
-                    Spacer()
-                    RoundedRectangle(cornerRadius: 4)
-                        .fill(Color.textTertiary.opacity(0.15))
-                        .frame(width: 50, height: 12)
-                }
-                RoundedRectangle(cornerRadius: 4)
-                    .fill(Color.textTertiary.opacity(0.1))
-                    .frame(width: 200, height: 12)
-            }
-            .padding(.spacing12)
-            .background(Color.bgSurface)
-            .clipShape(RoundedRectangle(cornerRadius: .cornerRadiusMedium))
-            .listRowBackground(Color(.systemGroupedBackground))
-            .listRowSeparator(.hidden)
-            .padding(.top, 8)
-        }
-    }
+    private var listContent: some View {
+        VStack(spacing: .spacing10) {
+            SectionHeader(title: "\(filtered.count)件") {}
 
-    private func errorCell(_ message: String) -> some View {
-        VStack(spacing: .spacing12) {
-            Image(systemName: "wifi.exclamationmark")
-                .font(.system(size: 36))
-                .foregroundStyle(Color.textTertiary)
-            Text("読み込みに失敗しました")
-                .font(.titleMedium)
-                .foregroundStyle(Color.textPrimary)
-            Text(message)
-                .font(.bodyRegular)
-                .foregroundStyle(Color.textSecondary)
-                .multilineTextAlignment(.center)
-            Button { Task { await load() } } label: {
-                Label("再試行", systemImage: "arrow.clockwise")
-                    .font(.bodySmall).fontWeight(.semibold)
-                    .foregroundStyle(.white)
-                    .padding(.horizontal, .spacing20).padding(.vertical, .spacing10)
-                    .background(Color.accentIndigo)
-                    .clipShape(Capsule())
+            ForEach(filtered) { ticket in
+                TicketCard(ticket: ticket)
+                    .contentShape(Rectangle())
+                    .onTapGesture { selectedTicket = ticket }
+                    .swipeActions(edge: .trailing, allowsFullSwipe: false) {
+                        if ticket.status == .pending {
+                            Button {
+                                Task { await closeTicket(ticket) }
+                            } label: {
+                                Label("クローズ", systemImage: "lock.fill")
+                            }
+                            .tint(Theme.Color.statusWarn)
+                        }
+                    }
             }
         }
-        .frame(maxWidth: .infinity)
-        .padding(.top, 60)
-        .listRowBackground(Color(.systemGroupedBackground))
-        .listRowSeparator(.hidden)
     }
 
-    private var emptyCell: some View {
-        VStack(spacing: .spacing12) {
-            Image(systemName: selectedStatus == .closed ? "lock" : "ticket")
-                .font(.system(size: 36))
-                .foregroundStyle(Color.textTertiary)
-            Text(emptyTitle)
-                .font(.titleMedium)
-                .foregroundStyle(Color.textPrimary)
-            Text(emptySubtitle)
-                .font(.captionRegular)
-                .foregroundStyle(Color.textTertiary)
-                .multilineTextAlignment(.center)
+    // MARK: - Loading / Error / Empty
+
+    private var loadingContent: some View {
+        VStack(spacing: .spacing10) {
+            SectionHeader(title: "読み込み中") {}
+            ForEach(0..<3, id: \.self) { _ in
+                SkeletonCard()
+            }
         }
-        .frame(maxWidth: .infinity)
-        .padding(.top, 60)
-        .listRowBackground(Color(.systemGroupedBackground))
-        .listRowSeparator(.hidden)
     }
 
-    private var countCell: some View {
-        Text("\(filtered.count)件")
-            .font(.captionSmall)
-            .foregroundStyle(Color.textTertiary)
-            .listRowInsets(EdgeInsets(top: 4, leading: 16, bottom: 0, trailing: 16))
-            .listRowBackground(Color(.systemGroupedBackground))
-            .listRowSeparator(.hidden)
+    private func errorContent(_ message: String) -> some View {
+        EmptyStateView(
+            icon: "wifi.exclamationmark",
+            title: "読み込みに失敗しました",
+            description: message,
+            actionTitle: "再試行"
+        ) {
+            Task { await load() }
+        }
+    }
+
+    private var emptyContent: some View {
+        EmptyStateView(
+            icon: selectedStatus == .closed ? "lock" : "ticket",
+            title: emptyTitle,
+            description: emptySubtitle
+        )
     }
 
     private var emptyTitle: String {
@@ -354,8 +309,7 @@ struct TicketListView: View {
 
     private var emptySubtitle: String {
         switch selectedStatus {
-        case .open:    "条件に一致するチケットはありません"
-        case .pending: "条件に一致するチケットはありません"
+        case .open, .pending: "条件に一致するチケットはありません"
         case .closed:  "クローズ済みのチケットはありません"
         }
     }
@@ -364,7 +318,6 @@ struct TicketListView: View {
 
     private func load() async {
         loadError = nil
-        // 既にデータがあるかキャッシュがあれば即座に表示
         if !tickets.isEmpty {
             isLoading = false
         } else if let cached = appState.cachedTickets[guildId] {
@@ -373,7 +326,6 @@ struct TicketListView: View {
         } else {
             isLoading = true
         }
-        // バックグラウンドで最新データを取得
         do {
             let fetched = try await services.tickets.fetchAll(guildId: guildId)
             tickets = fetched
@@ -407,6 +359,7 @@ struct TicketListView: View {
 }
 
 // MARK: - TicketCard
+// Noxy Design Language §3.1 カード + §3.3 リストアイテム + §6 情報密度
 
 private struct TicketCard: View {
     let ticket: Ticket
@@ -414,58 +367,101 @@ private struct TicketCard: View {
     var body: some View {
         HStack(spacing: 0) {
             // 優先度カラーバー
-            RoundedRectangle(cornerRadius: 2)
+            Rectangle()
                 .fill(ticket.priority.color)
-                .frame(width: 4)
+                .frame(width: 3)
 
-            VStack(alignment: .leading, spacing: .spacing6) {
-                // 件名 + 優先度チップ + ステータスバッジ
-                HStack(alignment: .top, spacing: .spacing6) {
-                    Text(ticket.subject)
-                        .font(.bodySmall)
-                        .fontWeight(.semibold)
-                        .foregroundStyle(Color.textPrimary)
-                        .lineLimit(2)
+            HStack(alignment: .top, spacing: .spacing12) {
+                VStack(alignment: .leading, spacing: 4) {
+                    // Row 1: 件名 + 経過時間
+                    HStack(alignment: .firstTextBaseline) {
+                        Text(ticket.subject)
+                            .font(Theme.Font.bodyMedium)
+                            .foregroundStyle(Theme.Color.textPrimary)
+                            .lineLimit(1)
+                        Spacer(minLength: .spacing8)
+                        MonoText(
+                            value: ticket.lastMessageAt.formatted(.relative(presentation: .named)),
+                            font: Theme.Font.monoCap,
+                            color: Theme.Color.textTertiary
+                        )
+                    }
 
-                    Spacer()
-
-                    VStack(alignment: .trailing, spacing: 3) {
+                    // Row 2: ステータス + 優先度 + メッセージ数
+                    HStack(spacing: .spacing8) {
                         StatusBadge(status: ticket.status)
                         if ticket.priority == .urgent || ticket.priority == .high {
-                            Text(ticket.priority.label)
-                                .font(.system(size: 9, weight: .bold))
-                                .foregroundStyle(ticket.priority.color)
-                                .padding(.horizontal, 6).padding(.vertical, 2)
-                                .background(ticket.priority.color.opacity(0.1))
-                                .clipShape(Capsule())
+                            Badge(text: ticket.priority.label, color: ticket.priority.color, style: .outlined)
+                        }
+                        Text("·")
+                            .font(Theme.Font.caption)
+                            .foregroundStyle(Theme.Color.textTertiary)
+                        if ticket.messageCount == 0 {
+                            Text("未返信")
+                                .font(Theme.Font.caption)
+                                .foregroundStyle(Theme.Color.textSecondary)
+                                .lineLimit(1)
+                        } else {
+                            HStack(spacing: 2) {
+                                Text("メッセージ")
+                                    .font(Theme.Font.caption)
+                                    .foregroundStyle(Theme.Color.textSecondary)
+                                MonoText(value: "\(ticket.messageCount)", font: Theme.Font.monoCap, color: Theme.Color.textSecondary)
+                                Text("件")
+                                    .font(Theme.Font.caption)
+                                    .foregroundStyle(Theme.Color.textSecondary)
+                            }
+                        }
+                    }
+
+                    // Row 3: 開設者 + 担当者
+                    HStack(spacing: 4) {
+                        Image(systemName: "person.fill")
+                            .font(.system(size: 10))
+                            .foregroundStyle(Theme.Color.textTertiary)
+                        Text(ticket.openedBy)
+                            .font(Theme.Font.caption)
+                            .foregroundStyle(Theme.Color.textTertiary)
+                            .lineLimit(1)
+                        if let assignee = ticket.assignedToUserId, !assignee.isEmpty {
+                            Text("·")
+                                .font(Theme.Font.caption)
+                                .foregroundStyle(Theme.Color.textTertiary)
+                            Image(systemName: "person.badge.checkmark.fill")
+                                .font(.system(size: 10))
+                                .foregroundStyle(Theme.Color.statusOK)
                         }
                     }
                 }
 
-                // メタ情報
-                HStack(spacing: .spacing10) {
-                    Label("@\(ticket.openedBy)", systemImage: "person.fill")
-
-                    if let assignee = ticket.assignedToUserId, !assignee.isEmpty {
-                        Label("@\(assignee)", systemImage: "person.badge.clock.fill")
-                            .foregroundStyle(Color.accentIndigo)
-                    }
-
-                    Spacer()
-
-                    HStack(spacing: 3) {
-                        Image(systemName: "bubble.left.fill")
-                        Text("\(ticket.messageCount)")
-                    }
-                    Text(ticket.lastMessageAt.formatted(.relative(presentation: .named)))
-                }
-                .font(.captionSmall)
-                .foregroundStyle(Color.textTertiary)
+                Image(systemName: "chevron.right")
+                    .font(.system(size: 12, weight: .semibold))
+                    .foregroundStyle(Theme.Color.textTertiary)
+                    .padding(.top, 4)
             }
-            .padding(.spacing12)
+            .padding(EdgeInsets(top: 12, leading: 13, bottom: 12, trailing: 13))
         }
-        .background(Color(.secondarySystemGroupedBackground))
-        .clipShape(RoundedRectangle(cornerRadius: 14))
+        .background(Theme.Color.surface)
+        .clipShape(RoundedRectangle(cornerRadius: Theme.Radius.card, style: .continuous))
+        .overlay(
+            RoundedRectangle(cornerRadius: Theme.Radius.card, style: .continuous)
+                .stroke(Theme.Color.line, lineWidth: 1)
+        )
+    }
+}
+
+// MARK: - StatusBadge
+
+private struct StatusBadge: View {
+    let status: TicketStatus
+    var body: some View {
+        Text(status.label)
+            .font(.system(size: 10, weight: .semibold))
+            .foregroundStyle(status.chipColor)
+            .padding(.horizontal, 8)
+            .padding(.vertical, 3)
+            .background(status.chipColor.opacity(0.15))
+            .clipShape(Capsule())
     }
 }
 
@@ -485,61 +481,53 @@ private struct CreateTicketSheet: View {
         NavigationStack {
             ScrollView {
                 VStack(spacing: .spacing20) {
-                    HStack(spacing: .spacing10) {
-                        Image(systemName: "info.circle.fill").foregroundStyle(Color.accentIndigo)
-                        Text("Discordに専用チャンネルを作成してチケットを開きます。件名を入力してください。")
-                            .font(.captionRegular).foregroundStyle(Color.textSecondary)
+                    Card(padding: .spacing12, background: Theme.Color.accentDim, showBorder: false) {
+                        HStack(spacing: .spacing10) {
+                            Image(systemName: "info.circle.fill")
+                                .foregroundStyle(Theme.Color.accent)
+                            Text("Discordに専用チャンネルを作成してチケットを開きます。件名を入力してください。")
+                                .font(Theme.Font.caption)
+                                .foregroundStyle(Theme.Color.textSecondary)
+                        }
                     }
-                    .padding(.spacing12)
-                    .background(Color.accentIndigo.opacity(0.08))
-                    .clipShape(RoundedRectangle(cornerRadius: 10))
 
-                    VStack(alignment: .leading, spacing: .spacing8) {
-                        Text("件名")
-                            .font(.captionSmall)
-                            .fontWeight(.semibold)
-                            .foregroundStyle(Color.textTertiary)
-                            .textCase(.uppercase)
+                    FormSection("件名", icon: "ticket") {
                         TextField("例: ログインできない、機能のリクエストなど", text: $subject, axis: .vertical)
-                            .font(.bodySmall)
+                            .font(Theme.Font.body)
                             .lineLimit(2...4)
                             .padding(.spacing12)
-                            .background(Color(.secondarySystemGroupedBackground))
+                            .background(Theme.Color.surface)
                             .clipShape(RoundedRectangle(cornerRadius: 12))
                     }
 
                     if let err = errorMessage {
                         HStack(spacing: .spacing8) {
-                            Image(systemName: "exclamationmark.triangle.fill").foregroundStyle(.orange)
-                            Text(err).font(.captionSmall).foregroundStyle(Color.textSecondary)
+                            Image(systemName: "exclamationmark.triangle.fill")
+                                .foregroundStyle(Theme.Color.statusWarn)
+                            Text(err)
+                                .font(Theme.Font.caption)
+                                .foregroundStyle(Theme.Color.textSecondary)
                         }
                         .padding(.spacing12)
-                        .background(Color.accentOrange.opacity(0.08))
+                        .background(Theme.Color.statusWarn.opacity(0.08))
                         .clipShape(RoundedRectangle(cornerRadius: 10))
                     }
 
-                    Button { Task { await create() } } label: {
-                        HStack(spacing: .spacing8) {
-                            if isCreating { ProgressView().scaleEffect(0.85).tint(.white) }
-                            else { Image(systemName: "ticket.fill") }
-                            Text(isCreating ? "作成中..." : "チケットを作成").fontWeight(.semibold)
-                        }
-                        .foregroundStyle(.white)
-                        .frame(maxWidth: .infinity).frame(height: 50)
-                        .background(subject.trimmingCharacters(in: .whitespaces).isEmpty
-                                    ? Color.gray.opacity(0.45) : Color.accentIndigo)
-                        .clipShape(RoundedRectangle(cornerRadius: 12))
+                    AccentButton(title: isCreating ? "作成中..." : "チケットを作成") {
+                        Task { await create() }
                     }
                     .disabled(subject.trimmingCharacters(in: .whitespaces).isEmpty || isCreating)
                 }
                 .padding(.spacing16)
             }
-            .background(Color(.systemGroupedBackground))
+            .background(Theme.Color.bg)
             .navigationTitle("チケットを作成")
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
                 ToolbarItem(placement: .topBarLeading) {
-                    Button("キャンセル") { dismiss() }.foregroundStyle(Color.textSecondary)
+                    Button("キャンセル") { dismiss() }
+                        .font(Theme.Font.body)
+                        .foregroundStyle(Theme.Color.textSecondary)
                 }
             }
         }
@@ -562,20 +550,6 @@ private struct CreateTicketSheet: View {
     }
 }
 
-// MARK: - StatusBadge
-
-private struct StatusBadge: View {
-    let status: TicketStatus
-    var body: some View {
-        Text(status.label)
-            .font(.system(size: 10, weight: .semibold))
-            .foregroundStyle(status.chipColor)
-            .padding(.horizontal, 8).padding(.vertical, 3)
-            .background(status.chipColor.opacity(0.15))
-            .clipShape(Capsule())
-    }
-}
-
 // MARK: - Extensions
 
 extension TicketPriority: CaseIterable {
@@ -585,10 +559,10 @@ extension TicketPriority: CaseIterable {
     }
     var color: Color {
         switch self {
-        case .urgent: .accentRed
-        case .high:   .accentOrange
-        case .medium: .accentIndigo
-        case .low:    .accentGreen
+        case .urgent: Theme.Color.statusBad
+        case .high:   Theme.Color.statusWarn
+        case .medium: Theme.Color.accent
+        case .low:    Theme.Color.textTertiary
         }
     }
 }
@@ -602,9 +576,9 @@ extension TicketStatus {
     }
     var chipColor: Color {
         switch self {
-        case .open:    .accentGreen
-        case .pending: .accentOrange
-        case .closed:  Color.textTertiary
+        case .open:    Theme.Color.statusOK
+        case .pending: Theme.Color.statusWarn
+        case .closed:  Theme.Color.textTertiary
         }
     }
 }

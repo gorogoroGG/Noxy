@@ -5,6 +5,7 @@ struct ModTimeoutView: View {
 
     @State private var loadState: LoadState<[TimedOutMember]> = .loading
     @State private var untimeoutTarget: TimedOutMember? = nil
+    @State private var showUntimeoutConfirm = false
     @State private var toast: String? = nil
     @State private var tick = false
     @State private var selectedMember: Member? = nil
@@ -13,11 +14,11 @@ struct ModTimeoutView: View {
 
     var body: some View {
         ZStack(alignment: .bottom) {
-            Color.bgPrimary.ignoresSafeArea()
+            Theme.Color.bg.ignoresSafeArea()
             mainContent
             if let msg = toast {
                 ModSuccessToast(message: msg)
-                    .padding(.bottom, .spacing32)
+                    .padding(.bottom, Theme.Spacing.xl)
                     .transition(.move(edge: .bottom).combined(with: .opacity))
             }
         }
@@ -30,17 +31,25 @@ struct ModTimeoutView: View {
         .onAppear {
             Timer.scheduledTimer(withTimeInterval: 1, repeats: true) { _ in tick.toggle() }
         }
-        .alert("タイムアウトを解除しますか？", isPresented: Binding(
-            get: { untimeoutTarget != nil },
-            set: { if !$0 { untimeoutTarget = nil } }
-        )) {
-            Button("即時解除", role: .destructive) {
-                if let t = untimeoutTarget { Task { await performRemove(t) } }
-            }
-            Button("キャンセル", role: .cancel) { untimeoutTarget = nil }
-        } message: {
-            if let t = untimeoutTarget {
-                Text("「\(t.displayName)」のタイムアウトを即時解除します。")
+        .overlay {
+            if showUntimeoutConfirm, let t = untimeoutTarget {
+                ConfirmModal(
+                    icon: "timer",
+                    iconColor: Theme.Color.statusWarn,
+                    title: "タイムアウトを解除しますか？",
+                    message: "「\(t.displayName)」のタイムアウトを即時解除します。",
+                    primaryLabel: "即時解除",
+                    primaryRole: .destructive,
+                    onPrimary: {
+                        Task { await performRemove(t) }
+                        showUntimeoutConfirm = false
+                        untimeoutTarget = nil
+                    },
+                    onCancel: {
+                        showUntimeoutConfirm = false
+                        untimeoutTarget = nil
+                    }
+                )
             }
         }
     }
@@ -64,29 +73,41 @@ struct ModTimeoutView: View {
 
     private func timeoutList(_ members: [TimedOutMember]) -> some View {
         ScrollView {
-            LazyVStack(spacing: .spacing8) {
-                sectionHeader(
-                    icon: "timer",
-                    color: .accentPurple,
-                    title: "\(members.count)人がタイムアウト中",
-                    note: "タップして即時解除"
-                )
-                ForEach(members) { member in
-                    TimeoutCard(member: member, tick: tick) {
-                        untimeoutTarget = member
-                    } onSelectUser: {
-                        selectedMember = memberFromTimeout(member)
+            LazyVStack(spacing: Theme.Spacing.sm) {
+                SectionLabel(title: "タイムアウト")
+                    .padding(.horizontal, Theme.Spacing.md)
+
+                VStack(spacing: 0) {
+                    ForEach(Array(members.enumerated()), id: \.element.id) { idx, member in
+                        TimeoutRow(
+                            member: member,
+                            tick: tick,
+                            onRemove: {
+                                untimeoutTarget = member
+                                showUntimeoutConfirm = true
+                            },
+                            onSelectUser: {
+                                selectedMember = memberFromTimeout(member)
+                            }
+                        )
+                        if idx < members.count - 1 {
+                            Divider()
+                                .background(Theme.Color.line)
+                                .padding(.leading, 64)
+                        }
                     }
                 }
+                .background(Theme.Color.surface)
+                .clipShape(RoundedRectangle(cornerRadius: Theme.Radius.card))
+                .padding(.horizontal, Theme.Spacing.md)
+
                 bottomPad
             }
-            .padding(.horizontal, .spacing16)
-            .padding(.top, .spacing12)
+            .padding(.top, Theme.Spacing.md)
         }
     }
 
     private func performRemove(_ member: TimedOutMember) async {
-        untimeoutTarget = nil
         do {
             try await service.removeTimeout(userId: member.id, guildId: guildId)
             if case .loaded(var list) = loadState {
@@ -128,20 +149,20 @@ struct ModTimeoutView: View {
     }
 }
 
-// MARK: - TimeoutCard
+// MARK: - TimeoutRow
 
-private struct TimeoutCard: View {
+private struct TimeoutRow: View {
     let member: TimedOutMember
     let tick: Bool
     let onRemove: () -> Void
     let onSelectUser: () -> Void
 
     var body: some View {
-        HStack(spacing: .spacing12) {
-            // アバター + 残り時間リング
+        HStack(spacing: Theme.Spacing.sm) {
             Button(action: onSelectUser) {
                 ZStack {
-                    Circle().stroke(member.severityColor.opacity(0.15), lineWidth: 3)
+                    Circle()
+                        .stroke(member.severityColor.opacity(0.15), lineWidth: 3)
                     Circle()
                         .trim(from: 0, to: ringProgress)
                         .stroke(member.severityColor, style: StrokeStyle(lineWidth: 3, lineCap: .round))
@@ -156,37 +177,43 @@ private struct TimeoutCard: View {
             VStack(alignment: .leading, spacing: 3) {
                 Button(action: onSelectUser) {
                     Text(member.displayName)
-                        .font(.bodySmall).fontWeight(.semibold).foregroundStyle(Color.textPrimary)
+                        .font(Theme.Font.bodyMedium)
+                        .fontWeight(.semibold)
+                        .foregroundStyle(Theme.Color.textPrimary)
                 }
                 .buttonStyle(.plain)
                 Text("@\(member.username)")
-                    .font(.captionSmall).foregroundStyle(Color.textTertiary)
+                    .font(Theme.Font.caption2)
+                    .foregroundStyle(Theme.Color.textTertiary)
                 HStack(spacing: 4) {
-                    Image(systemName: "clock").font(.system(size: 10))
-                    Text("残り \(member.remainingLabel)").fontWeight(.semibold)
+                    Image(systemName: "clock")
+                        .font(.system(size: 10))
+                    Text("残り \(member.remainingLabel)")
+                        .fontWeight(.semibold)
                 }
-                .font(.captionSmall)
+                .font(Theme.Font.caption2)
+                .monospaced()
                 .foregroundStyle(member.severityColor)
                 .id(tick)
             }
 
             Spacer()
 
-            Button("解除", action: onRemove)
-                .font(.captionRegular).fontWeight(.semibold)
-                .foregroundStyle(Color.accentGreen)
-                .padding(.horizontal, 10).padding(.vertical, 5)
-                .background(Color.accentGreen.opacity(0.1))
-                .clipShape(Capsule())
-                .overlay(Capsule().stroke(Color.accentGreen.opacity(0.3), lineWidth: 1))
+            Button(action: onRemove) {
+                Text("解除")
+                    .font(Theme.Font.caption2)
+                    .fontWeight(.semibold)
+                    .foregroundStyle(Theme.Color.accent)
+                    .padding(.horizontal, 10)
+                    .padding(.vertical, 5)
+                    .background(Theme.Color.accentDim)
+                    .clipShape(Capsule())
+            }
+            .buttonStyle(.plain)
         }
-        .padding(.spacing12)
-        .background(Color.bgSurface)
-        .clipShape(RoundedRectangle(cornerRadius: .cornerRadiusMedium))
-        .overlay(
-            RoundedRectangle(cornerRadius: .cornerRadiusMedium)
-                .stroke(member.severityColor.opacity(0.25), lineWidth: 1)
-        )
+        .padding(.horizontal, Theme.Spacing.sm)
+        .padding(.vertical, Theme.Spacing.sm)
+        .contentShape(Rectangle())
     }
 
     private var ringProgress: CGFloat {

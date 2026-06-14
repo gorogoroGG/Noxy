@@ -18,7 +18,6 @@ struct ShopEditView: View {
         self.existingShop = existingShop
         self.guildId = guildId
         self.shopType = shopType
-        // 商品タブ(2)は使わないので 0 or 1 に丸める
         self.initialTab = min(initialTab, 1)
         self.onSave = onSave
         _selectedTab = State(initialValue: min(initialTab, 1))
@@ -89,21 +88,24 @@ struct ShopEditView: View {
                 HStack {
                     Button("キャンセル") {
                         if hasChanges { showDiscardAlert = true } else { dismiss() }
-                    }.foregroundStyle(Color.textSecondary)
+                    }
+                    .foregroundStyle(Theme.Color.textSecondary)
                     Spacer()
                     Button(isSaving ? "保存中..." : "保存") { Task { await save() } }
                         .fontWeight(.semibold)
-                        .foregroundStyle(name.isEmpty ? Color.textTertiary : shopType.accentColor)
+                        .foregroundStyle(name.isEmpty ? Theme.Color.textTertiary : Theme.Color.accent)
                         .disabled(name.isEmpty || isSaving)
                 }
-                .padding(.horizontal, 16).padding(.vertical, 10)
-                .background(Color(.secondarySystemGroupedBackground))
-                .overlay(Divider(), alignment: .bottom)
+                .padding(.horizontal, Theme.Spacing.md)
+                .padding(.vertical, Theme.Spacing.sm)
+                .background(Theme.Color.surface)
+                .overlay(Divider().background(Theme.Color.line), alignment: .bottom)
 
                 tabPicker
-                    .padding(.horizontal, 16).padding(.vertical, 10)
-                    .background(Color(.secondarySystemGroupedBackground))
-                    .overlay(Divider(), alignment: .bottom)
+                    .padding(.horizontal, Theme.Spacing.md)
+                    .padding(.vertical, Theme.Spacing.sm)
+                    .background(Theme.Color.surface)
+                    .overlay(Divider().background(Theme.Color.line), alignment: .bottom)
 
                 TabView(selection: $selectedTab) {
                     panelSettingsTab.tag(0)
@@ -111,13 +113,15 @@ struct ShopEditView: View {
                 }
                 .tabViewStyle(.page(indexDisplayMode: .never))
             }
+            .background(Theme.Color.bg)
             .navigationTitle(isNew ? "\(shopType.label)を作成" : "\(shopType.label)を編集")
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
                 ToolbarItem(placement: .topBarLeading) {
                     Button("閉じる") {
                         if hasChanges { showDiscardAlert = true } else { dismiss() }
-                    }.foregroundStyle(Color.textSecondary)
+                    }
+                    .foregroundStyle(Theme.Color.textSecondary)
                 }
             }
             .task { await loadData() }
@@ -141,229 +145,279 @@ struct ShopEditView: View {
     // MARK: - パネル設定
 
     private var panelSettingsTab: some View {
-        Form {
-            enabledToggleSection
-            appearanceSection
-            previewSection
-            serverSettingsSection
-            if shopType == .vendingMachine {
-                paymentInputLabelSection
-            }
-            autoDeleteSection
-            if shopType == .shop {
-                timeoutSection
-            }
-            footerSection
-
-            if let err = errorMessage {
-                Section {
-                    Label(err, systemImage: "exclamationmark.triangle.fill")
-                        .foregroundStyle(.orange).font(.captionRegular)
+        ScrollView {
+            VStack(spacing: Theme.Spacing.md) {
+                enabledToggleSection
+                appearanceSection
+                previewSection
+                serverSettingsSection
+                if shopType == .vendingMachine {
+                    paymentInputLabelSection
                 }
+                autoDeleteSection
+                if shopType == .shop {
+                    timeoutSection
+                }
+                footerSection
+
+                if let err = errorMessage {
+                    FormSection("エラー", icon: "exclamationmark.triangle") {
+                        Label(err, systemImage: "exclamationmark.triangle.fill")
+                            .foregroundStyle(Theme.Color.statusWarn)
+                            .font(Theme.Font.caption)
+                    }
+                }
+
+                bottomPad
             }
+            .padding(.horizontal, Theme.Spacing.md)
+            .padding(.vertical, Theme.Spacing.md)
         }
-        .scrollContentBackground(.hidden)
-        .background(Color(.systemGroupedBackground))
+        .background(Theme.Color.bg)
     }
 
     private var enabledToggleSection: some View {
-        Section {
-            Toggle("\(shopType.label)を有効にする", isOn: $enabled)
-            if !enabled {
-                VStack(alignment: .leading, spacing: 6) {
-                    Text("無効時メッセージ").font(.captionSmall).foregroundStyle(Color.textTertiary)
-                    TextEditor(text: $disabledMessage)
-                        .frame(minHeight: 60).scrollContentBackground(.hidden)
+        FormSection("有効/無効", icon: "power") {
+            VStack(alignment: .leading, spacing: Theme.Spacing.sm) {
+                HStack {
+                    Text("\(shopType.label)を有効にする")
+                        .font(Theme.Font.body)
+                        .foregroundStyle(Theme.Color.textPrimary)
+                    Spacer()
+                    Toggle("", isOn: $enabled)
+                        .tint(Theme.Color.accent)
+                        .labelsHidden()
+                }
+                if !enabled {
+                    VStack(alignment: .leading, spacing: 6) {
+                        Text("無効時メッセージ")
+                            .font(Theme.Font.caption2)
+                            .foregroundStyle(Theme.Color.textTertiary)
+                        TextEditor(text: $disabledMessage)
+                            .font(Theme.Font.body)
+                            .foregroundStyle(Theme.Color.textPrimary)
+                            .frame(minHeight: 60)
+                            .scrollContentBackground(.hidden)
+                    }
                 }
             }
-        } header: { Text("有効/無効") }
-          footer: {
-              if !enabled {
-                  Text("無効の場合、参加者が商品を選択しようとするとこのメッセージが表示されます。")
-              } else {
-                  Text("無効にすると、パネルは表示されますが商品を選択できなくなります。")
-              }
-          }
+        }
     }
 
     private var appearanceSection: some View {
-        Section {
-            LabeledContent("名前") {
-                TextField(shopType.label, text: $name).multilineTextAlignment(.trailing)
-            }
-            VStack(alignment: .leading, spacing: 6) {
-                Text("説明").font(.captionSmall).foregroundStyle(Color.textTertiary)
-                TextEditor(text: $description)
-                    .frame(minHeight: 60).scrollContentBackground(.hidden)
-            }
-            HStack {
-                Text("カラー")
-                Spacer()
-                HStack(spacing: 8) {
-                    ForEach(colorPresets, id: \.self) { hex in
-                        ZStack {
-                            Circle().fill(Color(uiColor: UIColor(hex: hex))).frame(width: 26, height: 26)
-                            if colorHex == hex {
-                                Image(systemName: "checkmark").font(.system(size: 10, weight: .bold)).foregroundStyle(.white)
+        FormSection("パネルの見た目", icon: "paintbrush") {
+            VStack(alignment: .leading, spacing: Theme.Spacing.sm) {
+                HStack {
+                    HStack(spacing: 3) {
+                        Text("名前")
+                            .font(Theme.Font.body)
+                            .foregroundStyle(Theme.Color.textPrimary)
+                        Text("*")
+                            .font(.system(size: 13, weight: .bold))
+                            .foregroundStyle(Theme.Color.statusBad)
+                    }
+                    Spacer()
+                    TextField(shopType.label, text: $name)
+                        .font(Theme.Font.body)
+                        .foregroundStyle(Theme.Color.textPrimary)
+                        .multilineTextAlignment(.trailing)
+                }
+                Divider()
+                    .background(Theme.Color.line)
+                VStack(alignment: .leading, spacing: 6) {
+                    Text("説明")
+                        .font(Theme.Font.caption2)
+                        .foregroundStyle(Theme.Color.textTertiary)
+                    TextEditor(text: $description)
+                        .font(Theme.Font.body)
+                        .foregroundStyle(Theme.Color.textPrimary)
+                        .frame(minHeight: 60)
+                        .scrollContentBackground(.hidden)
+                }
+                Divider()
+                    .background(Theme.Color.line)
+                HStack {
+                    Text("カラー")
+                        .font(Theme.Font.body)
+                        .foregroundStyle(Theme.Color.textPrimary)
+                    Spacer()
+                    HStack(spacing: 8) {
+                        ForEach(colorPresets, id: \.self) { hex in
+                            ZStack {
+                                Circle()
+                                    .fill(Color(uiColor: UIColor(hex: hex)))
+                                    .frame(width: 26, height: 26)
+                                if colorHex == hex {
+                                    Image(systemName: "checkmark")
+                                        .font(.system(size: 10, weight: .bold))
+                                        .foregroundStyle(Theme.Color.accentInk)
+                                }
                             }
+                            .onTapGesture { withAnimation(.easeInOut(duration: 0.15)) { colorHex = hex } }
                         }
-                        .onTapGesture { withAnimation(.easeInOut(duration: 0.15)) { colorHex = hex } }
                     }
                 }
             }
-        } header: { Text("パネルの見た目") }
+        }
     }
 
     private var previewSection: some View {
-        Section {
-            VStack(alignment: .leading, spacing: .spacing12) {
+        FormSection("プレビュー", icon: "eye") {
+            VStack(alignment: .leading, spacing: Theme.Spacing.sm) {
                 HStack(alignment: .top, spacing: 0) {
-                    RoundedRectangle(cornerRadius: 2).fill(previewColor).frame(width: 4)
+                    RoundedRectangle(cornerRadius: 2)
+                        .fill(previewColor)
+                        .frame(width: 4)
                     VStack(alignment: .leading, spacing: 6) {
                         if !name.isEmpty {
-                            Text(name).font(.bodySmall).fontWeight(.bold).foregroundStyle(Color.textPrimary)
+                            Text(name)
+                                .font(Theme.Font.body)
+                                .fontWeight(.bold)
+                                .foregroundStyle(Theme.Color.textPrimary)
                         }
                         if !description.isEmpty {
-                            Text(description).font(.captionRegular).foregroundStyle(Color.textSecondary)
+                            Text(description)
+                                .font(Theme.Font.caption)
+                                .foregroundStyle(Theme.Color.textSecondary)
                         }
-                        Divider().padding(.vertical, 4)
-                        Text(footerText.isEmpty ? "フッターなし" : footerText).font(.system(size: 9)).foregroundStyle(Color.textTertiary)
+                        Divider()
+                            .padding(.vertical, 4)
+                        Text(footerText.isEmpty ? "フッターなし" : footerText)
+                            .font(.system(size: 9))
+                            .foregroundStyle(Theme.Color.textTertiary)
                     }
-                    .padding(.leading, 10).padding(.vertical, 10).padding(.trailing, 10)
+                    .padding(.leading, 10)
+                    .padding(.vertical, 10)
+                    .padding(.trailing, 10)
                 }
-                .background(Color(.tertiarySystemGroupedBackground))
-                .clipShape(RoundedRectangle(cornerRadius: 8))
+                .background(Theme.Color.surfaceRaised)
+                .clipShape(RoundedRectangle(cornerRadius: Theme.Radius.button))
 
                 HStack(spacing: 6) {
-                    let buttonLabel = shopType == .vendingMachine ? "🏪 商品を選択してください" : "🛒 商品を選択してください"
-                    Text(buttonLabel)
-                        .font(.captionRegular).fontWeight(.semibold).foregroundStyle(.white)
-                        .padding(.horizontal, 14).padding(.vertical, 8)
+                    Text("商品を選択してください")
+                        .font(Theme.Font.caption)
+                        .fontWeight(.semibold)
+                        .foregroundStyle(Theme.Color.accentInk)
+                        .padding(.horizontal, 14)
+                        .padding(.vertical, 8)
                         .background(previewColor)
                         .clipShape(RoundedRectangle(cornerRadius: 6))
                     Spacer()
                 }
             }
             .padding(.vertical, 4)
-        } header: {
-            HStack(spacing: 5) {
-                Image(systemName: "eye.fill").font(.captionSmall)
-                Text("パネルのプレビュー")
-            }
-        } footer: {
-            Text("Discordに投稿されるパネルのイメージです。")
         }
     }
 
-    // MARK: - サーバー設定（リデザイン）
+    // MARK: - サーバー設定
 
     private var serverSettingsSection: some View {
-        Section {
-            if isLoading {
-                HStack { Spacer(); ProgressView().scaleEffect(0.8); Spacer() }
-            } else {
-                // サポートロール
-                serverSettingRow(
-                    icon: "shield.lefthalf.filled",
-                    iconColor: .accentIndigo,
-                    title: "サポートロール",
-                    subtitle: "注文チャンネルに追加するロール"
-                ) {
-                    Menu {
-                        Button("なし") { supportRoleId = "" }
-                        Divider()
-                        ForEach(roles.filter { !$0.managed && $0.name != "@everyone" }) { role in
-                            Button("@\(role.name)") { supportRoleId = role.id }
-                        }
-                    } label: {
-                        HStack(spacing: 4) {
-                            Text(roles.first(where: { $0.id == supportRoleId })
-                                    .map { "@\($0.name)" } ?? "なし")
-                                .font(.captionRegular)
-                                .foregroundStyle(supportRoleId.isEmpty ? Color.textTertiary : .accentIndigo)
-                            Image(systemName: "chevron.up.chevron.down")
-                                .font(.system(size: 9, weight: .semibold))
-                                .foregroundStyle(Color.textTertiary)
-                        }
-                    }
-                }
-
-                // オープンカテゴリ
-                serverSettingRow(
-                    icon: "folder.badge.plus",
-                    iconColor: .accentGreen,
-                    title: "オープンカテゴリ",
-                    subtitle: "注文チャンネルを作成する場所"
-                ) {
-                    Menu {
-                        Button("なし（デフォルト）") { orderCategoryId = "" }
-                        Divider()
-                        ForEach(categories, id: \.id) { cat in
-                            Button(cat.name) { orderCategoryId = cat.id }
-                        }
-                    } label: {
-                        HStack(spacing: 4) {
-                            Text(categories.first(where: { $0.id == orderCategoryId })?.name ?? "なし")
-                                .font(.captionRegular)
-                                .foregroundStyle(orderCategoryId.isEmpty ? Color.textTertiary : .accentGreen)
-                            Image(systemName: "chevron.up.chevron.down")
-                                .font(.system(size: 9, weight: .semibold))
-                                .foregroundStyle(Color.textTertiary)
+        FormSection("Discordサーバー設定", icon: "server.rack") {
+            VStack(alignment: .leading, spacing: Theme.Spacing.sm) {
+                if isLoading {
+                    HStack { Spacer(); ProgressView().scaleEffect(0.8); Spacer() }
+                } else {
+                    serverSettingRow(
+                        icon: "shield.lefthalf.filled",
+                        title: "サポートロール",
+                        subtitle: "注文チャンネルに追加するロール"
+                    ) {
+                        Menu {
+                            Button("なし") { supportRoleId = "" }
+                            Divider()
+                            ForEach(roles.filter { !$0.managed && $0.name != "@everyone" }) { role in
+                                Button("@\(role.name)") { supportRoleId = role.id }
+                            }
+                        } label: {
+                            HStack(spacing: 4) {
+                                Text(roles.first(where: { $0.id == supportRoleId })
+                                        .map { "@\($0.name)" } ?? "なし")
+                                    .font(Theme.Font.caption)
+                                    .foregroundStyle(supportRoleId.isEmpty ? Theme.Color.textTertiary : Theme.Color.textSecondary)
+                                Image(systemName: "chevron.up.chevron.down")
+                                    .font(.system(size: 9, weight: .semibold))
+                                    .foregroundStyle(Theme.Color.textTertiary)
+                            }
                         }
                     }
-                }
+                    Divider()
+                        .background(Theme.Color.line)
 
-                // クローズカテゴリ
-                serverSettingRow(
-                    icon: "archivebox.fill",
-                    iconColor: .accentOrange,
-                    title: "クローズカテゴリ",
-                    subtitle: "完了・キャンセル後に移動する場所"
-                ) {
-                    Menu {
-                        Button("なし（そのまま）") { archiveCategoryId = "" }
-                        Divider()
-                        ForEach(categories, id: \.id) { cat in
-                            Button(cat.name) { archiveCategoryId = cat.id }
+                    serverSettingRow(
+                        icon: "folder.badge.plus",
+                        title: "オープンカテゴリ",
+                        subtitle: "注文チャンネルを作成する場所"
+                    ) {
+                        Menu {
+                            Button("なし（デフォルト）") { orderCategoryId = "" }
+                            Divider()
+                            ForEach(categories, id: \.id) { cat in
+                                Button(cat.name) { orderCategoryId = cat.id }
+                            }
+                        } label: {
+                            HStack(spacing: 4) {
+                                Text(categories.first(where: { $0.id == orderCategoryId })?.name ?? "なし")
+                                    .font(Theme.Font.caption)
+                                    .foregroundStyle(orderCategoryId.isEmpty ? Theme.Color.textTertiary : Theme.Color.textSecondary)
+                                Image(systemName: "chevron.up.chevron.down")
+                                    .font(.system(size: 9, weight: .semibold))
+                                    .foregroundStyle(Theme.Color.textTertiary)
+                            }
                         }
-                    } label: {
-                        HStack(spacing: 4) {
-                            Text(categories.first(where: { $0.id == archiveCategoryId })?.name ?? "なし")
-                                .font(.captionRegular)
-                                .foregroundStyle(archiveCategoryId.isEmpty ? Color.textTertiary : .accentOrange)
-                            Image(systemName: "chevron.up.chevron.down")
-                                .font(.system(size: 9, weight: .semibold))
-                                .foregroundStyle(Color.textTertiary)
+                    }
+                    Divider()
+                        .background(Theme.Color.line)
+
+                    serverSettingRow(
+                        icon: "archivebox",
+                        title: "クローズカテゴリ",
+                        subtitle: "完了・キャンセル後に移動する場所"
+                    ) {
+                        Menu {
+                            Button("なし（そのまま）") { archiveCategoryId = "" }
+                            Divider()
+                            ForEach(categories, id: \.id) { cat in
+                                Button(cat.name) { archiveCategoryId = cat.id }
+                            }
+                        } label: {
+                            HStack(spacing: 4) {
+                                Text(categories.first(where: { $0.id == archiveCategoryId })?.name ?? "なし")
+                                    .font(Theme.Font.caption)
+                                    .foregroundStyle(archiveCategoryId.isEmpty ? Theme.Color.textTertiary : Theme.Color.textSecondary)
+                                Image(systemName: "chevron.up.chevron.down")
+                                    .font(.system(size: 9, weight: .semibold))
+                                    .foregroundStyle(Theme.Color.textTertiary)
+                            }
                         }
                     }
                 }
             }
-        } header: { Text("Discord サーバー設定") }
-          footer: {
-              Text("オープンカテゴリに注文チャンネルが作成され、取引完了後はクローズカテゴリに移動します。")
-          }
+        }
     }
 
     @ViewBuilder
     private func serverSettingRow<T: View>(
         icon: String,
-        iconColor: Color,
         title: String,
         subtitle: String,
         @ViewBuilder trailing: () -> T
     ) -> some View {
-        HStack(spacing: .spacing12) {
+        HStack(spacing: Theme.Spacing.sm) {
             ZStack {
                 RoundedRectangle(cornerRadius: 7)
-                    .fill(iconColor.opacity(0.12))
+                    .fill(Theme.Color.accentDim)
                     .frame(width: 32, height: 32)
                 Image(systemName: icon)
                     .font(.system(size: 14))
-                    .foregroundStyle(iconColor)
+                    .foregroundStyle(Theme.Color.accent)
             }
             VStack(alignment: .leading, spacing: 2) {
-                Text(title).font(.bodySmall).foregroundStyle(Color.textPrimary)
-                Text(subtitle).font(.captionSmall).foregroundStyle(Color.textTertiary)
+                Text(title)
+                    .font(Theme.Font.body)
+                    .foregroundStyle(Theme.Color.textPrimary)
+                Text(subtitle)
+                    .font(Theme.Font.caption2)
+                    .foregroundStyle(Theme.Color.textTertiary)
             }
             Spacer()
             trailing()
@@ -372,265 +426,364 @@ struct ShopEditView: View {
     }
 
     private var paymentInputLabelSection: some View {
-        Section {
+        FormSection("支払い入力設定", icon: "creditcard") {
             VStack(alignment: .leading, spacing: 6) {
-                Text("支払い入力欄の案内文").font(.captionSmall).foregroundStyle(Color.textTertiary)
+                Text("支払い入力欄の案内文")
+                    .font(Theme.Font.caption2)
+                    .foregroundStyle(Theme.Color.textTertiary)
                 TextEditor(text: $paymentInputLabel)
-                    .frame(minHeight: 60).scrollContentBackground(.hidden)
+                    .font(Theme.Font.body)
+                    .foregroundStyle(Theme.Color.textPrimary)
+                    .frame(minHeight: 60)
+                    .scrollContentBackground(.hidden)
             }
-        } header: { Text("支払い入力設定") }
-          footer: {
-              Text("購入者が商品を選択したとき、モーダルに表示される案内文です。例：「PayPayの受け取りURLを入力してください」「ギフトコードを入力してください」")
-          }
+        }
     }
 
-    // MARK: - 自動削除（チップセレクター）
+    // MARK: - 自動削除
 
     private var autoDeleteSection: some View {
-        Section {
-            Toggle("取引完了後に自動削除する", isOn: $autoDeleteEnabled.animation())
-            if autoDeleteEnabled {
-                VStack(alignment: .leading, spacing: 10) {
-                    Text("削除するまでの日数").font(.captionSmall).foregroundStyle(Color.textTertiary)
-                    LazyVGrid(columns: Array(repeating: GridItem(.flexible(), spacing: 8), count: 4), spacing: 8) {
-                        ForEach(autoDeleteDayOptions, id: \.self) { days in
-                            Button {
-                                withAnimation(.easeInOut(duration: 0.15)) { autoDeleteDays = days }
-                            } label: {
-                                VStack(spacing: 2) {
-                                    Text("\(days)")
-                                        .font(.system(size: 16, weight: .bold))
-                                    Text("日")
-                                        .font(.system(size: 10))
+        FormSection("チケットの自動削除", icon: "trash") {
+            VStack(alignment: .leading, spacing: Theme.Spacing.sm) {
+                HStack {
+                    Text("取引完了後に自動削除する")
+                        .font(Theme.Font.body)
+                        .foregroundStyle(Theme.Color.textPrimary)
+                    Spacer()
+                    Toggle("", isOn: $autoDeleteEnabled.animation())
+                        .tint(Theme.Color.accent)
+                        .labelsHidden()
+                }
+                if autoDeleteEnabled {
+                    VStack(alignment: .leading, spacing: 10) {
+                        Text("削除するまでの日数")
+                            .font(Theme.Font.caption2)
+                            .foregroundStyle(Theme.Color.textTertiary)
+                        LazyVGrid(columns: Array(repeating: GridItem(.flexible(), spacing: 8), count: 4), spacing: 8) {
+                            ForEach(autoDeleteDayOptions, id: \.self) { days in
+                                Button {
+                                    withAnimation(.easeInOut(duration: 0.15)) { autoDeleteDays = days }
+                                } label: {
+                                    VStack(spacing: 2) {
+                                        Text("\(days)")
+                                            .font(.system(size: 16, weight: .bold))
+                                        Text("日")
+                                            .font(.system(size: 10))
+                                    }
+                                    .frame(maxWidth: .infinity)
+                                    .padding(.vertical, 10)
+                                    .background(
+                                        autoDeleteDays == days
+                                            ? Theme.Color.accent
+                                            : Theme.Color.surfaceRaised
+                                    )
+                                    .foregroundStyle(autoDeleteDays == days ? Theme.Color.accentInk : Theme.Color.textSecondary)
+                                    .clipShape(RoundedRectangle(cornerRadius: Theme.Radius.button))
+                                    .overlay(
+                                        RoundedRectangle(cornerRadius: Theme.Radius.button)
+                                            .stroke(autoDeleteDays == days ? Theme.Color.accent : Color.clear, lineWidth: 1.5)
+                                    )
                                 }
-                                .frame(maxWidth: .infinity)
-                                .padding(.vertical, 10)
-                                .background(
-                                    autoDeleteDays == days
-                                        ? shopType.accentColor
-                                        : Color(.tertiarySystemGroupedBackground)
-                                )
-                                .foregroundStyle(autoDeleteDays == days ? .white : Color.textSecondary)
-                                .clipShape(RoundedRectangle(cornerRadius: 10))
-                                .overlay(
-                                    RoundedRectangle(cornerRadius: 10)
-                                        .stroke(autoDeleteDays == days ? shopType.accentColor : Color.clear, lineWidth: 1.5)
-                                )
+                                .buttonStyle(.plain)
                             }
-                            .buttonStyle(.plain)
                         }
+                        .padding(.top, 2)
                     }
-                    .padding(.top, 2)
                 }
             }
-        } header: { Text("チケットの自動削除") }
-          footer: {
-              if autoDeleteEnabled {
-                  Text("取引完了から \(autoDeleteDays) 日後にチケットチャンネルが自動削除されます。取引開始時・完了時にチャンネル内へ削除予定日が通知されます。")
-              } else {
-                  Text("有効にすると、取引完了から指定した日数が経過した時点でチケットチャンネルが自動的に削除されます。")
-              }
-          }
+        }
     }
 
     private var timeoutSection: some View {
-        Section {
-            Toggle("タイムアウトを有効にする", isOn: $timeoutEnabled)
-            if timeoutEnabled {
-                Stepper("タイムアウト：\(timeoutHours ?? 24)時間", value: Binding(
-                    get: { timeoutHours ?? 24 },
-                    set: { timeoutHours = max(1, $0) }
-                ), in: 1...168)
+        FormSection("注文タイムアウト", icon: "timer") {
+            VStack(alignment: .leading, spacing: Theme.Spacing.sm) {
+                HStack {
+                    Text("タイムアウトを有効にする")
+                        .font(Theme.Font.body)
+                        .foregroundStyle(Theme.Color.textPrimary)
+                    Spacer()
+                    Toggle("", isOn: $timeoutEnabled)
+                        .tint(Theme.Color.accent)
+                        .labelsHidden()
+                }
+                if timeoutEnabled {
+                    Stepper("タイムアウト：\(timeoutHours ?? 24)時間", value: Binding(
+                        get: { timeoutHours ?? 24 },
+                        set: { timeoutHours = max(1, $0) }
+                    ), in: 1...168)
+                    .font(Theme.Font.body)
+                    .foregroundStyle(Theme.Color.textPrimary)
+                }
             }
-        } header: { Text("注文タイムアウト") }
-          footer: {
-              Text(timeoutEnabled
-                   ? "指定時間以内に支払いが確認されない場合、注文は自動キャンセルされます。"
-                   : "タイムアウトを無効にすると、注文は手動で処理されるまで残り続けます。")
-          }
+        }
     }
 
     private var footerSection: some View {
-        Section {
+        FormSection("フッター", icon: "text.bubble") {
             VStack(alignment: .leading, spacing: 6) {
-                Text("フッターテキスト").font(.captionSmall).foregroundStyle(Color.textTertiary)
+                Text("フッターテキスト")
+                    .font(Theme.Font.caption2)
+                    .foregroundStyle(Theme.Color.textTertiary)
                 TextEditor(text: $footerText)
-                    .frame(minHeight: 60).scrollContentBackground(.hidden)
+                    .font(Theme.Font.body)
+                    .foregroundStyle(Theme.Color.textPrimary)
+                    .frame(minHeight: 60)
+                    .scrollContentBackground(.hidden)
             }
-        } header: { Text("フッター") }
-          footer: {
-              Text("パネルのフッターに表示されるテキストです。")
-          }
+        }
     }
 
     // MARK: - 取引
 
     private var transactionTab: some View {
-        Form {
-            if shopType == .shop {
-                reviewSection
-            }
-            welcomeEmbedSection
-            welcomePreviewSection
-            welcomeFieldsSection
-            welcomeFooterSection
-
-            if let err = errorMessage {
-                Section {
-                    Label(err, systemImage: "exclamationmark.triangle.fill")
-                        .foregroundStyle(.orange).font(.captionRegular)
+        ScrollView {
+            VStack(spacing: Theme.Spacing.md) {
+                if shopType == .shop {
+                    reviewSection
                 }
-            }
-        }
-        .scrollContentBackground(.hidden)
-        .background(Color(.systemGroupedBackground))
-    }
+                welcomeEmbedSection
+                welcomePreviewSection
+                welcomeFieldsSection
+                welcomeFooterSection
 
-    // MARK: - レビュー設定（通知チャンネル含む）
-
-    private var reviewSection: some View {
-        Section {
-            Toggle("レビュー機能を有効にする", isOn: $reviewEnabled.animation())
-            if reviewEnabled {
-                if isLoading {
-                    HStack { Spacer(); ProgressView().scaleEffect(0.8); Spacer() }
-                } else {
-                    serverSettingRow(
-                        icon: "bell.fill",
-                        iconColor: .accentIndigo,
-                        title: "通知チャンネル",
-                        subtitle: "レビューを投稿するチャンネル"
-                    ) {
-                        Menu {
-                            Button("未選択") { reviewChannelId = "" }
-                            Divider()
-                            ForEach(textChannels, id: \.id) { ch in
-                                Button("#\(ch.name)") { reviewChannelId = ch.id }
-                            }
-                        } label: {
-                            HStack(spacing: 4) {
-                                Text(textChannels.first(where: { $0.id == reviewChannelId })
-                                        .map { "#\($0.name)" } ?? "未選択")
-                                    .font(.captionRegular)
-                                    .foregroundStyle(reviewChannelId.isEmpty ? Color.textTertiary : .accentIndigo)
-                                Image(systemName: "chevron.up.chevron.down")
-                                    .font(.system(size: 9, weight: .semibold))
-                                    .foregroundStyle(Color.textTertiary)
-                            }
-                        }
+                if let err = errorMessage {
+                    FormSection("エラー", icon: "exclamationmark.triangle") {
+                        Label(err, systemImage: "exclamationmark.triangle.fill")
+                            .foregroundStyle(Theme.Color.statusWarn)
+                            .font(Theme.Font.caption)
                     }
                 }
+
+                bottomPad
             }
-        } header: { Text("レビュー設定") }
-          footer: {
-              Text(reviewEnabled
-                   ? "取引完了後にレビューボタンが表示されます。評価・コメントは選択したチャンネルに投稿されます。"
-                   : "有効にすると、取引完了後に購入者がレビューを投稿できます。")
-          }
+            .padding(.horizontal, Theme.Spacing.md)
+            .padding(.vertical, Theme.Spacing.md)
+        }
+        .background(Theme.Color.bg)
     }
 
-    private var welcomeEmbedSection: some View {
-        Section {
-            LabeledContent("画像URL") {
-                TextField("https://...", text: $welcomeImageUrl).multilineTextAlignment(.trailing)
-            }
-            LabeledContent("サムネイルURL") {
-                TextField("https://...", text: $welcomeThumbnailUrl).multilineTextAlignment(.trailing)
-            }
-            Toggle("タイムスタンプを表示", isOn: $welcomeShowTimestamp)
-        } header: { Text("ウェルカムメッセージ") }
-          footer: { Text("チケット作成時に送信されるメッセージのembed設定です。") }
-    }
+    // MARK: - レビュー設定
 
-    private var welcomePreviewSection: some View {
-        Section {
-            VStack(alignment: .leading, spacing: .spacing12) {
-                HStack(alignment: .top, spacing: 0) {
-                    RoundedRectangle(cornerRadius: 2).fill(previewColor).frame(width: 4)
-                    VStack(alignment: .leading, spacing: 6) {
-                        if !name.isEmpty {
-                            Text(name).font(.bodySmall).fontWeight(.bold).foregroundStyle(Color.textPrimary)
-                        }
-                        if !description.isEmpty {
-                            Text(description).font(.captionRegular).foregroundStyle(Color.textSecondary)
-                        }
-                        if !welcomeFields.isEmpty {
-                            Divider().padding(.vertical, 4)
-                            ForEach(welcomeFields) { field in
-                                VStack(alignment: .leading, spacing: 2) {
-                                    Text(field.name).font(.captionSmall).fontWeight(.semibold).foregroundStyle(Color.textPrimary)
-                                    Text(field.value).font(.captionSmall).foregroundStyle(Color.textSecondary)
+    private var reviewSection: some View {
+        FormSection("レビュー設定", icon: "star") {
+            VStack(alignment: .leading, spacing: Theme.Spacing.sm) {
+                HStack {
+                    Text("レビュー機能を有効にする")
+                        .font(Theme.Font.body)
+                        .foregroundStyle(Theme.Color.textPrimary)
+                    Spacer()
+                    Toggle("", isOn: $reviewEnabled.animation())
+                        .tint(Theme.Color.accent)
+                        .labelsHidden()
+                }
+                if reviewEnabled {
+                    if isLoading {
+                        HStack { Spacer(); ProgressView().scaleEffect(0.8); Spacer() }
+                    } else {
+                        serverSettingRow(
+                            icon: "bell",
+                            title: "通知チャンネル",
+                            subtitle: "レビューを投稿するチャンネル"
+                        ) {
+                            Menu {
+                                Button("未選択") { reviewChannelId = "" }
+                                Divider()
+                                ForEach(textChannels, id: \.id) { ch in
+                                    Button("#\(ch.name)") { reviewChannelId = ch.id }
+                                }
+                            } label: {
+                                HStack(spacing: 4) {
+                                    Text(textChannels.first(where: { $0.id == reviewChannelId })
+                                            .map { "#\($0.name)" } ?? "未選択")
+                                        .font(Theme.Font.caption)
+                                        .foregroundStyle(reviewChannelId.isEmpty ? Theme.Color.textTertiary : Theme.Color.textSecondary)
+                                    Image(systemName: "chevron.up.chevron.down")
+                                        .font(.system(size: 9, weight: .semibold))
+                                        .foregroundStyle(Theme.Color.textTertiary)
                                 }
                             }
                         }
-                        Divider().padding(.vertical, 4)
-                        Text(welcomeFooterText.isEmpty ? (footerText.isEmpty ? "フッターなし" : footerText) : welcomeFooterText)
-                            .font(.system(size: 9)).foregroundStyle(Color.textTertiary)
                     }
-                    .padding(.leading, 10).padding(.vertical, 10).padding(.trailing, 10)
                 }
-                .background(Color(.tertiarySystemGroupedBackground))
-                .clipShape(RoundedRectangle(cornerRadius: 8))
+            }
+        }
+    }
+
+    private var welcomeEmbedSection: some View {
+        FormSection("ウェルカムメッセージ", icon: "envelope") {
+            VStack(alignment: .leading, spacing: Theme.Spacing.sm) {
+                HStack {
+                    Text("画像URL")
+                        .font(Theme.Font.body)
+                        .foregroundStyle(Theme.Color.textPrimary)
+                    Spacer()
+                    TextField("https://...", text: $welcomeImageUrl)
+                        .font(Theme.Font.body)
+                        .foregroundStyle(Theme.Color.textPrimary)
+                        .multilineTextAlignment(.trailing)
+                }
+                Divider()
+                    .background(Theme.Color.line)
+                HStack {
+                    Text("サムネイルURL")
+                        .font(Theme.Font.body)
+                        .foregroundStyle(Theme.Color.textPrimary)
+                    Spacer()
+                    TextField("https://...", text: $welcomeThumbnailUrl)
+                        .font(Theme.Font.body)
+                        .foregroundStyle(Theme.Color.textPrimary)
+                        .multilineTextAlignment(.trailing)
+                }
+                Divider()
+                    .background(Theme.Color.line)
+                HStack {
+                    Text("タイムスタンプを表示")
+                        .font(Theme.Font.body)
+                        .foregroundStyle(Theme.Color.textPrimary)
+                    Spacer()
+                    Toggle("", isOn: $welcomeShowTimestamp)
+                        .tint(Theme.Color.accent)
+                        .labelsHidden()
+                }
+            }
+        }
+    }
+
+    private var welcomePreviewSection: some View {
+        FormSection("プレビュー", icon: "eye") {
+            VStack(alignment: .leading, spacing: Theme.Spacing.sm) {
+                HStack(alignment: .top, spacing: 0) {
+                    RoundedRectangle(cornerRadius: 2)
+                        .fill(previewColor)
+                        .frame(width: 4)
+                    VStack(alignment: .leading, spacing: 6) {
+                        if !name.isEmpty {
+                            Text(name)
+                                .font(Theme.Font.body)
+                                .fontWeight(.bold)
+                                .foregroundStyle(Theme.Color.textPrimary)
+                        }
+                        if !description.isEmpty {
+                            Text(description)
+                                .font(Theme.Font.caption)
+                                .foregroundStyle(Theme.Color.textSecondary)
+                        }
+                        if !welcomeFields.isEmpty {
+                            Divider()
+                                .padding(.vertical, 4)
+                            ForEach(welcomeFields) { field in
+                                VStack(alignment: .leading, spacing: 2) {
+                                    Text(field.name)
+                                        .font(Theme.Font.caption2)
+                                        .fontWeight(.semibold)
+                                        .foregroundStyle(Theme.Color.textPrimary)
+                                    Text(field.value)
+                                        .font(Theme.Font.caption2)
+                                        .foregroundStyle(Theme.Color.textSecondary)
+                                }
+                            }
+                        }
+                        Divider()
+                            .padding(.vertical, 4)
+                        Text(welcomeFooterText.isEmpty ? (footerText.isEmpty ? "フッターなし" : footerText) : welcomeFooterText)
+                            .font(.system(size: 9))
+                            .foregroundStyle(Theme.Color.textTertiary)
+                    }
+                    .padding(.leading, 10)
+                    .padding(.vertical, 10)
+                    .padding(.trailing, 10)
+                }
+                .background(Theme.Color.surfaceRaised)
+                .clipShape(RoundedRectangle(cornerRadius: Theme.Radius.button))
             }
             .padding(.vertical, 4)
-        } header: {
-            HStack(spacing: 5) {
-                Image(systemName: "eye.fill").font(.captionSmall)
-                Text("ウェルカムメッセージのプレビュー")
-            }
         }
     }
 
     private var welcomeFieldsSection: some View {
-        Section {
-            ForEach(Array(welcomeFields.enumerated()), id: \.element.id) { idx, field in
-                VStack(alignment: .leading, spacing: 6) {
-                    HStack {
-                        Text("フィールド \(idx + 1)").font(.captionSmall).fontWeight(.semibold)
-                        Spacer()
-                        Button("削除") {
-                            var updated = welcomeFields
-                            updated.remove(at: idx)
-                            withAnimation { welcomeFields = updated }
-                        }.font(.captionSmall).foregroundStyle(.red)
+        FormSection("フィールド", icon: "list.bullet") {
+            VStack(spacing: Theme.Spacing.sm) {
+                ForEach(Array(welcomeFields.enumerated()), id: \.element.id) { idx, field in
+                    VStack(alignment: .leading, spacing: 6) {
+                        HStack {
+                            Text("フィールド \(idx + 1)")
+                                .font(Theme.Font.caption2)
+                                .fontWeight(.semibold)
+                            Spacer()
+                            Button("削除") {
+                                var updated = welcomeFields
+                                updated.remove(at: idx)
+                                withAnimation { welcomeFields = updated }
+                            }
+                            .font(Theme.Font.caption2)
+                            .foregroundStyle(Theme.Color.statusBad)
+                        }
+                        TextField("名前", text: Binding(
+                            get: { field.name },
+                            set: { welcomeFields[idx].name = $0 }
+                        ))
+                        .font(Theme.Font.body)
+                        TextField("値", text: Binding(
+                            get: { field.value },
+                            set: { welcomeFields[idx].value = $0 }
+                        ))
+                        .font(Theme.Font.body)
+                        HStack {
+                            Text("インライン")
+                                .font(Theme.Font.body)
+                                .foregroundStyle(Theme.Color.textPrimary)
+                            Spacer()
+                            Toggle("", isOn: Binding(
+                                get: { field.inline },
+                                set: { welcomeFields[idx].inline = $0 }
+                            ))
+                            .tint(Theme.Color.accent)
+                            .labelsHidden()
+                        }
                     }
-                    TextField("名前", text: Binding(
-                        get: { field.name },
-                        set: { welcomeFields[idx].name = $0 }
-                    ))
-                    TextField("値", text: Binding(
-                        get: { field.value },
-                        set: { welcomeFields[idx].value = $0 }
-                    ))
-                    Toggle("インライン", isOn: Binding(
-                        get: { field.inline },
-                        set: { welcomeFields[idx].inline = $0 }
-                    ))
+                    .padding(Theme.Spacing.xs)
+                    .background(Theme.Color.surfaceRaised)
+                    .clipShape(RoundedRectangle(cornerRadius: Theme.Radius.button))
                 }
-                .padding(8)
-                .background(Color(.secondarySystemGroupedBackground))
-                .clipShape(RoundedRectangle(cornerRadius: 8))
+                Button(action: {
+                    let newField = EmbedFieldModel(id: UUID().uuidString, name: "", value: "", inline: false)
+                    withAnimation { welcomeFields.append(newField) }
+                }) {
+                    Label("フィールドを追加", systemImage: "plus.circle.fill")
+                        .frame(maxWidth: .infinity)
+                        .foregroundStyle(Theme.Color.accent)
+                }
             }
-            Button(action: {
-                let newField = EmbedFieldModel(id: UUID().uuidString, name: "", value: "", inline: false)
-                withAnimation { welcomeFields.append(newField) }
-            }) {
-                Label("フィールドを追加", systemImage: "plus.circle.fill")
-                    .frame(maxWidth: .infinity)
-            }
-        } header: { Text("フィールド") }
+        }
     }
 
     private var welcomeFooterSection: some View {
-        Section {
-            LabeledContent("フッターテキスト") {
-                TextField("パネルフッターと同じ", text: $welcomeFooterText).multilineTextAlignment(.trailing)
+        FormSection("ウェルカムフッター", icon: "text.bubble") {
+            VStack(alignment: .leading, spacing: Theme.Spacing.sm) {
+                HStack {
+                    Text("フッターテキスト")
+                        .font(Theme.Font.body)
+                        .foregroundStyle(Theme.Color.textPrimary)
+                    Spacer()
+                    TextField("パネルフッターと同じ", text: $welcomeFooterText)
+                        .font(Theme.Font.body)
+                        .foregroundStyle(Theme.Color.textPrimary)
+                        .multilineTextAlignment(.trailing)
+                }
+                Divider()
+                    .background(Theme.Color.line)
+                HStack {
+                    Text("フッターアイコンURL")
+                        .font(Theme.Font.body)
+                        .foregroundStyle(Theme.Color.textPrimary)
+                    Spacer()
+                    TextField("https://...", text: $welcomeFooterIconUrl)
+                        .font(Theme.Font.body)
+                        .foregroundStyle(Theme.Color.textPrimary)
+                        .multilineTextAlignment(.trailing)
+                }
             }
-            LabeledContent("フッターアイコンURL") {
-                TextField("https://...", text: $welcomeFooterIconUrl).multilineTextAlignment(.trailing)
-            }
-        } header: { Text("ウェルカムフッター") }
-          footer: { Text("空白の場合はパネルのフッターが使用されます。") }
+        }
     }
 
     // MARK: - Load & Save
@@ -720,3 +873,14 @@ struct ShopEditView: View {
     }
 }
 
+#Preview("Dark") {
+    NavigationStack { ShopEditView(guildId: "", shopType: .shop) { _ in } }
+        .environment(\.services, ServiceContainer.live())
+        .preferredColorScheme(.dark)
+}
+
+#Preview("Light") {
+    NavigationStack { ShopEditView(guildId: "", shopType: .shop) { _ in } }
+        .environment(\.services, ServiceContainer.live())
+        .preferredColorScheme(.light)
+}

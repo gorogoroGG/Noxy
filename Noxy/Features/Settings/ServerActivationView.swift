@@ -45,55 +45,57 @@ struct ServerActivationView: View {
     // MARK: - Main Content
 
     private var mainContent: some View {
-        List {
-            // スロット使用状況
-            slotSection
-
-            // エラー表示
-            if let error = errorMessage {
-                Section {
-                    Label(error, systemImage: "exclamationmark.triangle.fill")
-                        .font(.captionRegular)
-                        .foregroundStyle(Color.accentRed)
+        ScrollView {
+            LazyVStack(spacing: Theme.Spacing.md) {
+                slotSection
+                if let error = errorMessage {
+                    FormSection("エラー", icon: "exclamationmark.triangle") {
+                        Label(error, systemImage: "exclamationmark.triangle.fill")
+                            .font(Theme.Font.caption)
+                            .foregroundStyle(Theme.Color.statusBad)
+                    }
                 }
+                serverListSection
             }
-
-            // サーバー一覧
-            serverListSection
+            .padding(.horizontal, Theme.Spacing.md)
+            .padding(.vertical, Theme.Spacing.sm)
         }
-        .listStyle(.insetGrouped)
+        .background(Theme.Color.bg)
     }
 
     // MARK: - スロットセクション
 
     private var slotSection: some View {
-        Section {
-            VStack(spacing: .spacing12) {
+        FormSection("スロット使用状況", icon: "server.rack") {
+            VStack(spacing: Theme.Spacing.sm) {
                 // スロットカウンター
                 HStack {
                     VStack(alignment: .leading, spacing: 4) {
                         Text("使用中スロット")
-                            .font(.captionRegular)
-                            .foregroundStyle(Color.textSecondary)
+                            .font(Theme.Font.caption)
+                            .foregroundStyle(Theme.Color.textSecondary)
                         HStack(alignment: .lastTextBaseline, spacing: 4) {
                             Text("\(subStatus.usedSlots)")
                                 .font(.system(size: 32, weight: .bold))
-                                .foregroundStyle(Color.textPrimary)
+                                .foregroundStyle(Theme.Color.textPrimary)
+                                .monospaced()
                             Text("/ \(subStatus.purchasedSlots)")
-                                .font(.titleMedium)
-                                .foregroundStyle(Color.textSecondary)
+                                .font(Theme.Font.title3)
+                                .foregroundStyle(Theme.Color.textSecondary)
+                                .monospaced()
                         }
                     }
                     Spacer()
                     VStack(alignment: .trailing, spacing: 4) {
                         Text("残り")
-                            .font(.captionRegular)
-                            .foregroundStyle(Color.textSecondary)
+                            .font(Theme.Font.caption)
+                            .foregroundStyle(Theme.Color.textSecondary)
                         Text("\(subStatus.availableSlots)")
                             .font(.system(size: 32, weight: .bold))
                             .foregroundStyle(
-                                subStatus.availableSlots > 0 ? Color.accentGreen : Color.accentOrange
+                                subStatus.availableSlots > 0 ? Theme.Color.statusOK : Theme.Color.statusWarn
                             )
+                            .monospaced()
                     }
                 }
 
@@ -101,13 +103,13 @@ struct ServerActivationView: View {
                 GeometryReader { geo in
                     ZStack(alignment: .leading) {
                         RoundedRectangle(cornerRadius: 4)
-                            .fill(Color.bgSurface)
+                            .fill(Theme.Color.surfaceRaised)
                             .frame(height: 8)
                         RoundedRectangle(cornerRadius: 4)
                             .fill(
                                 subStatus.availableSlots > 0
-                                    ? Color.accentIndigo
-                                    : Color.accentOrange
+                                    ? Theme.Color.accent
+                                    : Theme.Color.statusWarn
                             )
                             .frame(
                                 width: geo.size.width * CGFloat(subStatus.usedSlots) / CGFloat(max(subStatus.purchasedSlots, 1)),
@@ -119,59 +121,59 @@ struct ServerActivationView: View {
                 .frame(height: 8)
 
                 if subStatus.availableSlots == 0 {
-                    HStack(spacing: .spacing6) {
+                    HStack(spacing: Theme.Spacing.sm) {
                         Image(systemName: "exclamationmark.circle.fill")
-                            .foregroundStyle(Color.accentOrange)
+                            .font(Theme.Font.caption)
+                            .foregroundStyle(Theme.Color.statusWarn)
                         Text("スロットが満杯です。不要なサーバーを無効化するかプランをアップグレードしてください")
-                            .font(.captionSmall)
-                            .foregroundStyle(Color.textSecondary)
+                            .font(Theme.Font.caption2)
+                            .foregroundStyle(Theme.Color.textSecondary)
                     }
                 }
             }
-            .padding(.vertical, .spacing8)
-        } header: {
-            Text("スロット使用状況")
+            .padding(.vertical, Theme.Spacing.sm)
         }
     }
 
     // MARK: - サーバー一覧セクション
 
     private var serverListSection: some View {
-        Section {
+        FormSection("管理サーバー", icon: "list.bullet", footer: "\(ownerGuilds.count) 件") {
             if ownerGuilds.isEmpty {
                 HStack {
                     Spacer()
-                    VStack(spacing: .spacing8) {
+                    VStack(spacing: Theme.Spacing.sm) {
                         Image(systemName: "server.rack")
                             .font(.system(size: 32))
-                            .foregroundStyle(Color.textTertiary)
+                            .foregroundStyle(Theme.Color.textTertiary)
                         Text("条件に合うサーバーがありません")
-                            .font(.bodySmall)
-                            .foregroundStyle(Color.textSecondary)
+                            .font(Theme.Font.bodySmall)
+                            .foregroundStyle(Theme.Color.textSecondary)
                         Text("ボットが導入されていて、あなたが管理者権限を持つサーバーが表示されます")
-                            .font(.captionSmall)
-                            .foregroundStyle(Color.textTertiary)
+                            .font(Theme.Font.caption2)
+                            .foregroundStyle(Theme.Color.textTertiary)
                             .multilineTextAlignment(.center)
                     }
                     Spacer()
                 }
-                .padding(.vertical, .spacing16)
+                .padding(.vertical, Theme.Spacing.md)
             } else {
-                ForEach(ownerGuilds) { guild in
-                    ActivationRow(
-                        guild: guild,
-                        isActivated: subStatus.activatedGuildIds.contains(guild.id),
-                        canActivate: subStatus.availableSlots > 0,
-                        isProcessing: processingId == guild.id
-                    ) { activate in
-                        await toggle(guild: guild, activate: activate)
+                VStack(spacing: 0) {
+                    ForEach(ownerGuilds) { guild in
+                        ActivationRow(
+                            guild: guild,
+                            isActivated: subStatus.activatedGuildIds.contains(guild.id),
+                            canActivate: subStatus.availableSlots > 0,
+                            isProcessing: processingId == guild.id
+                        ) { activate in
+                            await toggle(guild: guild, activate: activate)
+                        }
+                        if guild.id != ownerGuilds.last?.id {
+                            Divider().background(Theme.Color.line)
+                        }
                     }
                 }
             }
-        } header: {
-            Text("管理サーバー（\(ownerGuilds.count)件）")
-        } footer: {
-            Text("表示条件: ボットが導入されている かつ あなたがオーナーまたは管理者権限を持つサーバーのみ表示されます。")
         }
     }
 
@@ -215,13 +217,23 @@ struct ServerActivationView: View {
     }
 
     private func toastView(_ message: String) -> some View {
-        HStack(spacing: .spacing8) {
-            Image(systemName: "checkmark.circle.fill").foregroundStyle(.white)
-            Text(message).font(.captionRegular).fontWeight(.semibold).foregroundStyle(.white)
+        HStack(spacing: Theme.Spacing.sm) {
+            Image(systemName: "checkmark.circle.fill")
+                .font(Theme.Font.caption)
+                .foregroundStyle(Theme.Color.statusOK)
+            Text(message)
+                .font(Theme.Font.caption)
+                .fontWeight(.semibold)
+                .foregroundStyle(Theme.Color.textPrimary)
         }
-        .padding(.horizontal, .spacing20).frame(height: 44)
-        .background(Color.accentGreen).clipShape(Capsule())
-        .shadow(color: .black.opacity(0.15), radius: 8, y: 4)
+        .padding(.horizontal, Theme.Spacing.lg)
+        .frame(height: 44)
+        .background(Theme.Color.surfaceRaised)
+        .clipShape(Capsule())
+        .overlay(
+            Capsule()
+                .stroke(Theme.Color.line, lineWidth: 1)
+        )
     }
 }
 
@@ -235,33 +247,31 @@ private struct ActivationRow: View {
     let onToggle: (Bool) async -> Void
 
     var body: some View {
-        HStack(spacing: .spacing12) {
+        HStack(spacing: Theme.Spacing.sm) {
             // サーバーアイコン（イニシャル）
             ZStack {
-                RoundedRectangle(cornerRadius: .cornerRadiusSmall)
-                    .fill(isActivated ? Color.accentIndigo.opacity(0.15) : Color.bgSurface)
+                RoundedRectangle(cornerRadius: Theme.Radius.chip)
+                    .fill(Theme.Color.surfaceRaised)
                     .frame(width: 40, height: 40)
                 Text(String(guild.name.prefix(1)).uppercased())
-                    .font(.titleMedium)
-                    .foregroundStyle(isActivated ? Color.accentIndigo : Color.textTertiary)
+                    .font(Theme.Font.bodyMedium)
+                    .foregroundStyle(Theme.Color.textSecondary)
             }
 
             // サーバー情報
             VStack(alignment: .leading, spacing: 2) {
                 Text(guild.name)
-                    .font(.body)
-                    .foregroundStyle(Color.textPrimary)
+                    .font(Theme.Font.body)
+                    .foregroundStyle(Theme.Color.textPrimary)
                     .lineLimit(1)
 
                 HStack(spacing: 4) {
-                    Circle()
-                        .fill(isActivated ? Color.accentGreen : Color.textTertiary)
-                        .frame(width: 6, height: 6)
+                    StatusDot(color: isActivated ? Theme.Color.statusOK : Theme.Color.textTertiary)
                     Text(isActivated ? "有効化済み • スロット使用中"
                          : canActivate ? "無効"
                          : "無効（スロット不足）")
-                        .font(.captionRegular)
-                        .foregroundStyle(isActivated ? Color.accentGreen : Color.textTertiary)
+                        .font(Theme.Font.caption)
+                        .foregroundStyle(isActivated ? Theme.Color.statusOK : Theme.Color.textTertiary)
                 }
             }
 
@@ -276,13 +286,14 @@ private struct ActivationRow: View {
                     get: { isActivated },
                     set: { newVal in Task { await onToggle(newVal) } }
                 ))
-                .tint(Color.accentIndigo)
+                .tint(Theme.Color.accent)
                 .labelsHidden()
                 .disabled(!canActivate && !isActivated)
             }
         }
-        .padding(.vertical, .spacing4)
+        .padding(.vertical, Theme.Spacing.sm)
         .opacity(!canActivate && !isActivated ? 0.5 : 1.0)
+        .contentShape(Rectangle())
     }
 }
 
@@ -293,4 +304,20 @@ private struct ActivationRow: View {
         ServerActivationView()
             .environment(\.services, ServiceContainer.live())
     }
+}
+
+#Preview("Dark") {
+    NavigationStack {
+        ServerActivationView()
+            .environment(\.services, ServiceContainer.live())
+    }
+    .preferredColorScheme(.dark)
+}
+
+#Preview("Light") {
+    NavigationStack {
+        ServerActivationView()
+            .environment(\.services, ServiceContainer.live())
+    }
+    .preferredColorScheme(.light)
 }

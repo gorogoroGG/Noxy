@@ -1,8 +1,7 @@
 import SwiftUI
 
 // MARK: - TicketPanelListView
-// Discordサーバーへのお問い合わせパネルの管理・設置を行う。
-// パネル0件時は初心者向けガイドを表示し、設置済みパネルはカード一覧で確認できる。
+// Noxy Design Language に厳密に従った再設計。
 
 struct TicketPanelListView: View {
     let guildId: String
@@ -17,42 +16,28 @@ struct TicketPanelListView: View {
     @State private var deployingId: String? = nil
     @State private var deployTargetPanel: TicketPanel? = nil
     @State private var toast: ToastMessage? = nil
+    @State private var showDeleteConfirm = false
+    @State private var deleteTarget: TicketPanel? = nil
 
     var body: some View {
         ZStack(alignment: .bottomTrailing) {
+            Theme.Color.bg.ignoresSafeArea()
+
             Group {
                 if isLoading {
                     loadingView
-                        .transition(.opacity)
                 } else if let err = loadError {
                     errorView(err)
-                        .transition(.opacity)
                 } else if panels.isEmpty {
                     emptyView
-                        .transition(.opacity)
                 } else {
                     panelList
-                        .transition(.opacity)
                 }
             }
 
-            // FAB — 右下の丸い＋ボタン（EmbedListView と同じ）
+            // FAB — Noxy §7
             if !isLoading {
-                Button {
-                    editingPanel = nil
-                    showCreate = true
-                } label: {
-                    Image(systemName: "plus")
-                        .font(.system(size: 22, weight: .semibold))
-                        .foregroundStyle(.white)
-                        .frame(width: 56, height: 56)
-                        .background(Color.accentIndigo)
-                        .clipShape(Circle())
-                        .shadow(color: Color.accentIndigo.opacity(0.4), radius: 12, x: 0, y: 4)
-                }
-                .padding(.trailing, .spacing20)
-                .padding(.bottom, .spacing24)
-                .transition(.scale.combined(with: .opacity))
+                fabButton
             }
         }
         .sheet(isPresented: $showCreate) {
@@ -74,146 +59,125 @@ struct TicketPanelListView: View {
                 Task { await deploy(panel, channelId: channelId) }
             }
         }
+        .overlay {
+            if showDeleteConfirm, let target = deleteTarget {
+                ConfirmModal(
+                    icon: "trash.fill",
+                    iconColor: Theme.Color.statusBad,
+                    title: "「\(target.title)」を削除しますか？",
+                    message: "Discordのパネルメッセージは手動で削除してください。",
+                    primaryLabel: "削除",
+                    primaryRole: .destructive,
+                    onPrimary: {
+                        Task { await deletePanel(target) }
+                        showDeleteConfirm = false
+                        deleteTarget = nil
+                    },
+                    onCancel: {
+                        showDeleteConfirm = false
+                        deleteTarget = nil
+                    }
+                )
+                .transition(.scale(scale: 0.92).combined(with: .opacity))
+            }
+        }
         .toast($toast)
         .task(id: guildId) { await load() }
         .refreshable { await load() }
     }
 
+    // MARK: - FAB
+    // Noxy §7: bottom: 20px, right: 16px, 56px 円形, acc/acc-ink, shadow 0 4px 16px rgba(214,179,106,.3)
+
+    private var fabButton: some View {
+        Button {
+            UIImpactFeedbackGenerator(style: .light).impactOccurred()
+            editingPanel = nil
+            showCreate = true
+        } label: {
+            Image(systemName: "plus")
+                .font(.system(size: 24, weight: .semibold))
+                .foregroundStyle(Theme.Color.accentInk)
+                .frame(width: 56, height: 56)
+                .background(Theme.Color.accent)
+                .clipShape(Circle())
+        }
+        .padding(.trailing, .spacing16)
+        .padding(.bottom, 20)
+        .transition(.scale.combined(with: .opacity))
+    }
+
     // MARK: - States
 
     private var loadingView: some View {
-        List {
-            ForEach(0..<3) { _ in
-                VStack(alignment: .leading, spacing: .spacing8) {
-                    HStack(spacing: .spacing8) {
-                        RoundedRectangle(cornerRadius: 4)
-                            .fill(Color.textTertiary.opacity(0.2))
-                            .frame(width: 80, height: 16)
-                        Spacer()
-                        RoundedRectangle(cornerRadius: 4)
-                            .fill(Color.textTertiary.opacity(0.15))
-                            .frame(width: 60, height: 12)
-                    }
-                    RoundedRectangle(cornerRadius: 4)
-                        .fill(Color.textTertiary.opacity(0.1))
-                        .frame(width: 200, height: 12)
+        ScrollView {
+            VStack(spacing: .spacing10) {
+                SectionHeader(title: "読み込み中") {}
+                ForEach(0..<3, id: \.self) { _ in
+                    SkeletonCard()
                 }
-                .padding(.spacing12)
-                .background(Color.bgSurface)
-                .clipShape(RoundedRectangle(cornerRadius: .cornerRadiusMedium))
-                .listRowInsets(EdgeInsets(top: 6, leading: 16, bottom: 6, trailing: 16))
-                .listRowBackground(Color.clear)
-                .listRowSeparator(.hidden)
             }
+            .padding(.horizontal, .spacing16)
+            .padding(.top, .spacing12)
         }
-        .listStyle(.plain)
-        .scrollContentBackground(.hidden)
-        .background(Color(.systemGroupedBackground))
     }
 
     private func errorView(_ message: String) -> some View {
-        VStack(spacing: .spacing16) {
-            Spacer()
-            Image(systemName: "wifi.exclamationmark")
-                .font(.system(size: 48))
-                .foregroundStyle(Color.textTertiary)
-            Text("読み込みに失敗しました")
-                .font(.titleMedium)
-                .foregroundStyle(Color.textPrimary)
-            Text(message)
-                .font(.bodyRegular)
-                .foregroundStyle(Color.textSecondary)
-                .multilineTextAlignment(.center)
-            Button { Task { await load() } } label: {
-                Label("再試行", systemImage: "arrow.clockwise")
-                    .font(.bodySmall).fontWeight(.semibold)
-                    .foregroundStyle(.white)
-                    .padding(.horizontal, .spacing20).padding(.vertical, .spacing10)
-                    .background(Color.accentIndigo)
-                    .clipShape(Capsule())
-            }
-            Spacer()
+        EmptyStateView(
+            icon: "wifi.exclamationmark",
+            title: "読み込みに失敗しました",
+            description: message,
+            actionTitle: "再試行"
+        ) {
+            Task { await load() }
         }
-        .padding(.horizontal, .spacing32)
-        .frame(maxWidth: .infinity, maxHeight: .infinity)
-        .background(Color(.systemGroupedBackground))
     }
 
     private var emptyView: some View {
-        VStack(spacing: .spacing20) {
-            Spacer()
-
-            ZStack {
-                Circle()
-                    .fill(Color.accentIndigo.opacity(0.12))
-                    .frame(width: 100, height: 100)
-                Image(systemName: "rectangle.stack.badge.plus")
-                    .font(.system(size: 40))
-                    .foregroundStyle(Color.accentIndigo)
-            }
-
-            VStack(spacing: .spacing8) {
-                Text("パネルを設置しましょう")
-                    .font(.titleMedium)
-                    .fontWeight(.semibold)
-                    .foregroundStyle(Color.textPrimary)
-                    .multilineTextAlignment(.center)
-
-                Text("Discordサーバーにボタンを設置して、\nメンバーからの問い合わせを受け付けられます。")
-                    .font(.bodyRegular)
-                    .foregroundStyle(Color.textSecondary)
-                    .multilineTextAlignment(.center)
-                    .lineSpacing(4)
-            }
-            .padding(.horizontal, .spacing32)
-
-            Button { showCreate = true } label: {
-                HStack(spacing: .spacing8) {
-                    Image(systemName: "plus.circle.fill")
-                    Text("パネルを作成")
-                        .fontWeight(.semibold)
-                }
-                .foregroundStyle(.white)
-                .frame(maxWidth: 280)
-                .frame(height: 52)
-                .background(Color.accentIndigo)
-                .clipShape(RoundedRectangle(cornerRadius: .cornerRadiusMedium))
-            }
-            .buttonStyle(ScalePressButtonStyle())
-
-            Spacer()
+        EmptyStateView(
+            icon: "rectangle.stack.badge.plus",
+            title: "パネルを設置しましょう",
+            description: "Discordサーバーにボタンを設置して、\nメンバーからの問い合わせを受け付けられます。",
+            actionTitle: "パネルを作成"
+        ) {
+            showCreate = true
         }
-        .frame(maxWidth: .infinity, maxHeight: .infinity)
-        .background(Color(.systemGroupedBackground))
     }
 
+    // MARK: - Panel List
+
     private var panelList: some View {
-        List {
-            ForEach(panels) { panel in
-                PanelCard(
-                    panel: panel,
-                    isDeploying: deployingId == panel.id,
-                    onEdit: { editingPanel = panel },
-                    onDeploy: { deployTargetPanel = panel }
-                )
-                .listRowInsets(EdgeInsets(top: 4, leading: 16, bottom: 4, trailing: 16))
-                .listRowBackground(Color(.systemGroupedBackground))
-                .listRowSeparator(.hidden)
-                .swipeActions(edge: .trailing, allowsFullSwipe: false) {
-                    Button(role: .destructive) {
-                        Task { await deletePanel(panel) }
-                    } label: {
-                        Label("削除", systemImage: "trash")
+        ScrollView {
+            LazyVStack(spacing: .spacing10) {
+                SectionHeader(title: "\(panels.count)件") {}
+                    .padding(.horizontal, .spacing16)
+
+                ForEach(panels) { panel in
+                    PanelCard(
+                        panel: panel,
+                        isDeploying: deployingId == panel.id,
+                        onEdit: { editingPanel = panel },
+                        onDeploy: { deployTargetPanel = panel },
+                        onDelete: {
+                            deleteTarget = panel
+                            showDeleteConfirm = true
+                        }
+                    )
+                    .padding(.horizontal, .spacing16)
+                    .swipeActions(edge: .trailing, allowsFullSwipe: false) {
+                        Button(role: .destructive) {
+                            deleteTarget = panel
+                            showDeleteConfirm = true
+                        } label: {
+                            Label("削除", systemImage: "trash")
+                        }
                     }
                 }
-            }
 
-            Color.clear.frame(height: 80)
-                .listRowBackground(Color(.systemGroupedBackground))
-                .listRowSeparator(.hidden)
+                Color.clear.frame(height: 80)
+            }
+            .padding(.top, .spacing12)
         }
-        .listStyle(.plain)
-        .background(Color(.systemGroupedBackground))
     }
 
     // MARK: - Actions
@@ -221,19 +185,16 @@ struct TicketPanelListView: View {
     private func load() async {
         isLoading = true
         loadError = nil
-        // キャッシュから即座に表示（ちらつき防止）
         if let cached = appState.cachedTicketPanels[guildId] {
             panels = cached
             isLoading = false
         }
-        // ネットワークから最新データを取得
         do {
             let fetched = try await services.tickets.fetchPanels(guildId: guildId)
             panels = fetched
             appState.cacheTicketPanels(fetched, for: guildId)
             loadError = nil
         } catch {
-            // キャッシュが表示済みならエラー表示しない（バックグラウンド更新の失敗）
             if appState.cachedTicketPanels[guildId] == nil {
                 loadError = "サーバーに接続できませんでした。ネットワークを確認してください。"
                 panels = []
@@ -276,92 +237,97 @@ struct TicketPanelListView: View {
 }
 
 // MARK: - PanelCard
+// Noxy: Card + sur + 14px 角丸 + line ボーダー + Badge（設置状況）
 
 private struct PanelCard: View {
     let panel: TicketPanel
     let isDeploying: Bool
     let onEdit: () -> Void
     let onDeploy: () -> Void
+    let onDelete: () -> Void
 
     private var panelColor: Color {
         Color(uiColor: UIColor(hex: UInt32(panel.color)))
     }
 
     var body: some View {
-        VStack(spacing: 0) {
-            // Header
-            HStack(spacing: .spacing12) {
-                ZStack {
-                    RoundedRectangle(cornerRadius: 10)
-                        .fill(panelColor)
-                        .frame(width: 42, height: 42)
-                    Text(panel.buttonEmoji).font(.system(size: 20))
-                }
+        Card(padding: 0, background: Theme.Color.surface, showBorder: true) {
+            VStack(spacing: 0) {
+                // Header
+                HStack(spacing: .spacing12) {
+                    ZStack {
+                        RoundedRectangle(cornerRadius: 10)
+                            .fill(panelColor)
+                            .frame(width: 42, height: 42)
+                        Text(panel.buttonEmoji)
+                            .font(.system(size: 20))
+                    }
 
-                VStack(alignment: .leading, spacing: 3) {
-                    Text(panel.title)
-                        .font(.bodySmall).fontWeight(.semibold).foregroundStyle(Color.textPrimary)
-                    Text(panel.description)
-                        .font(.captionSmall).foregroundStyle(Color.textTertiary).lineLimit(1)
-                }
+                    VStack(alignment: .leading, spacing: 3) {
+                        Text(panel.title)
+                            .font(Theme.Font.bodyMedium)
+                            .foregroundStyle(Theme.Color.textPrimary)
+                        Text(panel.description)
+                            .font(Theme.Font.caption)
+                            .foregroundStyle(Theme.Color.textTertiary)
+                            .lineLimit(1)
+                    }
 
-                Spacer()
+                    Spacer()
 
-                // 設置状況バッジ
-                HStack(spacing: 4) {
-                    Image(systemName: panel.isDeployed ? "checkmark.circle.fill" : "circle.dashed")
-                        .font(.system(size: 10))
-                    Text(panel.isDeployed ? "設置済み" : "未設置")
-                        .font(.system(size: 10, weight: .semibold))
-                }
-                .foregroundStyle(panel.isDeployed ? Color.accentGreen : Color.textTertiary)
-                .padding(.horizontal, 8).padding(.vertical, 4)
-                .background(
-                    (panel.isDeployed ? Color.accentGreen : Color(.tertiarySystemGroupedBackground))
-                        .opacity(panel.isDeployed ? 0.12 : 1)
-                )
-                .clipShape(Capsule())
+                    // 設置状況バッジ
+                    Badge(
+                        text: panel.isDeployed ? "設置済み" : "未設置",
+                        color: panel.isDeployed ? Theme.Color.statusOK : Theme.Color.textTertiary,
+                        style: .filled
+                    )
 
-                // 編集ボタン（メニューではなく直接）
-                Button(action: onEdit) {
-                    Image(systemName: "pencil.circle")
-                        .font(.system(size: 18))
-                        .foregroundStyle(Color.textTertiary)
-                }
-            }
-            .padding(.spacing12)
-
-            Divider().padding(.horizontal, .spacing12)
-
-            // Deploy Button
-            Button(action: onDeploy) {
-                HStack(spacing: .spacing6) {
-                    if isDeploying {
-                        ProgressView().scaleEffect(0.75).tint(.white)
-                        Text("設置中...").font(.bodySmall).fontWeight(.semibold)
-                    } else {
-                        Image(systemName: panel.isDeployed ? "arrow.2.squarepath" : "paperplane.fill")
-                            .font(.system(size: 13))
-                        Text(panel.isDeployed ? "再設置する" : "Discordに設置する")
-                            .font(.bodySmall).fontWeight(.semibold)
+                    // 編集ボタン
+                    Button(action: onEdit) {
+                        Image(systemName: "pencil.circle")
+                            .font(.system(size: 18))
+                            .foregroundStyle(Theme.Color.textTertiary)
                     }
                 }
-                .foregroundStyle(.white)
-                .frame(maxWidth: .infinity)
-                .frame(height: 40)
-                .background(panel.isDeployed ? Color.accentOrange : panelColor)
-                .clipShape(
-                    UnevenRoundedRectangle(
-                        bottomLeadingRadius: .cornerRadiusMedium,
-                        bottomTrailingRadius: .cornerRadiusMedium
+                .padding(.spacing12)
+
+                Divider()
+                    .background(Theme.Color.line)
+                    .padding(.horizontal, .spacing12)
+
+                // Deploy Button
+                Button(action: onDeploy) {
+                    HStack(spacing: .spacing6) {
+                        if isDeploying {
+                            ProgressView()
+                                .scaleEffect(0.75)
+                                .tint(Theme.Color.accentInk)
+                            Text("設置中...")
+                                .font(Theme.Font.body)
+                                .fontWeight(.semibold)
+                        } else {
+                            Image(systemName: panel.isDeployed ? "arrow.2.squarepath" : "paperplane.fill")
+                                .font(.system(size: 13))
+                            Text(panel.isDeployed ? "再設置する" : "Discordに設置する")
+                                .font(Theme.Font.body)
+                                .fontWeight(.semibold)
+                        }
+                    }
+                    .foregroundStyle(Theme.Color.accentInk)
+                    .frame(maxWidth: .infinity)
+                    .frame(height: 40)
+                    .background(panel.isDeployed ? Theme.Color.accent : panelColor)
+                    .clipShape(
+                        UnevenRoundedRectangle(
+                            bottomLeadingRadius: Theme.Radius.card,
+                            bottomTrailingRadius: Theme.Radius.card
+                        )
                     )
-                )
+                }
+                .buttonStyle(.plain)
+                .disabled(isDeploying)
             }
-            .buttonStyle(.plain)
-            .disabled(isDeploying)
         }
-        .background(Color(.secondarySystemGroupedBackground))
-        .clipShape(RoundedRectangle(cornerRadius: .cornerRadiusMedium))
     }
 }
 
@@ -390,12 +356,14 @@ struct DeployChannelPickerSheet: View {
                     channelList
                 }
             }
-            .background(Color(.systemGroupedBackground))
+            .background(Theme.Color.bg)
             .navigationTitle("設置先を選択")
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
                 ToolbarItem(placement: .topBarLeading) {
-                    Button("キャンセル") { dismiss() }.foregroundStyle(Color.textSecondary)
+                    Button("キャンセル") { dismiss() }
+                        .font(Theme.Font.body)
+                        .foregroundStyle(Theme.Color.textSecondary)
                 }
             }
             .task { await load() }
@@ -406,87 +374,79 @@ struct DeployChannelPickerSheet: View {
         VStack {
             Spacer()
             ProgressView()
+                .tint(Theme.Color.accent)
             Spacer()
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
     }
 
     private func errorView(_ message: String) -> some View {
-        VStack(spacing: .spacing16) {
-            Spacer()
-            Image(systemName: "wifi.exclamationmark")
-                .font(.system(size: 48))
-                .foregroundStyle(Color.textTertiary)
-            Text("読み込みに失敗しました")
-                .font(.titleMedium)
-                .foregroundStyle(Color.textPrimary)
-            Text(message)
-                .font(.bodyRegular)
-                .foregroundStyle(Color.textSecondary)
-                .multilineTextAlignment(.center)
-            Button { Task { await load() } } label: {
-                Label("再試行", systemImage: "arrow.clockwise")
-                    .font(.bodySmall).fontWeight(.semibold)
-                    .foregroundStyle(.white)
-                    .padding(.horizontal, .spacing20).padding(.vertical, .spacing10)
-                    .background(Color.accentIndigo)
-                    .clipShape(Capsule())
-            }
-            Spacer()
+        EmptyStateView(
+            icon: "wifi.exclamationmark",
+            title: "読み込みに失敗しました",
+            description: message,
+            actionTitle: "再試行"
+        ) {
+            Task { await load() }
         }
-        .padding(.horizontal, .spacing32)
     }
 
     private var emptyView: some View {
-        VStack(spacing: .spacing12) {
-            Spacer()
-            Image(systemName: "number")
-                .font(.system(size: 40))
-                .foregroundStyle(Color.textTertiary)
-            Text("テキストチャンネルが見つかりません")
-                .font(.titleMedium)
-                .foregroundStyle(Color.textPrimary)
-            Text("Botがアクセス可能なテキストチャンネルが存在しません。")
-                .font(.bodyRegular)
-                .foregroundStyle(Color.textSecondary)
-                .multilineTextAlignment(.center)
-            Spacer()
-        }
-        .padding(.horizontal, .spacing32)
-        .frame(maxWidth: .infinity, maxHeight: .infinity)
+        EmptyStateView(
+            icon: "number",
+            title: "テキストチャンネルが見つかりません",
+            description: "Botがアクセス可能なテキストチャンネルが存在しません。"
+        )
     }
 
     private var channelList: some View {
-        List {
-            Section {
-                ForEach(channels, id: \.id) { ch in
-                    Button {
-                        onSelect(ch.id)
-                        dismiss()
-                    } label: {
-                        HStack(spacing: .spacing12) {
-                            Image(systemName: "number")
-                                .font(.system(size: 14))
-                                .foregroundStyle(Color.textTertiary)
-                            Text(ch.name)
-                                .font(.bodySmall)
-                                .foregroundStyle(Color.textPrimary)
-                            Spacer()
-                            if panel.channelId == ch.id {
-                                Image(systemName: "checkmark.circle.fill")
-                                    .foregroundStyle(Color.accentIndigo)
+        ScrollView {
+            VStack(alignment: .leading, spacing: 0) {
+                SectionLabel(title: "「\(panel.title)」の設置先チャンネル")
+                    .padding(.horizontal, .spacing16)
+                    .padding(.top, .spacing12)
+                    .padding(.bottom, .spacing8)
+
+                Card(padding: 0, background: Theme.Color.surface, showBorder: true) {
+                    VStack(spacing: 0) {
+                        ForEach(Array(channels.enumerated()), id: \.element.id) { idx, ch in
+                            Button {
+                                onSelect(ch.id)
+                                dismiss()
+                            } label: {
+                                HStack(spacing: .spacing12) {
+                                    Image(systemName: "number")
+                                        .font(.system(size: 14))
+                                        .foregroundStyle(Theme.Color.textTertiary)
+                                    Text(ch.name)
+                                        .font(Theme.Font.body)
+                                        .foregroundStyle(Theme.Color.textPrimary)
+                                    Spacer()
+                                    if panel.channelId == ch.id {
+                                        Image(systemName: "checkmark.circle.fill")
+                                            .foregroundStyle(Theme.Color.accent)
+                                    }
+                                }
+                                .padding(.horizontal, .spacing16)
+                                .padding(.vertical, .spacing12)
+                            }
+                            .buttonStyle(.plain)
+                            if idx < channels.count - 1 {
+                                Divider()
+                                    .padding(.leading, .spacing16)
                             }
                         }
                     }
-                    .buttonStyle(.plain)
                 }
-            } header: {
-                Text("「\(panel.title)」の設置先チャンネル")
-            } footer: {
+                .padding(.horizontal, .spacing16)
+
                 Text("選択したチャンネルにパネルメッセージが投稿されます。")
+                    .font(Theme.Font.caption)
+                    .foregroundStyle(Theme.Color.textTertiary)
+                    .padding(.horizontal, .spacing16)
+                    .padding(.top, .spacing8)
             }
         }
-        .listStyle(.insetGrouped)
     }
 
     private func load() async {
@@ -502,4 +462,16 @@ struct DeployChannelPickerSheet: View {
         }
         isLoading = false
     }
+}
+
+#Preview {
+    NavigationStack {
+        TicketPanelListView(
+            guildId: "g001",
+            panels: .constant([]),
+            isLoading: .constant(false)
+        )
+    }
+    .environment(\.services, ServiceContainer.live())
+    .environment(AppState())
 }

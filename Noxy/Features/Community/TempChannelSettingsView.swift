@@ -9,12 +9,11 @@ struct TempChannelSettingsView: View {
     @State private var settings: TempChannelSettings? = nil
     @State private var isLoading = true
     @State private var isSaving = false
-    @State private var toast: ToastMessage? = nil
 
     // フォームフィールド
     @State private var enabled             = false
     @State private var categoryId          = ""
-    @State private var channelNameFormat   = "💬-{vc-name}"
+    @State private var channelNameFormat   = "chat-{vc-name}"
     @State private var autoDelete          = true
     @State private var deleteDelay         = 0
     @State private var joinLeaveNotif      = true
@@ -35,115 +34,133 @@ struct TempChannelSettingsView: View {
         (30, "30分後"),
     ]
 
+    // MARK: - Toast
+    @State private var toastMessage: String? = nil
+    @State private var toastIsError: Bool = false
+
     var body: some View {
-        List {
-            if isLoading {
-                HStack { Spacer(); ProgressView(); Spacer() }
-                    .listRowBackground(Color(.systemGroupedBackground))
-            } else {
-                // ── ON/OFF ──
-                Section {
-                    Toggle("一時チャンネルを有効にする", isOn: $enabled.animation())
-                        .tint(Color.accentIndigo)
-                } footer: {
-                    Text("VCに参加したとき、参加者専用のテキストチャンネルが自動で作成されます。")
-                }
-
-                if enabled {
-                    // ── 基本設定 ──
-                    Section {
-                        Picker("作成先カテゴリ", selection: $categoryId) {
-                            Text("なし（デフォルト）").tag("")
-                            ForEach(categories, id: \.id) { Text($0.name).tag($0.id) }
-                        }
-                        VStack(alignment: .leading, spacing: 6) {
-                            Text("チャンネル名フォーマット").font(.captionSmall).foregroundStyle(Color.textTertiary)
-                            TextField("例: 💬-{vc-name}", text: $channelNameFormat)
-                                .font(.bodySmall)
-                            // 変数チップ
-                            ScrollView(.horizontal, showsIndicators: false) {
-                                HStack(spacing: 6) {
-                                    ForEach(["{vc-name}", "{user-name}", "{count}"], id: \.self) { v in
-                                        Button { channelNameFormat += v } label: {
-                                            Text(v).font(.system(size: 11, weight: .semibold))
-                                                .foregroundStyle(Color.accentIndigo)
-                                                .padding(.horizontal, 8).padding(.vertical, 4)
-                                                .background(Color.accentIndigo.opacity(0.1)).clipShape(Capsule())
-                                        }.buttonStyle(.plain)
-                                    }
-                                }
-                            }
-                        }
-                        Stepper("最小参加人数：\(minMembers)人", value: $minMembers, in: 1...10)
-                    } header: { Text("基本設定") }
-                      footer: { Text("{vc-name}=VCの名前  {user-name}=最初の参加者  {count}=参加人数") }
-
-                    // ── 自動削除 ──
-                    Section {
-                        Toggle("全員退室後に自動削除", isOn: $autoDelete.animation()).tint(Color.accentIndigo)
-                        if autoDelete {
-                            Picker("削除までの猶予", selection: $deleteDelay) {
-                                ForEach(delayOptions, id: \.0) { sec, label in
-                                    Text(label).tag(sec)
-                                }
-                            }
-                        }
-                    } header: { Text("自動削除") }
-                      footer: { Text("猶予時間を設けると、全員退室後もその間はメッセージを読めます。") }
-
-                    // ── 通知 ──
-                    Section {
-                        Toggle("参加/退出の通知", isOn: $joinLeaveNotif).tint(Color.accentIndigo)
-                    } header: { Text("通知") }
-                      footer: { Text("VCに誰かが参加/退出したとき、テキストチャンネルに通知メッセージを表示します。") }
-
-                    // ── 対象VC ──
-                    Section {
-                        Toggle("すべてのVCを対象にする", isOn: $watchAllVcs.animation()).tint(Color.accentIndigo)
-                        if !watchAllVcs {
-                            if voiceChannels.isEmpty {
-                                Text("VCが見つかりません").font(.captionRegular).foregroundStyle(Color.textTertiary)
-                            } else {
-                                Text("対象VCを選択してください").font(.captionSmall).foregroundStyle(Color.textTertiary)
-                                // 特定VC選択（将来実装: watchVcIds を使う）
-                                // 現状はすべてON/OFFのみ
-                            }
-                        }
-                    } header: { Text("対象VCの設定") }
-                      footer: { watchAllVcs ? Text("") : Text("特定のVCのみ一時チャンネルを作成します。") }
-
-                    // ── アクティブな一時チャンネル ──
-                    if !activeChannels.isEmpty {
-                        Section {
-                            ForEach(activeChannels) { ch in
-                                HStack(spacing: .spacing12) {
-                                    Image(systemName: "number").font(.captionSmall).foregroundStyle(Color.textTertiary)
-                                    VStack(alignment: .leading, spacing: 2) {
-                                        Text("<#\(ch.textChannelId)>").font(.bodySmall).foregroundStyle(Color.textPrimary)
-                                        Text("VC: \(ch.vcChannelId) • \(ch.createdAt.formatted(.relative(presentation: .named)))")
-                                            .font(.captionSmall).foregroundStyle(Color.textTertiary)
-                                    }
-                                }
-                            }
-                        } header: { Text("現在アクティブな一時チャンネル（\(activeChannels.count)件）") }
+        ScrollView {
+            VStack(spacing: Theme.Spacing.lg) {
+                if isLoading {
+                    HStack { Spacer(); ProgressView(); Spacer() }
+                        .padding(.vertical, Theme.Spacing.xl)
+                } else {
+                    // ── ON/OFF ──
+                    section("基本設定") {
+                        toggleRow("一時チャンネルを有効にする", isOn: $enabled)
+                    } footer: {
+                        "VCに参加したとき、参加者専用テキストチャンネルが自動作成されます"
                     }
 
-                    // ── 使い方ガイド ──
-                    Section {
-                        tipRow(icon: "mic.fill", color: .accentIndigo,
-                               title: "VCに参加",
-                               detail: "設定対象のVCに入ると、専用テキストチャンネルが自動で作成されます。")
-                        tipRow(icon: "lock.fill", color: .accentOrange,
-                               title: "参加者専用",
-                               detail: "チャンネルはVCに入っている人だけが見えます。誰でも閲覧できるわけではありません。")
-                        tipRow(icon: "trash.fill", color: .red,
-                               title: "自動削除",
-                               detail: "VCが空になると（猶予時間後に）チャンネルは自動削除されます。")
-                    } header: { Text("使い方") }
+                    if enabled {
+                        // ── 詳細設定 ──
+                        section("詳細設定") {
+                            VStack(spacing: 0) {
+                                pickerRow("作成先カテゴリ", selection: $categoryId) {
+                                    Text("なし（デフォルト）").tag("")
+                                    ForEach(categories, id: \.id) { Text($0.name).tag($0.id) }
+                                }
+
+                                Divider().padding(.leading, Theme.Spacing.md)
+
+                                textFieldRow("チャンネル名フォーマット", text: $channelNameFormat, placeholder: "例: chat-{vc-name}")
+
+                                // 変数チップ
+                                ScrollView(.horizontal, showsIndicators: false) {
+                                    HStack(spacing: 6) {
+                                        ForEach(["{vc-name}", "{user-name}", "{count}"], id: \.self) { v in
+                                            Button { channelNameFormat += v } label: {
+                                                Text(v)
+                                                    .font(Theme.Font.caption2)
+                                                    .fontWeight(.semibold)
+                                                    .foregroundStyle(Theme.Color.accent)
+                                                    .padding(.horizontal, 8)
+                                                    .padding(.vertical, 4)
+                                                    .background(Theme.Color.accentDim)
+                                                    .clipShape(RoundedRectangle(cornerRadius: Theme.Radius.chip))
+                                            }
+                                            .buttonStyle(.plain)
+                                        }
+                                    }
+                                    .padding(.horizontal, Theme.Spacing.md)
+                                    .padding(.vertical, Theme.Spacing.sm)
+                                }
+
+                                Divider().padding(.leading, Theme.Spacing.md)
+
+                                stepperRow("最小参加人数", value: $minMembers, range: 1...10, suffix: "人")
+                            }
+                        } footer: {
+                            "{vc-name}=VCの名前  {user-name}=最初の参加者  {count}=参加人数"
+                        }
+
+                        // ── 自動削除 ──
+                        section("自動削除") {
+                            VStack(spacing: 0) {
+                                toggleRow("全員退室後に自動削除", isOn: $autoDelete)
+                                if autoDelete {
+                                    Divider().padding(.leading, Theme.Spacing.md)
+                                    pickerRow("削除までの猶予", selection: $deleteDelay) {
+                                        ForEach(delayOptions, id: \.0) { sec, label in
+                                            Text(label).tag(sec)
+                                        }
+                                    }
+                                }
+                            }
+                        } footer: {
+                            "猶予時間を設けると、全員退室後もその間はメッセージを読めます"
+                        }
+
+                        // ── 通知 ──
+                        section("通知") {
+                            toggleRow("参加/退出の通知", isOn: $joinLeaveNotif)
+                        } footer: {
+                            "VCに誰かが参加/退出したとき、テキストチャンネルに通知メッセージを表示します"
+                        }
+
+                        // ── 対象VC ──
+                        section("対象VC") {
+                            toggleRow("すべてのVCを対象にする", isOn: $watchAllVcs)
+                        } footer: {
+                            watchAllVcs ? "" : "特定のVCのみ一時チャンネルを作成します"
+                        }
+
+                        // ── アクティブな一時チャンネル ──
+                        if !activeChannels.isEmpty {
+                            section("アクティブ (\(activeChannels.count)件)") {
+                                VStack(spacing: 0) {
+                                    ForEach(Array(activeChannels.enumerated()), id: \.element.id) { index, ch in
+                                        HStack(spacing: Theme.Spacing.md) {
+                                            Image(systemName: "number")
+                                                .font(Theme.Font.caption2)
+                                                .foregroundStyle(Theme.Color.textTertiary)
+                                            VStack(alignment: .leading, spacing: 2) {
+                                                Text("<#\(ch.textChannelId)>")
+                                                    .font(Theme.Font.body)
+                                                    .foregroundStyle(Theme.Color.textPrimary)
+                                Text("VC: \(ch.vcChannelId) ・ \(ch.createdAt.formatted(.relative(presentation: .named)))")
+                                    .font(Theme.Font.caption2)
+                                    .foregroundStyle(Theme.Color.textTertiary)
+                                    .monospaced()
+                                            }
+                                            Spacer()
+                                        }
+                                        .padding(.horizontal, Theme.Spacing.md)
+                                        .padding(.vertical, Theme.Spacing.sm)
+                                        if index < activeChannels.count - 1 {
+                                            Divider().padding(.leading, Theme.Spacing.md)
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                    }
                 }
             }
+            .padding(.horizontal, Theme.Spacing.md)
+            .padding(.vertical, Theme.Spacing.md)
         }
-        .listStyle(.insetGrouped)
+        .background(Theme.Color.bg)
         .navigationTitle("一時チャンネル")
         .navigationBarTitleDisplayMode(.large)
         .toolbar {
@@ -153,42 +170,139 @@ struct TempChannelSettingsView: View {
                         Task { await save() }
                     }
                     .fontWeight(.semibold)
-                    .foregroundStyle(isSaving ? Color.textTertiary : Color.accentIndigo)
+                    .foregroundStyle(isSaving ? Theme.Color.textTertiary : Theme.Color.accent)
                     .disabled(isSaving)
                 }
             }
         }
         .overlay {
-            if let toast {
-                VStack {
-                    Spacer()
-                    Text(toast.message)
-                        .font(.captionRegular).fontWeight(.medium).foregroundStyle(.white)
-                        .padding(.horizontal, .spacing16).padding(.vertical, .spacing10)
-                        .background(Color.gray.opacity(0.25)).clipShape(Capsule())
-                        .padding(.bottom, 24)
-                        .transition(.move(edge: .bottom).combined(with: .opacity))
-                }
-            }
+            toastOverlay
         }
         .task { await loadAll() }
     }
 
-    // MARK: - Helpers
+    // MARK: - Section Builder
 
-    private func tipRow(icon: String, color: Color, title: String, detail: String) -> some View {
-        HStack(alignment: .top, spacing: .spacing12) {
-            Image(systemName: icon)
-                .font(.system(size: 13)).foregroundStyle(color)
-                .frame(width: 28, height: 28)
-                .background(color.opacity(0.12))
-                .clipShape(RoundedRectangle(cornerRadius: 7))
-            VStack(alignment: .leading, spacing: 2) {
-                Text(title).font(.bodySmall).fontWeight(.semibold).foregroundStyle(Color.textPrimary)
-                Text(detail).font(.captionSmall).foregroundStyle(Color.textTertiary)
+    private func section(
+        _ title: String,
+        @ViewBuilder content: () -> some View,
+        footer: @escaping () -> String? = { nil }
+    ) -> some View {
+        VStack(alignment: .leading, spacing: Theme.Spacing.sm) {
+            SectionLabel(title: title)
+            VStack(spacing: 0) {
+                content()
+            }
+            .background(Theme.Color.surface)
+            .clipShape(RoundedRectangle(cornerRadius: Theme.Radius.card))
+            .overlay(
+                RoundedRectangle(cornerRadius: Theme.Radius.card)
+                    .stroke(Theme.Color.line, lineWidth: 1)
+            )
+            if let f = footer(), !f.isEmpty {
+                Text(f)
+                    .font(Theme.Font.caption2)
+                    .foregroundStyle(Theme.Color.textTertiary)
             }
         }
-        .padding(.vertical, 2)
+    }
+
+    // MARK: - Row Components
+
+    private func toggleRow(_ title: String, isOn: Binding<Bool>) -> some View {
+        Toggle(title, isOn: isOn)
+            .tint(Theme.Color.accent)
+            .padding(.horizontal, Theme.Spacing.md)
+            .padding(.vertical, Theme.Spacing.sm)
+    }
+
+    private func pickerRow<Selection: Hashable>(
+        _ title: String,
+        selection: Binding<Selection>,
+        @ViewBuilder content: () -> some View
+    ) -> some View {
+        HStack {
+            Text(title)
+                .font(Theme.Font.body)
+                .foregroundStyle(Theme.Color.textPrimary)
+            Spacer()
+            Picker("", selection: selection) {
+                content()
+            }
+            .pickerStyle(.menu)
+            .tint(Theme.Color.accent)
+        }
+        .padding(.horizontal, Theme.Spacing.md)
+        .padding(.vertical, Theme.Spacing.sm)
+    }
+
+    private func textFieldRow(_ title: String, text: Binding<String>, placeholder: String) -> some View {
+        VStack(alignment: .leading, spacing: Theme.Spacing.xs) {
+            Text(title)
+                .font(Theme.Font.caption2)
+                .foregroundStyle(Theme.Color.textTertiary)
+            TextField(placeholder, text: text)
+                .font(Theme.Font.body)
+                .foregroundStyle(Theme.Color.textPrimary)
+                .padding(.horizontal, Theme.Spacing.md)
+                .padding(.vertical, Theme.Spacing.sm)
+                .background(Theme.Color.surfaceRaised)
+                .clipShape(RoundedRectangle(cornerRadius: Theme.Radius.button))
+                .overlay(
+                    RoundedRectangle(cornerRadius: Theme.Radius.button)
+                        .stroke(Theme.Color.line, lineWidth: 1)
+                )
+        }
+        .padding(.horizontal, Theme.Spacing.md)
+        .padding(.vertical, Theme.Spacing.sm)
+    }
+
+    private func stepperRow(_ title: String, value: Binding<Int>, range: ClosedRange<Int>, suffix: String) -> some View {
+        HStack {
+            Text(title)
+                .font(Theme.Font.body)
+                .foregroundStyle(Theme.Color.textPrimary)
+            Spacer()
+            HStack(spacing: Theme.Spacing.sm) {
+                Text("\(value.wrappedValue)\(suffix)")
+                    .font(Theme.Font.body)
+                    .foregroundStyle(Theme.Color.textSecondary)
+                    .monospaced()
+                    .monospaced()
+                Stepper("", value: value, in: range)
+                    .labelsHidden()
+                    .tint(Theme.Color.accent)
+            }
+        }
+        .padding(.horizontal, Theme.Spacing.md)
+        .padding(.vertical, Theme.Spacing.sm)
+    }
+
+    // MARK: - Toast Overlay
+
+    private var toastOverlay: some View {
+        VStack {
+            Spacer()
+            if let toastMessage {
+                HStack(spacing: Theme.Spacing.sm) {
+                    Image(systemName: toastIsError ? "xmark.circle.fill" : "checkmark.circle.fill")
+                        .foregroundStyle(toastIsError ? Theme.Color.statusBad : Theme.Color.statusOK)
+                    Text(toastMessage)
+                        .font(Theme.Font.callout)
+                        .foregroundStyle(Theme.Color.textPrimary)
+                }
+                .padding(.horizontal, Theme.Spacing.md)
+                .padding(.vertical, Theme.Spacing.sm)
+                .background(Theme.Color.surfaceRaised)
+                .overlay(
+                    RoundedRectangle(cornerRadius: Theme.Radius.button)
+                        .stroke(Theme.Color.line, lineWidth: 1)
+                )
+                .padding(.bottom, Theme.Spacing.xl)
+                .padding(.horizontal, Theme.Spacing.md)
+                .transition(.move(edge: .bottom).combined(with: .opacity))
+            }
+        }
     }
 
     // MARK: - Actions
@@ -211,7 +325,6 @@ struct TempChannelSettingsView: View {
 
         activeChannels = (try? await activeTask) ?? []
 
-        // チャンネル一覧（カテゴリ・VC）を取得
         struct RawCh: Decodable { let id: String; let name: String; let type: Int }
         if let chs = try? await WorkerClient().get("/bot/channels?guild_id=\(guildId)") as [RawCh] {
             categories    = chs.filter { $0.type == 4 }.map { ($0.id, $0.name) }
@@ -227,7 +340,7 @@ struct TempChannelSettingsView: View {
 
         s.enabled              = enabled
         s.categoryId           = categoryId.isEmpty ? nil : categoryId
-        s.channelNameFormat    = channelNameFormat.isEmpty ? "💬-{vc-name}" : channelNameFormat
+        s.channelNameFormat    = channelNameFormat.isEmpty ? "chat-{vc-name}" : channelNameFormat
         s.autoDelete           = autoDelete
         s.deleteDelayMinutes   = deleteDelay
         s.joinLeaveNotification = joinLeaveNotif
@@ -237,18 +350,23 @@ struct TempChannelSettingsView: View {
         do {
             let saved = try await services.tempChannel.saveSettings(s)
             settings = saved
-            showToast("✅ 保存しました")
+            showToast("保存しました")
         } catch {
-            showToast("❌ 保存に失敗しました")
+            showToast("保存に失敗しました", isError: true)
         }
         isSaving = false
     }
 
-    private func showToast(_ msg: String) {
-        withAnimation { toast = ToastMessage(type: .success, message: msg) }
+    private func showToast(_ message: String, isError: Bool = false) {
+        withAnimation {
+            toastMessage = message
+            toastIsError = isError
+        }
         Task {
             try? await Task.sleep(for: .seconds(2.5))
-            withAnimation { toast = nil }
+            withAnimation {
+                toastMessage = nil
+            }
         }
     }
 }

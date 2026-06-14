@@ -6,6 +6,7 @@ import SwiftUI
 
 struct TicketsCoordinatorView: View {
     let guildId: String
+    var initialTab: Tab = .setup
 
     @Environment(\.services) private var services
     @Environment(AppState.self) private var appState
@@ -19,6 +20,12 @@ struct TicketsCoordinatorView: View {
         case respond = "対応"
     }
     @State private var selectedTab: Tab = .setup
+
+    init(guildId: String, initialTab: Tab = .setup) {
+        self.guildId = guildId
+        self.initialTab = initialTab
+        _selectedTab = State(initialValue: initialTab)
+    }
 
     /// パネルが0件かどうか（ロード完了後に判定）
     private var hasNoPanels: Bool {
@@ -41,8 +48,8 @@ struct TicketsCoordinatorView: View {
             .pickerStyle(.segmented)
             .padding(.horizontal)
             .padding(.vertical, .spacing8)
-            .background(Color(.secondarySystemGroupedBackground))
-            .overlay(Divider(), alignment: .bottom)
+            .background(Theme.Color.surface)
+            .overlay(Theme.Color.line.frame(height: 1), alignment: .bottom)
 
             switch selectedTab {
             case .setup:
@@ -58,7 +65,7 @@ struct TicketsCoordinatorView: View {
                 }
             }
         }
-        .background(Color(.systemGroupedBackground))
+        .background(Theme.Color.bg)
         .navigationTitle("チケット")
         .navigationBarTitleDisplayMode(.large)
         .onChange(of: guildId) { _, _ in
@@ -81,23 +88,23 @@ private struct PanelRequiredGuideView: View {
 
             ZStack {
                 Circle()
-                    .fill(Color.accentIndigo.opacity(0.12))
+                    .fill(Theme.Color.accent.opacity(0.12))
                     .frame(width: 100, height: 100)
                 Image(systemName: "ticket.fill")
                     .font(.system(size: 40))
-                    .foregroundStyle(Color.accentIndigo)
+                    .foregroundStyle(Theme.Color.accent)
             }
 
             VStack(spacing: .spacing8) {
                 Text("お問い合わせパネルを設置しましょう")
                     .font(.titleMedium)
                     .fontWeight(.semibold)
-                    .foregroundStyle(Color.textPrimary)
+                    .foregroundStyle(Theme.Color.textPrimary)
                     .multilineTextAlignment(.center)
 
                 Text("メンバーからの問い合わせを受け付けるには、\nDiscordサーバーにパネルを設置する必要があります。")
                     .font(.bodyRegular)
-                    .foregroundStyle(Color.textSecondary)
+                    .foregroundStyle(Theme.Color.textSecondary)
                     .multilineTextAlignment(.center)
                     .lineSpacing(4)
             }
@@ -112,7 +119,7 @@ private struct PanelRequiredGuideView: View {
                 .foregroundStyle(.white)
                 .frame(maxWidth: 280)
                 .frame(height: 52)
-                .background(Color.accentIndigo)
+                .background(Theme.Color.accent)
                 .clipShape(RoundedRectangle(cornerRadius: .cornerRadiusMedium))
             }
             .buttonStyle(ScalePressButtonStyle())
@@ -120,7 +127,7 @@ private struct PanelRequiredGuideView: View {
             Spacer()
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
-        .background(Color(.systemGroupedBackground))
+        .background(Theme.Color.bg)
     }
 }
 

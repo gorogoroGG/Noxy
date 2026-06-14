@@ -3624,14 +3624,15 @@ export default {
         sb(`/orders?guild_id=eq.${guildId}&order=created_at.desc&limit=5`),
       ]);
 
-      const activities: Array<{type: string; icon: string; text: string; timeAgo: string}> = [];
+      type Activity = { type: string; icon: string; text: string; timeAgo: string; ticketId?: string; referenceId?: string };
+      const activities: Activity[] = [];
 
       if (ticketsResp.ok) {
         const tickets = await ticketsResp.json() as any[];
         for (const t of tickets) {
           const mins = Math.floor((Date.now() - new Date(t.opened_at).getTime()) / 60000);
           const timeStr = mins < 60 ? `${mins}分前` : mins < 1440 ? `${Math.floor(mins/60)}時間前` : `${Math.floor(mins/1440)}日前`;
-          activities.push({ type: 'ticket', icon: '🎫', text: `チケット「${t.subject}」が作成されました`, timeAgo: timeStr });
+          activities.push({ type: 'ticket', icon: 'ticket.fill', text: `チケット「${t.subject}」が作成されました`, timeAgo: timeStr, ticketId: t.id });
         }
       }
 
@@ -3640,7 +3641,7 @@ export default {
         for (const o of orders) {
           const mins = Math.floor((Date.now() - new Date(o.created_at).getTime()) / 60000);
           const timeStr = mins < 60 ? `${mins}分前` : mins < 1440 ? `${Math.floor(mins/60)}時間前` : `${Math.floor(mins/1440)}日前`;
-          activities.push({ type: 'order', icon: '🛒', text: `注文: ${o.product_name} (${o.status})`, timeAgo: timeStr });
+          activities.push({ type: 'order', icon: 'cart.fill', text: `注文: ${o.product_name} (${o.status})`, timeAgo: timeStr, referenceId: o.id });
         }
       }
 

@@ -137,6 +137,7 @@ struct ReactionRolesView: View {
     @State private var showEditor = false
     @State private var editingItem: ReactionRoleItem? = nil
     @State private var sendingItem: ReactionRoleItem? = nil
+    @State private var deletingItem: ReactionRoleItem? = nil
     @State private var toast: ToastMessage? = nil
 
     var body: some View {
@@ -144,34 +145,34 @@ struct ReactionRolesView: View {
             Group {
                 if isLoading {
                     ScrollView {
-                        LazyVStack(spacing: .spacing12) {
+                        LazyVStack(spacing: Theme.Spacing.sm) {
                             ForEach(0..<3) { _ in
-                                VStack(alignment: .leading, spacing: .spacing8) {
-                                    HStack(spacing: .spacing8) {
+                                VStack(alignment: .leading, spacing: Theme.Spacing.xs) {
+                                    HStack(spacing: Theme.Spacing.xs) {
                                         RoundedRectangle(cornerRadius: 4)
-                                            .fill(Color.textTertiary.opacity(0.2))
+                                            .fill(Theme.Color.textTertiary.opacity(0.2))
                                             .frame(width: 100, height: 16)
                                         Spacer()
                                         RoundedRectangle(cornerRadius: 4)
-                                            .fill(Color.textTertiary.opacity(0.15))
+                                            .fill(Theme.Color.textTertiary.opacity(0.15))
                                             .frame(width: 60, height: 12)
                                     }
                                     RoundedRectangle(cornerRadius: 4)
-                                        .fill(Color.textTertiary.opacity(0.1))
+                                        .fill(Theme.Color.textTertiary.opacity(0.1))
                                         .frame(width: 200, height: 12)
                                 }
-                                .padding(.spacing12)
-                                .background(Color.bgSurface)
-                                .clipShape(RoundedRectangle(cornerRadius: .cornerRadiusMedium))
+                                .padding(Theme.Spacing.sm)
+                                .background(Theme.Color.surface)
+                                .clipShape(RoundedRectangle(cornerRadius: Theme.Radius.card))
                             }
                         }
-                        .padding(.horizontal, .spacing16)
-                        .padding(.top, .spacing16)
+                        .padding(.horizontal, Theme.Spacing.md)
+                        .padding(.top, Theme.Spacing.md)
                     }
                     .transition(.opacity)
                 } else if items.isEmpty {
                     EmptyStateView(
-                        icon: "heart.fill",
+                        icon: "hand.tap.fill",
                         title: "リアクションロールがありません",
                         description: "絵文字リアクションでロールを自動付与できます。",
                         actionTitle: "最初のロールを追加"
@@ -183,23 +184,37 @@ struct ReactionRolesView: View {
                     .transition(.opacity)
                 } else {
                     ScrollView {
-                        LazyVStack(spacing: .spacing12) {
-                            ForEach(items) { item in
-                                ReactionRoleCard(
-                                    item: item,
-                                    onSend: { sendingItem = item },
-                                    onEdit: { editingItem = item; showEditor = true },
-                                    onDelete: { Task { await deleteItem(item) } }
-                                )
+                        LazyVStack(spacing: Theme.Spacing.sm) {
+                            SectionLabel(title: "リアクションロール")
+                                .padding(.horizontal, Theme.Spacing.md)
+                                .padding(.top, Theme.Spacing.md)
+                            
+                            VStack(spacing: 0) {
+                                ForEach(Array(items.enumerated()), id: \.element.id) { idx, item in
+                                    ReactionRoleRow(
+                                        item: item,
+                                        onSend: { sendingItem = item },
+                                        onEdit: { editingItem = item; showEditor = true },
+                                        onDelete: { deletingItem = item }
+                                    )
+                                    
+                                    if idx < items.count - 1 {
+                                        Divider()
+                                            .background(Theme.Color.line)
+                                            .padding(.leading, Theme.Spacing.md)
+                                    }
+                                }
                             }
+                            .background(Theme.Color.surface)
+                            .clipShape(RoundedRectangle(cornerRadius: Theme.Radius.card))
+                            .padding(.horizontal, Theme.Spacing.md)
                         }
-                        .padding()
-                        .padding(.bottom, 80)
+                        .padding(.bottom, Theme.Spacing.xxl)
                     }
                     .transition(.opacity)
                 }
             }
-            .background(Color(.systemGroupedBackground))
+            .background(Theme.Color.bg)
 
             if !isLoading {
                 Button {
@@ -208,29 +223,18 @@ struct ReactionRolesView: View {
                 } label: {
                     Image(systemName: "plus")
                         .font(.system(size: 22, weight: .semibold))
-                        .foregroundStyle(.white)
+                        .foregroundStyle(Theme.Color.accentInk)
                         .frame(width: 56, height: 56)
-                        .background(Color.accentPink)
+                        .background(Theme.Color.accent)
                         .clipShape(Circle())
-                        .shadow(color: Color.accentPink.opacity(0.4), radius: 12, x: 0, y: 4)
                 }
-                .padding(.trailing, .spacing20)
-                .padding(.bottom, .spacing24)
+                .padding(.trailing, Theme.Spacing.lg)
+                .padding(.bottom, Theme.Spacing.xl)
                 .transition(.scale.combined(with: .opacity))
             }
         }
         .navigationTitle("リアクションロール")
         .navigationBarTitleDisplayMode(.large)
-        .toolbar {
-            ToolbarItem(placement: .topBarTrailing) {
-                Button {
-                    editingItem = nil
-                    showEditor = true
-                } label: {
-                    Image(systemName: "plus").fontWeight(.semibold)
-                }
-            }
-        }
         .sheet(isPresented: $showEditor, onDismiss: { Task { await load() } }) {
             ReactionRoleEditorView(
                 existing: editingItem,
@@ -255,7 +259,24 @@ struct ReactionRolesView: View {
                     items[idx].channelName = channelName
                     items[idx].messageId   = messageId
                 }
-                toast = ToastMessage(type: .success, message: "Discordに送信しました 🎉")
+                toast = ToastMessage(type: .success, message: "Discordに送信しました")
+            }
+        }
+        .overlay {
+            if let deletingItem {
+                ConfirmModal(
+                    icon: "trash.fill",
+                    iconColor: Theme.Color.statusBad,
+                    title: "削除しますか？",
+                    message: "「\(deletingItem.title)」を削除します。この操作は元に戻せません。",
+                    primaryLabel: "削除する",
+                    primaryRole: .destructive,
+                    onPrimary: {
+                        Task { await deleteItem(deletingItem) }
+                        self.deletingItem = nil
+                    },
+                    onCancel: { self.deletingItem = nil }
+                )
             }
         }
         .toast($toast)
@@ -297,9 +318,9 @@ struct ReactionRolesView: View {
     }
 }
 
-// MARK: - Card
+// MARK: - Row
 
-private struct ReactionRoleCard: View {
+private struct ReactionRoleRow: View {
     let item: ReactionRoleItem
     let onSend: () -> Void
     let onEdit: () -> Void
@@ -310,126 +331,116 @@ private struct ReactionRoleCard: View {
     }
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 0) {
-            // ヘッダー
-            HStack(spacing: .spacing12) {
-                RoundedRectangle(cornerRadius: 2)
+        Button {
+            onEdit()
+        } label: {
+            HStack(spacing: Theme.Spacing.sm) {
+                // 左カラーバー
+                RoundedRectangle(cornerRadius: 1.5)
                     .fill(accentColor)
-                    .frame(width: 4, height: 44)
+                    .frame(width: 3, height: 40)
 
                 VStack(alignment: .leading, spacing: 4) {
-                    HStack(spacing: .spacing6) {
+                    HStack(spacing: Theme.Spacing.xs) {
                         Text(item.title.isEmpty ? "（タイトル未設定）" : item.title)
-                            .font(.bodyRegular).fontWeight(.semibold)
-                            .foregroundStyle(Color.textPrimary)
+                            .font(Theme.Font.bodyMedium)
+                            .foregroundStyle(Theme.Color.textPrimary)
                             .lineLimit(1)
+                        
                         Spacer()
-                        Badge(
-                            text: item.mode.rawValue,
-                            color: item.mode == .normal ? .accentIndigo
-                                : (item.mode == .verify ? .accentOrange : .accentPink)
-                        )
-                    }
-                    HStack(spacing: .spacing6) {
-                        if item.isPublished {
-                            Image(systemName: "checkmark.circle.fill")
-                                .foregroundStyle(Color.accentIndigo).font(.captionSmall)
-                            Text("#\(item.channelName)")
-                                .foregroundStyle(Color.textSecondary)
-                        } else {
-                            Image(systemName: "clock")
-                                .foregroundStyle(Color.accentOrange).font(.captionSmall)
+                        
+                        // 状態バッジ
+                        if !item.isPublished {
                             Text("未送信")
-                                .foregroundStyle(Color.accentOrange)
-                        }
-                        if !item.pairs.isEmpty {
-                            Text("·").foregroundStyle(Color.textTertiary)
-                            Text("\(item.pairs.count)個のリアクション")
-                                .foregroundStyle(Color.textTertiary)
-                        }
-                    }
-                    .font(.captionSmall)
-                }
-            }
-            .padding(.horizontal, .spacing12)
-            .padding(.top, .spacing10)
-
-            // リアクション→ロール
-            if !item.pairs.isEmpty {
-                ScrollView(.horizontal, showsIndicators: false) {
-                    HStack(spacing: .spacing8) {
-                        ForEach(item.pairs) { pair in
-                            HStack(spacing: .spacing4) {
-                                Text(pair.emoji).font(.system(size: 16))
-                                Image(systemName: "arrow.right")
-                                    .font(.system(size: 9, weight: .semibold))
-                                    .foregroundStyle(Color.textTertiary)
-                                Text("@\(pair.roleName)")
-                                    .font(.captionSmall)
-                                    .foregroundStyle(Color.textSecondary)
+                                .font(Theme.Font.caption2)
+                                .fontWeight(.semibold)
+                                .foregroundStyle(Theme.Color.accent)
+                        } else {
+                            HStack(spacing: 4) {
+                                StatusDot(color: Theme.Color.statusOK)
+                                Text("設置済み")
+                                    .font(Theme.Font.caption2)
+                                    .foregroundStyle(Theme.Color.textSecondary)
                             }
-                            .padding(.horizontal, .spacing8).padding(.vertical, .spacing4)
-                            .background(Color.bgElevated)
-                            .clipShape(Capsule())
                         }
                     }
-                    .padding(.horizontal, .spacing12)
-                    .padding(.vertical, .spacing8)
-                }
-            }
+                    
+                    HStack(spacing: Theme.Spacing.xs) {
+                        Image(systemName: item.mode.icon)
+                            .font(Theme.Font.caption2)
+                            .foregroundStyle(Theme.Color.textTertiary)
+                            .frame(width: 14)
+                        Text(item.mode.rawValue)
+                            .font(Theme.Font.caption2)
+                            .foregroundStyle(Theme.Color.textSecondary)
+                        
+                        if item.isPublished {
+                            Text("·")
+                                .foregroundStyle(Theme.Color.textTertiary)
+                            Text("#\(item.channelName)")
+                                .font(Theme.Font.caption2)
+                                .foregroundStyle(Theme.Color.textSecondary)
+                        }
+                        
+                        if !item.pairs.isEmpty {
+                            Text("·")
+                                .foregroundStyle(Theme.Color.textTertiary)
+                            Text("ロール\(item.pairs.count)件")
+                                .font(Theme.Font.monoCap)
+                                .foregroundStyle(Theme.Color.textTertiary)
+                        }
 
-            // Embedプレビュー（コンパクト）
-            if !item.embedTitle.isEmpty || !item.embedDescription.isEmpty {
-                HStack(alignment: .top, spacing: 0) {
-                    RoundedRectangle(cornerRadius: 2)
-                        .fill(accentColor)
-                        .frame(width: 3)
-                    VStack(alignment: .leading, spacing: 3) {
-                        if !item.embedTitle.isEmpty {
-                            Text(item.embedTitle)
-                                .font(.system(size: 12, weight: .semibold))
-                                .foregroundStyle(Color.textPrimary)
-                                .lineLimit(1)
-                        }
-                        if !item.embedDescription.isEmpty {
-                            Text(item.embedDescription)
-                                .font(.captionSmall)
-                                .foregroundStyle(Color.textSecondary)
-                                .lineLimit(2)
-                        }
+                        Spacer()
                     }
-                    .padding(.horizontal, 8).padding(.vertical, 6)
                 }
-                .background(Color.bgElevated)
-                .clipShape(RoundedRectangle(cornerRadius: 4))
-                .padding(.horizontal, .spacing12)
-                .padding(.bottom, .spacing8)
             }
-
-            Divider()
-
-            // アクションボタン
-            HStack(spacing: 0) {
-                actionButton(label: "送信", icon: "paperplane.fill", color: Color.accentIndigo, action: onSend)
-                Divider().frame(height: 24)
-                actionButton(label: "編集", icon: "pencil", color: Color.textSecondary, action: onEdit)
-                Divider().frame(height: 24)
-                actionButton(label: "削除", icon: "trash", color: Color.accentPink, action: onDelete)
-            }
-        }
-        .background(Color.bgSurface)
-        .clipShape(RoundedRectangle(cornerRadius: .cornerRadiusMedium))
-    }
-
-    private func actionButton(label: String, icon: String, color: Color, action: @escaping () -> Void) -> some View {
-        Button(action: action) {
-            Label(label, systemImage: icon)
-                .font(.captionRegular)
-                .foregroundStyle(color)
-                .frame(maxWidth: .infinity)
-                .padding(.vertical, .spacing8)
+            .padding(.horizontal, Theme.Spacing.sm)
+            .padding(.vertical, Theme.Spacing.sm)
+            .contentShape(Rectangle())
         }
         .buttonStyle(.plain)
+        .swipeActions(edge: .trailing) {
+            if !item.isPublished {
+                Button {
+                    onSend()
+                } label: {
+                    Label("送信", systemImage: "paperplane.fill")
+                }
+                .tint(Theme.Color.accent)
+            }
+            
+            Button {
+                onEdit()
+            } label: {
+                Label("編集", systemImage: "pencil")
+            }
+            .tint(Theme.Color.statusOK)
+            
+            Button(role: .destructive) {
+                onDelete()
+            } label: {
+                Label("削除", systemImage: "trash")
+            }
+        }
+        .contextMenu {
+            if !item.isPublished {
+                Button {
+                    onSend()
+                } label: {
+                    Label("Discordに送信", systemImage: "paperplane.fill")
+                }
+            }
+            Button {
+                onEdit()
+            } label: {
+                Label("編集", systemImage: "pencil")
+            }
+            Button(role: .destructive) {
+                onDelete()
+            } label: {
+                Label("削除", systemImage: "trash")
+            }
+        }
     }
 }
 
@@ -462,6 +473,7 @@ struct ReactionRoleEditorView: View {
     @State private var isSaving            = false
     @State private var showProSheet        = false
     @State private var showDiscardAlert    = false
+    @State private var showDeleteConfirm   = false
     @FocusState private var focusedField: FieldFocus?
 
     private let existingId: String?
@@ -514,20 +526,19 @@ struct ReactionRoleEditorView: View {
     var body: some View {
         NavigationStack {
             ScrollView(.vertical, showsIndicators: false) {
-                VStack(spacing: .spacing16) {
+                VStack(spacing: Theme.Spacing.md) {
                     // 内部名称
-                    Card {
-                        VStack(alignment: .leading, spacing: .spacing6) {
-                            Text("内部名称")
-                                .font(.captionSmall).fontWeight(.semibold)
-                                .foregroundStyle(Color.textTertiary).textCase(.uppercase)
+                    FormSection("基本設定", icon: "doc.text", isRequired: true) {
+                        VStack(alignment: .leading, spacing: Theme.Spacing.xs) {
                             TextField("例：ゲームロール選択", text: $internalTitle)
-                                .font(.bodySmall)
+                                .font(Theme.Font.body)
+                                .foregroundStyle(Theme.Color.textPrimary)
                                 .focused($focusedField, equals: .internalTitle)
+                                .padding(.vertical, Theme.Spacing.xs)
                         }
                     }
 
-                    // Discord スタイルEmbedエディタ
+                    // Embed エディタ
                     embedEditor
 
                     // リアクション → ロール
@@ -535,12 +546,30 @@ struct ReactionRoleEditorView: View {
 
                     // モード
                     modeSection
+                    
+                    // 削除ボタン（既存の場合）
+                    if existingId != nil {
+                        Button {
+                            showDeleteConfirm = true
+                        } label: {
+                            HStack {
+                                Image(systemName: "trash")
+                                Text("このリアクションロールを削除")
+                            }
+                            .font(Theme.Font.bodyMedium)
+                            .foregroundStyle(Theme.Color.statusBad)
+                            .frame(maxWidth: .infinity)
+                            .padding(.vertical, Theme.Spacing.sm)
+                        }
+                        .buttonStyle(.plain)
+                    }
                 }
-                .padding(.spacing16)
-                .padding(.bottom, 24)
+                .padding(.horizontal, Theme.Spacing.md)
+                .padding(.vertical, Theme.Spacing.md)
+                .padding(.bottom, Theme.Spacing.xxl)
             }
             .scrollDismissesKeyboard(.never)
-            .background(Color.bgPrimary)
+            .background(Theme.Color.bg)
             .navigationTitle(existingId == nil ? "リアクションロールを作成" : "編集")
             .navigationBarTitleDisplayMode(.inline)
             .alert("変更を破棄しますか？", isPresented: $showDiscardAlert) {
@@ -549,13 +578,30 @@ struct ReactionRoleEditorView: View {
             } message: {
                 Text("保存されていない変更があります。")
             }
+            .overlay {
+                if showDeleteConfirm {
+                    ConfirmModal(
+                        icon: "trash.fill",
+                        iconColor: Theme.Color.statusBad,
+                        title: "削除しますか？",
+                        message: "このリアクションロールを削除します。Discord上のメッセージは自動で削除されません。",
+                        primaryLabel: "削除する",
+                        primaryRole: .destructive,
+                        onPrimary: {
+                            Task { await delete() }
+                            showDeleteConfirm = false
+                        },
+                        onCancel: { showDeleteConfirm = false }
+                    )
+                }
+            }
             .toolbar {
                 ToolbarItem(placement: .topBarLeading) {
                     Button("キャンセル") {
                         if hasChanges { showDiscardAlert = true }
                         else { dismiss() }
                     }
-                    .foregroundStyle(Color.textSecondary)
+                    .foregroundStyle(Theme.Color.textSecondary)
                 }
                 ToolbarItem(placement: .topBarTrailing) {
                     Button {
@@ -566,7 +612,7 @@ struct ReactionRoleEditorView: View {
                         } else {
                             Text("保存")
                                 .fontWeight(.semibold)
-                                .foregroundStyle(isValid ? accentColor : Color.textTertiary)
+                                .foregroundStyle(isValid ? Theme.Color.accent : Theme.Color.textTertiary)
                         }
                     }
                     .disabled(!isValid || isSaving)
@@ -574,8 +620,9 @@ struct ReactionRoleEditorView: View {
                 ToolbarItemGroup(placement: .keyboard) {
                     Spacer()
                     Button("完了") { focusedField = nil }
-                        .font(.captionRegular).fontWeight(.semibold)
-                        .foregroundStyle(accentColor)
+                        .font(Theme.Font.caption)
+                        .fontWeight(.semibold)
+                        .foregroundStyle(Theme.Color.accent)
                 }
             }
             .sheet(isPresented: $showColorPicker) {
@@ -598,13 +645,13 @@ struct ReactionRoleEditorView: View {
             .sheet(isPresented: $showProSheet) {
                 NavigationStack {
                     ProUpgradeView(
-                        featureIcon: "heart.fill",
+                        featureIcon: "hand.tap.fill",
                         featureTitle: "リアクションロール",
                         description: "Proプランでは無制限にリアクションを追加できます。認証・永続モードも利用可能です。",
                         proFeatures: [
-                            ("♾️", "リアクション数 無制限"),
-                            ("🔐", "認証モード（付与後に剥奪不可）"),
-                            ("📌", "永続モード（付与のみ）"),
+                            ("arrow.clockwise", "リアクション数 無制限"),
+                            ("checkmark.shield.fill", "認証モード（付与後に剥奪不可）"),
+                            ("pin.fill", "永続モード（付与のみ）"),
                         ]
                     )
                 }
@@ -618,145 +665,89 @@ struct ReactionRoleEditorView: View {
     // MARK: - Embed エディタ
 
     private var embedEditor: some View {
-        VStack(spacing: 0) {
-            HStack(alignment: .top, spacing: .spacing12) {
-                // Bot アバター
-                ZStack {
-                    Circle()
-                        .fill(LinearGradient(
-                            colors: [Color.accentIndigo, Color.accentPink],
-                            startPoint: .topLeading, endPoint: .bottomTrailing))
-                        .frame(width: 40, height: 40)
-                    Image(systemName: "bubble.left.and.bubble.right.fill")
-                        .font(.system(size: 16, weight: .semibold))
-                        .foregroundStyle(.white)
-                }
+        VStack(spacing: Theme.Spacing.sm) {
+            // プレビュー
+            FormSection("プレビュー", icon: "eye") {
+                DiscordMessagePreview(
+                    embed: EmbedData(
+                        color: accentColor,
+                        messageContent: msgContent.isEmpty ? nil : msgContent,
+                        title: embedTitle.isEmpty ? nil : embedTitle,
+                        description: embedDescription.isEmpty ? nil : embedDescription
+                    ),
+                    isCompact: true
+                )
+            }
 
-                VStack(alignment: .leading, spacing: .spacing4) {
-                    // ヘッダー
-                    HStack(spacing: .spacing6) {
-                        Text("Noxy")
-                            .font(.system(size: 14, weight: .semibold))
-                            .foregroundStyle(Color.accentIndigo)
-                        Text("BOT")
-                            .font(.system(size: 9, weight: .bold))
-                            .foregroundStyle(.white)
-                            .padding(.horizontal, 4).padding(.vertical, 1)
-                            .background(Color.accentIndigo)
-                            .clipShape(RoundedRectangle(cornerRadius: 3))
-                        (Text("今日 ") + Text(Date(), style: .time))
-                            .font(.captionSmall)
-                            .foregroundStyle(Color.textTertiary)
-                        Spacer()
+            // 入力フィールド
+            FormSection("Embed設定", icon: "rectangle.fill") {
+                VStack(spacing: 0) {
+                    // タイトル
+                    VStack(alignment: .leading, spacing: Theme.Spacing.xs) {
+                        Text("タイトル".uppercased())
+                            .font(Theme.Font.sectionLabel)
+                            .tracking(Theme.sectionLabelTracking)
+                            .foregroundStyle(Theme.Color.textTertiary)
+                        TextField("ロールを選択", text: $embedTitle)
+                            .font(Theme.Font.body)
+                            .focused($focusedField, equals: .embedTitle)
                     }
-
-                    // メッセージ本文
-                    ZStack(alignment: .topLeading) {
-                        if msgContent.isEmpty {
-                            Text("メッセージを入力...（任意）")
-                                .font(.system(size: 14))
-                                .foregroundStyle(Color.textTertiary)
-                                .padding(.top, 8).padding(.leading, 4)
-                                .allowsHitTesting(false)
+                    Divider().background(Theme.Color.line).padding(.vertical, Theme.Spacing.sm)
+                    // 説明
+                    VStack(alignment: .leading, spacing: Theme.Spacing.xs) {
+                        Text("説明".uppercased())
+                            .font(Theme.Font.sectionLabel)
+                            .tracking(Theme.sectionLabelTracking)
+                            .foregroundStyle(Theme.Color.textTertiary)
+                        TextField("リアクションを押してロールを取得してください。", text: $embedDescription, axis: .vertical)
+                            .font(Theme.Font.body)
+                            .focused($focusedField, equals: .embedDesc)
+                            .lineLimit(2...5)
+                    }
+                    Divider().background(Theme.Color.line).padding(.vertical, Theme.Spacing.sm)
+                    // カラー
+                    Button { showColorPicker = true } label: {
+                        HStack {
+                            Text("カラー".uppercased())
+                                .font(Theme.Font.sectionLabel)
+                                .tracking(Theme.sectionLabelTracking)
+                                .foregroundStyle(Theme.Color.textTertiary)
+                            Spacer()
+                            Circle()
+                                .fill(accentColor)
+                                .frame(width: 22, height: 22)
+                                .overlay(Circle().stroke(Theme.Color.lineStrong, lineWidth: 1))
+                            Image(systemName: "chevron.right")
+                                .font(.system(size: 11, weight: .semibold))
+                                .foregroundStyle(Theme.Color.textTertiary)
                         }
-                        TextEditor(text: $msgContent)
-                            .font(.system(size: 14))
-                            .foregroundStyle(Color.textPrimary)
-                            .scrollContentBackground(.hidden)
-                            .background(.clear)
-                            .frame(minHeight: 40, maxHeight: 80)
+                    }
+                    .buttonStyle(.plain)
+                    Divider().background(Theme.Color.line).padding(.vertical, Theme.Spacing.sm)
+                    // メッセージ本文（任意）
+                    VStack(alignment: .leading, spacing: Theme.Spacing.xs) {
+                        Text("メッセージ本文（任意）".uppercased())
+                            .font(Theme.Font.sectionLabel)
+                            .tracking(Theme.sectionLabelTracking)
+                            .foregroundStyle(Theme.Color.textTertiary)
+                        TextField("本文なし", text: $msgContent, axis: .vertical)
+                            .font(Theme.Font.body)
                             .focused($focusedField, equals: .msgContent)
+                            .lineLimit(1...3)
                     }
-                    .padding(2)
-                    .embedDashedBorder(focused: focusedField == .msgContent)
-
-                    // Embed ブロック
-                    HStack(alignment: .top, spacing: 0) {
-                        // 左カラーバー（タップでカラー変更）
-                        RoundedRectangle(cornerRadius: 2)
-                            .fill(accentColor)
-                            .frame(width: 4)
-                            .onTapGesture { showColorPicker = true }
-
-                        VStack(alignment: .leading, spacing: .spacing8) {
-                            // Embed タイトル
-                            TextField("タイトル", text: $embedTitle)
-                                .font(.system(size: 15, weight: .semibold))
-                                .foregroundStyle(accentColor)
-                                .textFieldStyle(.plain)
-                                .background(.clear)
-                                .focused($focusedField, equals: .embedTitle)
-                                .padding(.horizontal, 6).padding(.vertical, 4)
-                                .embedDashedBorder(focused: focusedField == .embedTitle)
-
-                            // Embed 説明
-                            ZStack(alignment: .topLeading) {
-                                if embedDescription.isEmpty {
-                                    Text("説明")
-                                        .font(.system(size: 14))
-                                        .foregroundStyle(Color.textTertiary)
-                                        .padding(.top, 8).padding(.leading, 4)
-                                        .allowsHitTesting(false)
-                                }
-                                TextEditor(text: $embedDescription)
-                                    .font(.system(size: 14))
-                                    .foregroundStyle(Color.textSecondary)
-                                    .scrollContentBackground(.hidden)
-                                    .background(.clear)
-                                    .frame(minHeight: 50, maxHeight: 120)
-                                    .focused($focusedField, equals: .embedDesc)
-                            }
-                            .padding(2)
-                            .embedDashedBorder(focused: focusedField == .embedDesc)
-                        }
-                        .padding(.spacing10)
-                    }
-                    .background(Color.bgSurface)
-                    .clipShape(RoundedRectangle(cornerRadius: 4))
                 }
             }
-
-            // カラー設定
-            HStack(spacing: .spacing12) {
-                Button { showColorPicker = true } label: {
-                    HStack(spacing: .spacing6) {
-                        Circle()
-                            .fill(accentColor)
-                            .frame(width: 14, height: 14)
-                            .overlay(Circle().stroke(Color.border, lineWidth: 1))
-                        Text("Embedカラー")
-                            .font(.system(size: 11))
-                            .foregroundStyle(Color.textSecondary)
-                        Image(systemName: "chevron.right")
-                            .font(.system(size: 9, weight: .semibold))
-                            .foregroundStyle(Color.textTertiary)
-                    }
-                    .padding(.horizontal, .spacing8).padding(.vertical, .spacing6)
-                    .background(Color.bgElevated)
-                    .clipShape(RoundedRectangle(cornerRadius: 8))
-                }
-                .buttonStyle(.plain)
-                Spacer()
-            }
-            .padding(.top, .spacing10)
         }
-        .padding(.spacing12)
-        .background(Color.bgSurface)
-        .clipShape(RoundedRectangle(cornerRadius: 4))
     }
 
     // MARK: - リアクションペア
 
     private var reactionPairsSection: some View {
-        Card {
-            VStack(alignment: .leading, spacing: .spacing12) {
-                Text("リアクション → ロール")
-                    .font(.captionSmall).fontWeight(.semibold)
-                    .foregroundStyle(Color.textTertiary).textCase(.uppercase)
-
-                VStack(spacing: .spacing8) {
+        FormSection("リアクション → ロール", icon: "arrow.right", isRequired: true) {
+            VStack(spacing: Theme.Spacing.sm) {
+                VStack(spacing: 0) {
                     ForEach(Array(pairs.enumerated()), id: \.element.id) { idx, pair in
-                        HStack(spacing: .spacing10) {
+                        HStack(spacing: Theme.Spacing.sm) {
                             // 絵文字
                             Button {
                                 rolePickerPairIndex = idx
@@ -765,23 +756,23 @@ struct ReactionRoleEditorView: View {
                                 if pair.emoji.isEmpty {
                                     Image(systemName: "plus")
                                         .font(.system(size: 16, weight: .bold))
-                                        .foregroundStyle(Color.accentPink)
+                                        .foregroundStyle(Theme.Color.accent)
                                         .frame(width: 44, height: 44)
-                                        .background(Color.accentPink.opacity(0.08))
-                                        .clipShape(RoundedRectangle(cornerRadius: 10))
+                                        .background(Theme.Color.accentDim)
+                                        .clipShape(RoundedRectangle(cornerRadius: Theme.Radius.button))
                                         .overlay(
-                                            RoundedRectangle(cornerRadius: 10)
-                                                .stroke(Color.accentPink, lineWidth: 1.5)
+                                            RoundedRectangle(cornerRadius: Theme.Radius.button)
+                                                .stroke(Theme.Color.accent, lineWidth: 1)
                                         )
                                 } else {
                                     Text(pair.emoji)
                                         .font(.system(size: 22))
                                         .frame(width: 44, height: 44)
-                                        .background(accentColor.opacity(0.12))
-                                        .clipShape(RoundedRectangle(cornerRadius: 10))
+                                        .background(Theme.Color.accentDim)
+                                        .clipShape(RoundedRectangle(cornerRadius: Theme.Radius.button))
                                         .overlay(
-                                            RoundedRectangle(cornerRadius: 10)
-                                                .stroke(accentColor.opacity(0.3), lineWidth: 1)
+                                            RoundedRectangle(cornerRadius: Theme.Radius.button)
+                                                .stroke(Theme.Color.accent.opacity(0.3), lineWidth: 1)
                                         )
                                 }
                             }
@@ -789,34 +780,35 @@ struct ReactionRoleEditorView: View {
 
                             Image(systemName: "arrow.right")
                                 .font(.system(size: 11, weight: .semibold))
-                                .foregroundStyle(Color.textTertiary)
+                                .foregroundStyle(Theme.Color.textTertiary)
 
                             // ロール
                             Button {
                                 rolePickerPairIndex = idx
                                 showRolePicker = true
                             } label: {
-                                HStack(spacing: .spacing6) {
+                                HStack(spacing: Theme.Spacing.xs) {
                                     if pair.roleName.isEmpty {
                                         Text("ロールを選択")
-                                            .font(.bodySmall)
-                                            .foregroundStyle(Color.textTertiary)
+                                            .font(Theme.Font.body)
+                                            .foregroundStyle(Theme.Color.textTertiary)
                                     } else {
                                         Circle()
                                             .fill(accentColor)
                                             .frame(width: 8, height: 8)
                                         Text("@\(pair.roleName)")
-                                            .font(.bodySmall)
-                                            .foregroundStyle(Color.textPrimary)
+                                            .font(Theme.Font.body)
+                                            .foregroundStyle(Theme.Color.textPrimary)
                                     }
                                     Spacer()
                                     Image(systemName: "chevron.right")
                                         .font(.system(size: 11))
-                                        .foregroundStyle(Color.textTertiary)
+                                        .foregroundStyle(Theme.Color.textTertiary)
                                 }
-                                .padding(.horizontal, .spacing10).padding(.vertical, .spacing10)
-                                .background(Color.bgElevated)
-                                .clipShape(RoundedRectangle(cornerRadius: 10))
+                                .padding(.horizontal, Theme.Spacing.sm)
+                                .padding(.vertical, Theme.Spacing.sm)
+                                .background(Theme.Color.surfaceRaised)
+                                .clipShape(RoundedRectangle(cornerRadius: Theme.Radius.button))
                             }
                             .buttonStyle(.plain)
 
@@ -827,10 +819,17 @@ struct ReactionRoleEditorView: View {
                                 } label: {
                                     Image(systemName: "minus.circle.fill")
                                         .font(.system(size: 20))
-                                        .foregroundStyle(Color.accentPink.opacity(0.8))
+                                        .foregroundStyle(Theme.Color.statusBad.opacity(0.8))
                                 }
                                 .buttonStyle(.plain)
                             }
+                        }
+                        .padding(.vertical, Theme.Spacing.xs)
+                        
+                        if idx < pairs.count - 1 {
+                            Divider()
+                                .background(Theme.Color.line)
+                                .padding(.leading, 56)
                         }
                     }
                 }
@@ -840,25 +839,26 @@ struct ReactionRoleEditorView: View {
                     if atFreeLimit { showProSheet = true }
                     else { pairs.append(ReactionPair(emoji: "", roleId: "", roleName: "")) }
                 } label: {
-                    HStack(spacing: .spacing6) {
+                    HStack(spacing: Theme.Spacing.xs) {
                         Image(systemName: "plus.circle.fill")
-                            .foregroundStyle(atFreeLimit ? Color.accentOrange : accentColor)
+                            .foregroundStyle(atFreeLimit ? Theme.Color.statusWarn : Theme.Color.accent)
                         Text(atFreeLimit ? "Proで追加" : "リアクションを追加")
-                            .font(.bodySmall)
-                            .foregroundStyle(atFreeLimit ? Color.accentOrange : accentColor)
+                            .font(Theme.Font.body)
+                            .foregroundStyle(atFreeLimit ? Theme.Color.statusWarn : Theme.Color.accent)
                         if atFreeLimit {
                             Image(systemName: "crown.fill")
                                 .font(.system(size: 11))
-                                .foregroundStyle(Color.accentOrange)
+                                .foregroundStyle(Theme.Color.statusWarn)
                         }
                     }
+                    .padding(.vertical, Theme.Spacing.xs)
                 }
                 .buttonStyle(.plain)
 
                 if atFreeLimit {
                     Text("無料プランは3つまで")
-                        .font(.captionSmall)
-                        .foregroundStyle(Color.accentOrange)
+                        .font(Theme.Font.caption2)
+                        .foregroundStyle(Theme.Color.statusWarn)
                 }
             }
         }
@@ -867,51 +867,51 @@ struct ReactionRoleEditorView: View {
     // MARK: - モード
 
     private var modeSection: some View {
-        Card {
-            VStack(alignment: .leading, spacing: .spacing12) {
-                Text("付与モード")
-                    .font(.captionSmall).fontWeight(.semibold)
-                    .foregroundStyle(Color.textTertiary).textCase(.uppercase)
-
-                VStack(spacing: .spacing8) {
-                    ForEach(ReactionMode.allCases, id: \.self) { m in
-                        let isAvailable = appState.isPro || m == .normal
-                        Button {
-                            if isAvailable { mode = m }
-                            else { showProSheet = true }
-                        } label: {
-                            HStack(spacing: .spacing12) {
-                                Image(systemName: m.icon)
-                                    .font(.system(size: 14))
-                                    .foregroundStyle(mode == m ? accentColor : Color.textTertiary)
-                                    .frame(width: 24)
-                                VStack(alignment: .leading, spacing: 2) {
-                                    HStack(spacing: .spacing6) {
-                                        Text(m.rawValue)
-                                            .font(.bodySmall).fontWeight(.medium)
-                                            .foregroundStyle(isAvailable ? Color.textPrimary : Color.textTertiary)
-                                        if !isAvailable {
-                                            Badge(text: "Pro", color: .accentOrange)
-                                        }
+        FormSection("付与モード", icon: "gear") {
+            VStack(spacing: 0) {
+                ForEach(Array(ReactionMode.allCases.enumerated()), id: \.element) { idx, m in
+                    let isAvailable = appState.isPro || m == .normal
+                    Button {
+                        if isAvailable { mode = m }
+                        else { showProSheet = true }
+                    } label: {
+                        HStack(spacing: Theme.Spacing.sm) {
+                            Image(systemName: m.icon)
+                                .font(.system(size: 14))
+                                .foregroundStyle(mode == m ? Theme.Color.accent : Theme.Color.textTertiary)
+                                .frame(width: 24)
+                            VStack(alignment: .leading, spacing: 2) {
+                                HStack(spacing: Theme.Spacing.xs) {
+                                    Text(m.rawValue)
+                                        .font(Theme.Font.body)
+                                        .fontWeight(.medium)
+                                        .foregroundStyle(isAvailable ? Theme.Color.textPrimary : Theme.Color.textTertiary)
+                                    if !isAvailable {
+                                        Badge(text: "Pro", color: Theme.Color.statusWarn)
                                     }
-                                    Text(m.description)
-                                        .font(.captionSmall)
-                                        .foregroundStyle(Color.textTertiary)
                                 }
-                                Spacer()
-                                if mode == m {
-                                    Image(systemName: "checkmark.circle.fill")
-                                        .foregroundStyle(accentColor)
-                                        .font(.system(size: 18))
-                                }
+                                Text(m.description)
+                                    .font(Theme.Font.caption2)
+                                    .foregroundStyle(Theme.Color.textTertiary)
                             }
-                            .padding(.spacing10)
-                            .background(mode == m ? accentColor.opacity(0.08) : Color.bgElevated)
-                            .clipShape(RoundedRectangle(cornerRadius: 10))
+                            Spacer()
+                            if mode == m {
+                                Image(systemName: "checkmark.circle.fill")
+                                    .foregroundStyle(Theme.Color.accent)
+                                    .font(.system(size: 18))
+                            }
                         }
-                        .buttonStyle(.plain)
-                        .disabled(!isAvailable)
-                        .opacity(isAvailable ? 1 : 0.5)
+                        .padding(.vertical, Theme.Spacing.sm)
+                        .contentShape(Rectangle())
+                    }
+                    .buttonStyle(.plain)
+                    .disabled(!isAvailable)
+                    .opacity(isAvailable ? 1 : 0.5)
+                    
+                    if idx < ReactionMode.allCases.count - 1 {
+                        Divider()
+                            .background(Theme.Color.line)
+                            .padding(.leading, 40)
                     }
                 }
             }
@@ -944,6 +944,12 @@ struct ReactionRoleEditorView: View {
         }
         onSave(saved)
         isSaving = false
+        dismiss()
+    }
+    
+    private func delete() async {
+        guard let existingId else { return }
+        try? await services.reactionRoles.delete(id: existingId)
         dismiss()
     }
 }
@@ -983,48 +989,59 @@ private struct ChannelPickerForPublishView: View {
                     ) {}
                     .frame(maxWidth: .infinity, maxHeight: .infinity)
                 } else {
-                    List {
-                        Section {
-                            ForEach(textChannels) { ch in
-                                Button {
-                                    guard publishingChannelId == nil else { return }
-                                    Task { await publish(to: ch) }
-                                } label: {
-                                    HStack(spacing: .spacing12) {
-                                        Image(systemName: ch.type == .announcement ? "megaphone.fill" : "number")
-                                            .font(.captionRegular)
-                                            .foregroundStyle(Color.textTertiary)
-                                            .frame(width: 20)
-                                        Text(ch.name).foregroundStyle(Color.textPrimary)
-                                        Spacer()
-                                        if publishingChannelId == ch.id {
-                                            ProgressView().scaleEffect(0.8)
+                    ScrollView {
+                        VStack(spacing: Theme.Spacing.sm) {
+                            SectionLabel(title: "送信先チャンネル")
+                                .padding(.horizontal, Theme.Spacing.md)
+                            
+                            VStack(spacing: 0) {
+                                ForEach(Array(textChannels.enumerated()), id: \.element.id) { idx, ch in
+                                    Button {
+                                        guard publishingChannelId == nil else { return }
+                                        Task { await publish(to: ch) }
+                                    } label: {
+                                        HStack(spacing: Theme.Spacing.sm) {
+                                            Image(systemName: ch.type == .announcement ? "megaphone.fill" : "number")
+                                                .font(Theme.Font.caption)
+                                                .foregroundStyle(Theme.Color.textTertiary)
+                                                .frame(width: 20)
+                                            Text(ch.name)
+                                                .font(Theme.Font.body)
+                                                .foregroundStyle(Theme.Color.textPrimary)
+                                            Spacer()
+                                            if publishingChannelId == ch.id {
+                                                ProgressView().scaleEffect(0.8)
+                                            }
                                         }
+                                        .padding(.horizontal, Theme.Spacing.sm)
+                                        .padding(.vertical, Theme.Spacing.sm)
+                                        .contentShape(Rectangle())
                                     }
-                                    .padding(.vertical, 2)
+                                    .buttonStyle(.plain)
+                                    .disabled(publishingChannelId != nil)
+                                    
+                                    if idx < textChannels.count - 1 {
+                                        Divider()
+                                            .background(Theme.Color.line)
+                                            .padding(.leading, 52)
+                                    }
                                 }
-                                .buttonStyle(.plain)
-                                .disabled(publishingChannelId != nil)
                             }
-                        } header: {
-                            VStack(alignment: .leading, spacing: 4) {
-                                Text("「\(item.title)」を送信するチャンネルを選択")
-                                Text("選択したチャンネルにEmbedが投稿され、絵文字が追加されます")
-                                    .font(.captionSmall).foregroundStyle(Color.textTertiary)
-                            }
-                            .padding(.bottom, 4)
+                            .background(Theme.Color.surface)
+                            .clipShape(RoundedRectangle(cornerRadius: Theme.Radius.card))
+                            .padding(.horizontal, Theme.Spacing.md)
                         }
+                        .padding(.top, Theme.Spacing.md)
                     }
-                    .listStyle(.insetGrouped)
                 }
             }
-            .background(Color(.systemGroupedBackground))
+            .background(Theme.Color.bg)
             .navigationTitle("送信先を選択")
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
                 ToolbarItem(placement: .topBarLeading) {
                     Button("閉じる") { dismiss() }
-                        .foregroundStyle(Color.textSecondary)
+                        .foregroundStyle(Theme.Color.textSecondary)
                         .disabled(publishingChannelId != nil)
                 }
             }
@@ -1084,24 +1101,47 @@ private struct RolePickerView: View {
 
     var body: some View {
         NavigationStack {
-            List {
-                ForEach(selectableRoles) { role in
-                    Button {
-                        onSelect(role)
-                        dismiss()
-                    } label: {
-                        HStack(spacing: .spacing10) {
-                            Circle()
-                                .fill(role.color == 0 ? Color.textTertiary
-                                    : Color(uiColor: UIColor(hex: UInt32(bitPattern: Int32(role.color)))))
-                                .frame(width: 12, height: 12)
-                            Text("@\(role.name)").foregroundStyle(Color.textPrimary)
-                            Spacer()
+            ScrollView {
+                VStack(spacing: Theme.Spacing.sm) {
+                    SectionLabel(title: "ロール")
+                        .padding(.horizontal, Theme.Spacing.md)
+                    
+                    VStack(spacing: 0) {
+                        ForEach(Array(selectableRoles.enumerated()), id: \.element.id) { idx, role in
+                            Button {
+                                onSelect(role)
+                                dismiss()
+                            } label: {
+                                HStack(spacing: Theme.Spacing.sm) {
+                                    Circle()
+                                        .fill(role.color == 0 ? Theme.Color.textTertiary
+                                            : Color(uiColor: UIColor(hex: UInt32(bitPattern: Int32(role.color)))))
+                                        .frame(width: 12, height: 12)
+                                    Text("@\(role.name)")
+                                        .font(Theme.Font.body)
+                                        .foregroundStyle(Theme.Color.textPrimary)
+                                    Spacer()
+                                }
+                                .padding(.horizontal, Theme.Spacing.sm)
+                                .padding(.vertical, Theme.Spacing.sm)
+                                .contentShape(Rectangle())
+                            }
+                            .buttonStyle(.plain)
+                            
+                            if idx < selectableRoles.count - 1 {
+                                Divider()
+                                    .background(Theme.Color.line)
+                                    .padding(.leading, 40)
+                            }
                         }
                     }
+                    .background(Theme.Color.surface)
+                    .clipShape(RoundedRectangle(cornerRadius: Theme.Radius.card))
+                    .padding(.horizontal, Theme.Spacing.md)
                 }
+                .padding(.top, Theme.Spacing.md)
             }
-            .listStyle(.insetGrouped)
+            .background(Theme.Color.bg)
             .navigationTitle("ロールを選択")
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
@@ -1131,7 +1171,7 @@ private struct EmojiPickerView: View {
                             Text(emoji)
                                 .font(.system(size: 30))
                                 .frame(width: 44, height: 44)
-                                .background(selectedEmoji == emoji ? Color.accentIndigo.opacity(0.15) : Color.clear)
+                                .background(selectedEmoji == emoji ? Theme.Color.accentDim : Color.clear)
                                 .clipShape(RoundedRectangle(cornerRadius: 8))
                         }
                         .buttonStyle(.plain)
@@ -1139,7 +1179,7 @@ private struct EmojiPickerView: View {
                 }
                 .padding()
             }
-            .background(Color(.systemGroupedBackground))
+            .background(Theme.Color.bg)
             .navigationTitle("絵文字を選択")
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
@@ -1149,8 +1189,18 @@ private struct EmojiPickerView: View {
     }
 }
 
-#Preview {
+// MARK: - Preview
+
+#Preview("Dark") {
     NavigationStack { ReactionRolesView() }
         .environment(\.services, ServiceContainer.live())
         .environment(AppState())
+        .preferredColorScheme(.dark)
+}
+
+#Preview("Light") {
+    NavigationStack { ReactionRolesView() }
+        .environment(\.services, ServiceContainer.live())
+        .environment(AppState())
+        .preferredColorScheme(.light)
 }

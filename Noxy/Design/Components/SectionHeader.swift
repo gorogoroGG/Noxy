@@ -8,21 +8,21 @@ struct SectionHeader: View {
     var body: some View {
         HStack {
             Text(title.uppercased())
-                .font(.captionSmall)
+                .font(Theme.Font.caption2)
                 .fontWeight(.semibold)
-                .foregroundStyle(Color.textTertiary)
+                .foregroundStyle(Theme.Color.textTertiary)
                 .tracking(0.8)
 
             Spacer()
 
             if let actionTitle, let action {
                 Button(actionTitle, action: action)
-                    .font(.captionRegular)
-                    .foregroundStyle(Color.accentIndigo)
+                    .font(Theme.Font.caption)
+                    .foregroundStyle(Theme.Color.accent)
             }
         }
-        .padding(.horizontal, .spacing16)
-        .padding(.vertical, .spacing4)
+        .padding(.horizontal, Theme.Spacing.md)
+        .padding(.vertical, Theme.Spacing.xs)
     }
 }
 
@@ -31,5 +31,5 @@ struct SectionHeader: View {
         SectionHeader(title: "Recent Activity")
         SectionHeader(title: "Members", actionTitle: "See All") {}
     }
-    .background(Color.bgPrimary)
+    .background(Theme.Color.bg)
 }

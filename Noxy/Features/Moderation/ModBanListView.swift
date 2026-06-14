@@ -5,6 +5,7 @@ struct ModBanListView: View {
 
     @State private var loadState: LoadState<[BannedUser]> = .loading
     @State private var unbanTarget: BannedUser? = nil
+    @State private var showUnbanConfirm = false
     @State private var isWorking = false
     @State private var toast: String? = nil
     @State private var selectedMember: Member? = nil
@@ -13,11 +14,11 @@ struct ModBanListView: View {
 
     var body: some View {
         ZStack(alignment: .bottom) {
-            Color.bgPrimary.ignoresSafeArea()
+            Theme.Color.bg.ignoresSafeArea()
             mainContent
             if let msg = toast {
                 ModSuccessToast(message: msg)
-                    .padding(.bottom, .spacing32)
+                    .padding(.bottom, Theme.Spacing.xl)
                     .transition(.move(edge: .bottom).combined(with: .opacity))
             }
         }
@@ -27,17 +28,25 @@ struct ModBanListView: View {
         .sheet(item: $selectedMember) { member in
             MemberDetailView(member: member, guildId: guildId, allRoles: [], onAction: { _ in })
         }
-        .alert("BANを解除しますか？", isPresented: Binding(
-            get: { unbanTarget != nil },
-            set: { if !$0 { unbanTarget = nil } }
-        )) {
-            Button("BAN解除", role: .destructive) {
-                if let t = unbanTarget { Task { await performUnban(t) } }
-            }
-            Button("キャンセル", role: .cancel) { unbanTarget = nil }
-        } message: {
-            if let t = unbanTarget {
-                Text("「\(t.displayName)」のBANを解除します。\nこのユーザーはサーバーに再参加できるようになります。")
+        .overlay {
+            if showUnbanConfirm, let t = unbanTarget {
+                ConfirmModal(
+                    icon: "hand.raised.slash",
+                    iconColor: Theme.Color.statusBad,
+                    title: "BANを解除しますか？",
+                    message: "「\(t.displayName)」のBANを解除します。このユーザーはサーバーに再参加できるようになります。",
+                    primaryLabel: "BAN解除",
+                    primaryRole: .destructive,
+                    onPrimary: {
+                        Task { await performUnban(t) }
+                        showUnbanConfirm = false
+                        unbanTarget = nil
+                    },
+                    onCancel: {
+                        showUnbanConfirm = false
+                        unbanTarget = nil
+                    }
+                )
             }
         }
     }
@@ -51,7 +60,7 @@ struct ModBanListView: View {
             ModErrorView(message: msg) { Task { await load() } }
         case .loaded(let bans):
             if bans.isEmpty {
-                ModEmptyView(icon: "checkmark.shield.fill",
+                ModEmptyView(icon: "checkmark.shield",
                              title: "BANされたユーザーはいません",
                              subtitle: "サーバーは安全に保たれています")
             } else {
@@ -62,20 +71,34 @@ struct ModBanListView: View {
 
     private func banList(_ bans: [BannedUser], onSelect: @escaping (BannedUser) -> Void) -> some View {
         ScrollView {
-            LazyVStack(spacing: .spacing8) {
-                sectionHeader(
-                    icon: "hand.raised.slash.fill",
-                    color: .accentRed,
-                    title: "\(bans.count)人がBANされています",
-                    note: "名前をタップで詳細"
-                )
-                ForEach(bans) { ban in
-                    BanCard(ban: ban, onUnban: { unbanTarget = ban }, onSelectUser: { onSelect(ban) })
+            LazyVStack(spacing: Theme.Spacing.sm) {
+                SectionLabel(title: "BANリスト")
+                    .padding(.horizontal, Theme.Spacing.md)
+
+                VStack(spacing: 0) {
+                    ForEach(Array(bans.enumerated()), id: \.element.id) { idx, ban in
+                        BanRow(
+                            ban: ban,
+                            onUnban: {
+                                unbanTarget = ban
+                                showUnbanConfirm = true
+                            },
+                            onSelectUser: { onSelect(ban) }
+                        )
+                        if idx < bans.count - 1 {
+                            Divider()
+                                .background(Theme.Color.line)
+                                .padding(.leading, 68)
+                        }
+                    }
                 }
+                .background(Theme.Color.surface)
+                .clipShape(RoundedRectangle(cornerRadius: Theme.Radius.card))
+                .padding(.horizontal, Theme.Spacing.md)
+
                 bottomPad
             }
-            .padding(.horizontal, .spacing16)
-            .padding(.top, .spacing12)
+            .padding(.top, Theme.Spacing.md)
         }
     }
 
@@ -92,7 +115,6 @@ struct ModBanListView: View {
 
     private func performUnban(_ ban: BannedUser) async {
         isWorking = true
-        unbanTarget = nil
         do {
             try await service.unban(userId: ban.id, guildId: guildId)
             if case .loaded(var list) = loadState {
@@ -125,71 +147,85 @@ struct ModBanListView: View {
     }
 }
 
-// MARK: - BanCard
+// MARK: - BanRow
 
-private struct BanCard: View {
+private struct BanRow: View {
     let ban: BannedUser
     let onUnban: () -> Void
     let onSelectUser: () -> Void
 
     var body: some View {
-        HStack(spacing: .spacing12) {
+        HStack(spacing: Theme.Spacing.sm) {
             Button(action: onSelectUser) {
-                Avatar(name: ban.displayName, size: 44, accentColor: .accentRed)
+                Avatar(name: ban.displayName, size: 44, accentColor: Theme.Color.statusBad)
             }
             .buttonStyle(.plain)
 
             VStack(alignment: .leading, spacing: 3) {
                 Button(action: onSelectUser) {
                     Text(ban.displayName)
-                        .font(.bodySmall).fontWeight(.semibold).foregroundStyle(Color.textPrimary)
+                        .font(Theme.Font.bodyMedium)
+                        .foregroundStyle(Theme.Color.textPrimary)
                 }
                 .buttonStyle(.plain)
                 Text("@\(ban.username)")
-                    .font(.captionSmall).foregroundStyle(Color.textTertiary)
+                    .font(Theme.Font.caption2)
+                    .foregroundStyle(Theme.Color.textTertiary)
                 if let reason = ban.reason, !reason.isEmpty {
                     Label(reason, systemImage: "text.bubble")
-                        .font(.captionSmall).foregroundStyle(Color.textSecondary).lineLimit(1)
+                        .font(Theme.Font.caption2)
+                        .foregroundStyle(Theme.Color.textSecondary)
+                        .lineLimit(1)
                 }
             }
 
             Spacer()
 
-            Button("BAN解除", action: onUnban)
-                .font(.captionRegular).fontWeight(.semibold)
-                .foregroundStyle(Color.accentGreen)
-                .padding(.horizontal, 10).padding(.vertical, 5)
-                .background(Color.accentGreen.opacity(0.1))
-                .clipShape(Capsule())
-                .overlay(Capsule().stroke(Color.accentGreen.opacity(0.3), lineWidth: 1))
+            Button(action: onUnban) {
+                Text("BAN解除")
+                    .font(Theme.Font.caption2)
+                    .fontWeight(.semibold)
+                    .foregroundStyle(Theme.Color.accent)
+                    .padding(.horizontal, 10)
+                    .padding(.vertical, 5)
+                    .background(Theme.Color.accentDim)
+                    .clipShape(Capsule())
+            }
+            .buttonStyle(.plain)
         }
-        .padding(.spacing12)
-        .background(Color.bgSurface)
-        .clipShape(RoundedRectangle(cornerRadius: .cornerRadiusMedium))
-        .overlay(RoundedRectangle(cornerRadius: .cornerRadiusMedium).stroke(Color.border, lineWidth: 1))
+        .padding(.horizontal, Theme.Spacing.sm)
+        .padding(.vertical, Theme.Spacing.sm)
+        .contentShape(Rectangle())
     }
 }
 
-// MARK: - Shared helpers（同ファイル内で使う）
+// MARK: - Shared helpers
 
 func loadingView(_ label: String) -> some View {
     VStack {
         Spacer()
         ProgressView(label)
-            .tint(Color.accentIndigo)
-            .foregroundStyle(Color.textSecondary)
+            .tint(Theme.Color.accent)
+            .foregroundStyle(Theme.Color.textSecondary)
         Spacer()
     }
     .frame(maxWidth: .infinity)
 }
 
 func sectionHeader(icon: String, color: Color, title: String, note: String? = nil) -> some View {
-    HStack(spacing: .spacing8) {
-        Image(systemName: icon).font(.captionSmall).foregroundStyle(color)
-        Text(title).font(.captionRegular).fontWeight(.semibold).foregroundStyle(Color.textSecondary)
+    HStack(spacing: Theme.Spacing.xs) {
+        Image(systemName: icon)
+            .font(Theme.Font.caption2)
+            .foregroundStyle(color)
+        Text(title)
+            .font(Theme.Font.caption)
+            .fontWeight(.semibold)
+            .foregroundStyle(Theme.Color.textSecondary)
         Spacer()
         if let note {
-            Text(note).font(.captionSmall).foregroundStyle(Color.textTertiary)
+            Text(note)
+                .font(Theme.Font.caption2)
+                .foregroundStyle(Theme.Color.textTertiary)
         }
     }
 }

@@ -96,8 +96,8 @@ struct TicketPanelEditView: View {
                     if let err = errorMessage {
                         Card {
                             Label(err, systemImage: "exclamationmark.triangle.fill")
-                                .foregroundStyle(.orange)
-                                .font(.captionRegular)
+                                .foregroundStyle(Theme.Color.statusWarn)
+                                .font(Theme.Font.caption)
                         }
                     }
                 }
@@ -105,17 +105,17 @@ struct TicketPanelEditView: View {
                 .padding(.bottom, 16)
             }
             .scrollDismissesKeyboard(.never)
-            .background(Color.bgPrimary)
+            .background(Theme.Color.bg)
             .navigationTitle(isNew ? "パネルを作成" : "パネルを編集")
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
                 ToolbarItem(placement: .topBarLeading) {
-                    Button("キャンセル") { dismiss() }.foregroundStyle(Color.textSecondary)
+                    Button("キャンセル") { dismiss() }.foregroundStyle(Theme.Color.textSecondary)
                 }
                 ToolbarItem(placement: .topBarTrailing) {
                     Button(isSaving ? "保存中..." : "保存") { Task { await save() } }
                         .fontWeight(.semibold)
-                        .foregroundStyle(title.isEmpty ? Color.textTertiary : Color.accentIndigo)
+                        .foregroundStyle(title.isEmpty ? Theme.Color.textTertiary : Theme.Color.accent)
                         .disabled(title.isEmpty || isSaving)
                 }
             }
@@ -149,7 +149,7 @@ struct TicketPanelEditView: View {
     private var chipBar: some View {
         HorizontalChipBar(
             chips: variableChips,
-            accentColor: Color.accentIndigo,
+            accentColor: Theme.Color.accent,
             doneTitle: "完了",
             onChipTap: { insertVariable($0) },
             onDone:    { focusedField = nil }
@@ -180,7 +180,7 @@ struct TicketPanelEditView: View {
                     Circle()
                         .fill(
                             LinearGradient(
-                                colors: [Color.accentIndigo, Color.accentPink],
+                                colors: [Theme.Color.accent, Theme.Color.accent],
                                 startPoint: .topLeading,
                                 endPoint: .bottomTrailing
                             )
@@ -188,23 +188,23 @@ struct TicketPanelEditView: View {
                         .frame(width: 40, height: 40)
                     Image(systemName: "bubble.left.and.bubble.right.fill")
                         .font(.system(size: 16, weight: .semibold))
-                        .foregroundStyle(.white)
+                        .foregroundStyle(Theme.Color.accentInk)
                 }
 
                 VStack(alignment: .leading, spacing: .spacing4) {
                     HStack(spacing: .spacing6) {
                         Text("Noxy")
                             .font(.system(size: 14, weight: .semibold))
-                            .foregroundStyle(Color.accentIndigo)
+                            .foregroundStyle(Theme.Color.accent)
                         Text("BOT")
                             .font(.system(size: 9, weight: .bold))
-                            .foregroundStyle(.white)
+                            .foregroundStyle(Theme.Color.accentInk)
                             .padding(.horizontal, 4).padding(.vertical, 1)
-                            .background(Color.accentIndigo)
+                            .background(Theme.Color.accent)
                             .clipShape(RoundedRectangle(cornerRadius: 3))
                         (Text("今日 ") + Text(Date(), style: .time))
-                            .font(.captionSmall)
-                            .foregroundStyle(Color.textTertiary)
+                            .font(Theme.Font.caption2)
+                            .foregroundStyle(Theme.Color.textTertiary)
                         Spacer()
                     }
 
@@ -232,13 +232,13 @@ struct TicketPanelEditView: View {
                                 if description.isEmpty {
                                     Text("説明")
                                         .font(.system(size: 14))
-                                        .foregroundStyle(Color.textTertiary)
+                                        .foregroundStyle(Theme.Color.textTertiary)
                                         .padding(.top, 8).padding(.leading, 4)
                                         .allowsHitTesting(false)
                                 }
                                 TextEditor(text: $description)
                                     .font(.system(size: 14))
-                                    .foregroundStyle(Color.textSecondary)
+                                    .foregroundStyle(Theme.Color.textSecondary)
                                     .scrollContentBackground(.hidden)
                                     .background(.clear)
                                     .frame(minHeight: 60, maxHeight: 120)
@@ -251,7 +251,7 @@ struct TicketPanelEditView: View {
                             HStack(spacing: .spacing6) {
                                 TextField("🎫", text: $buttonEmoji)
                                     .font(.system(size: 14))
-                                    .foregroundStyle(.white)
+                                    .foregroundStyle(Theme.Color.accentInk)
                                     .textFieldStyle(.plain)
                                     .background(.clear)
                                     .frame(width: 30)
@@ -260,7 +260,7 @@ struct TicketPanelEditView: View {
 
                                 TextField("チケットを作成", text: $buttonLabel)
                                     .font(.system(size: 14, weight: .semibold))
-                                    .foregroundStyle(.white)
+                                    .foregroundStyle(Theme.Color.accentInk)
                                     .textFieldStyle(.plain)
                                     .background(.clear)
                                     .focused($focusedField, equals: .buttonLabel)
@@ -271,7 +271,7 @@ struct TicketPanelEditView: View {
                         }
                         .padding(.spacing10)
                     }
-                    .background(Color.bgSurface)
+                    .background(Theme.Color.surface)
                     .clipShape(RoundedRectangle(cornerRadius: 4))
                 }
             }
@@ -287,9 +287,19 @@ struct TicketPanelEditView: View {
                 Spacer()
             }
             .padding(.horizontal, .spacing4)
+
+            HStack(spacing: 3) {
+                Text("*")
+                    .font(.system(size: 11, weight: .bold))
+                    .foregroundStyle(Theme.Color.statusBad)
+                Text("タイトルは必須項目です")
+                    .font(.system(size: 11))
+                    .foregroundStyle(Theme.Color.textTertiary)
+            }
+            .padding(.horizontal, .spacing4)
         }
         .padding(.spacing12)
-        .background(Color.bgSurface)
+        .background(Theme.Color.surface)
         .clipShape(RoundedRectangle(cornerRadius: 4))
     }
 
@@ -301,7 +311,9 @@ struct TicketPanelEditView: View {
             HStack(alignment: .top, spacing: .spacing10) {
                 ZStack {
                     Circle().fill(embedColor).frame(width: 36, height: 36)
-                    Text("🤖").font(.system(size: 16))
+                    Image(systemName: "cpu.fill")
+                        .font(.system(size: 16))
+                        .foregroundStyle(Theme.Color.accentInk)
                 }
                 VStack(alignment: .leading, spacing: .spacing4) {
                     HStack(spacing: .spacing6) {
@@ -310,26 +322,26 @@ struct TicketPanelEditView: View {
                             .foregroundStyle(embedColor)
                         Text("BOT")
                             .font(.system(size: 9, weight: .bold))
-                            .foregroundStyle(.white)
+                            .foregroundStyle(Theme.Color.accentInk)
                             .padding(.horizontal, 4).padding(.vertical, 1)
-                            .background(Color.accentIndigo)
+                            .background(Theme.Color.accent)
                             .clipShape(RoundedRectangle(cornerRadius: 3))
                         (Text("今日 ") + Text(Date(), style: .time))
-                            .font(.captionSmall)
-                            .foregroundStyle(Color.textTertiary)
+                            .font(Theme.Font.caption2)
+                            .foregroundStyle(Theme.Color.textTertiary)
                         Spacer()
                     }
                     ZStack(alignment: .topLeading) {
                         if ticketMsgContent.isEmpty {
                             Text("チケット内メッセージを入力...")
                                 .font(.system(size: 14))
-                                .foregroundStyle(Color.textTertiary)
+                                .foregroundStyle(Theme.Color.textTertiary)
                                 .padding(.top, 8).padding(.leading, 4)
                                 .allowsHitTesting(false)
                         }
                         TextEditor(text: $ticketMsgContent)
                             .font(.system(size: 14))
-                            .foregroundStyle(Color.textPrimary)
+                            .foregroundStyle(Theme.Color.textPrimary)
                             .scrollContentBackground(.hidden)
                             .background(.clear)
                             .frame(minHeight: 60, maxHeight: 120)
@@ -338,7 +350,7 @@ struct TicketPanelEditView: View {
                 }
             }
             .padding(.spacing12)
-            .background(Color.bgSurface)
+            .background(Theme.Color.surface)
             .clipShape(RoundedRectangle(cornerRadius: 4))
 
             // ── チケット設定 ──
@@ -346,9 +358,9 @@ struct TicketPanelEditView: View {
                 VStack(spacing: 0) {
                     settingRow(label: "接頭辞", icon: "textformat.prefix", detail: ticketEmbedTitle.isEmpty ? "ticket" : ticketEmbedTitle) {
                         TextField("ticket", text: $ticketEmbedTitle)
-                            .font(.bodySmall)
+                            .font(Theme.Font.bodySmall)
                             .multilineTextAlignment(.trailing)
-                            .foregroundStyle(Color.textSecondary)
+                            .foregroundStyle(Theme.Color.textSecondary)
                     }
 
                     Divider().padding(.leading, 44)
@@ -382,15 +394,15 @@ struct TicketPanelEditView: View {
                         HStack(spacing: .spacing12) {
                             Image(systemName: "number.circle")
                                 .font(.system(size: 16))
-                                .foregroundStyle(Color.accentIndigo)
+                                .foregroundStyle(Theme.Color.accent)
                                 .frame(width: 28)
                             Text("同時オープン上限")
-                                .font(.bodySmall)
-                                .foregroundStyle(Color.textPrimary)
+                                .font(Theme.Font.bodySmall)
+                                .foregroundStyle(Theme.Color.textPrimary)
                             Spacer()
                             Stepper("\(maxOpenPerUser)件", value: $maxOpenPerUser, in: 1...10)
-                                .font(.bodySmall)
-                                .foregroundStyle(Color.textSecondary)
+                                .font(Theme.Font.bodySmall)
+                                .foregroundStyle(Theme.Color.textSecondary)
                         }
                         .padding(.horizontal, .spacing12)
                         .padding(.vertical, .spacing10)
@@ -404,11 +416,11 @@ struct TicketPanelEditView: View {
         HStack(spacing: .spacing12) {
             Image(systemName: icon)
                 .font(.system(size: 16))
-                .foregroundStyle(Color.accentIndigo)
+                .foregroundStyle(Theme.Color.accent)
                 .frame(width: 28)
             Text(label)
-                .font(.bodySmall)
-                .foregroundStyle(Color.textPrimary)
+                .font(Theme.Font.bodySmall)
+                .foregroundStyle(Theme.Color.textPrimary)
             Spacer()
             content()
         }
@@ -425,18 +437,18 @@ struct TicketPanelEditView: View {
         HStack(spacing: .spacing12) {
             Image(systemName: icon)
                 .font(.system(size: 16))
-                .foregroundStyle(Color.accentIndigo)
+                .foregroundStyle(Theme.Color.accent)
                 .frame(width: 28)
             Text(label)
-                .font(.bodySmall)
-                .foregroundStyle(Color.textPrimary)
+                .font(Theme.Font.bodySmall)
+                .foregroundStyle(Theme.Color.textPrimary)
             Spacer()
             Picker("", selection: selection) {
                 content()
             }
-            .font(.captionRegular)
+            .font(Theme.Font.caption)
             .pickerStyle(.menu)
-            .tint(Color.textSecondary)
+            .tint(Theme.Color.textSecondary)
         }
         .padding(.horizontal, .spacing12)
         .padding(.vertical, .spacing10)
@@ -517,16 +529,16 @@ private struct ColorSwatch: View {
                 Circle()
                     .fill(color)
                     .frame(width: 14, height: 14)
-                    .overlay(Circle().stroke(Color.border, lineWidth: 1))
+                    .overlay(Circle().stroke(Theme.Color.line, lineWidth: 1))
                 Text(label)
                     .font(.system(size: 11))
-                    .foregroundStyle(Color.textSecondary)
+                    .foregroundStyle(Theme.Color.textSecondary)
                 Image(systemName: "chevron.right")
                     .font(.system(size: 9, weight: .semibold))
-                    .foregroundStyle(Color.textTertiary)
+                    .foregroundStyle(Theme.Color.textTertiary)
             }
             .padding(.horizontal, .spacing8).padding(.vertical, .spacing6)
-            .background(Color.bgElevated)
+            .background(Theme.Color.surfaceRaised)
             .clipShape(RoundedRectangle(cornerRadius: 8))
         }
         .buttonStyle(.plain)

@@ -14,6 +14,9 @@ struct StatChannelsView: View {
     @State private var isActivating  = false
     @State private var showSubscribe = false
     @State private var toast: String? = nil
+    @State private var showDeleteConfirm = false
+    @State private var deleteTarget: StatChannel? = nil
+    @State private var showActivateConfirm = false
 
     // デバッグ時は DB から取得した subStatus をそのまま使う（debug-setup で実際に書き込むため）
     private var effectiveStatus: SubscriptionStatus { subStatus }
@@ -34,7 +37,7 @@ struct StatChannelsView: View {
                 ActivationPromptView(
                     availableSlots: effectiveStatus.availableSlots,
                     isActivating: isActivating,
-                    onActivate: { await activateCurrentServer() },
+                    onActivate: { showActivateConfirm = true },
                     onSubscribe: { showSubscribe = true }
                 )
             } else {
@@ -44,15 +47,6 @@ struct StatChannelsView: View {
         }
         .navigationTitle("ステータスチャンネル")
         .navigationBarTitleDisplayMode(.large)
-        .toolbar {
-            if isServerActivated {
-                ToolbarItem(placement: .topBarTrailing) {
-                    Button { showAddSheet = true } label: {
-                        Image(systemName: "plus").foregroundStyle(Color.accentIndigo)
-                    }
-                }
-            }
-        }
         .sheet(isPresented: $showAddSheet) {
             StatChannelAddSheet(guildId: guildId) { newChannels in
                 channels.append(contentsOf: newChannels)
@@ -78,79 +72,171 @@ struct StatChannelsView: View {
         .animation(.easeInOut(duration: 0.2), value: toast)
         .task { await load() }
         .refreshable { await load() }
+        .overlay {
+            if showDeleteConfirm, let target = deleteTarget {
+                ConfirmModal(
+                    icon: "trash.fill",
+                    iconColor: Theme.Color.statusBad,
+                    title: "\(target.statType.label) を削除しますか？",
+                    message: "Discord のチャンネルも削除されます。この操作は元に戻せません。",
+                    primaryLabel: "削除する",
+                    primaryRole: .destructive,
+                    onPrimary: {
+                        Task {
+                            await deleteChannel(target)
+                            showDeleteConfirm = false
+                            deleteTarget = nil
+                        }
+                    },
+                    onCancel: {
+                        showDeleteConfirm = false
+                        deleteTarget = nil
+                    }
+                )
+            }
+            if showActivateConfirm {
+                ConfirmModal(
+                    icon: "server.rack",
+                    iconColor: Theme.Color.accent,
+                    title: "このサーバーを有効化しますか？",
+                    message: "有効化後、ステータスチャンネルが自動作成されます。プランのスロットを1つ消費します。",
+                    primaryLabel: "有効化する",
+                    primaryRole: nil,
+                    onPrimary: {
+                        Task {
+                            await activateCurrentServer()
+                            showActivateConfirm = false
+                        }
+                    },
+                    onCancel: {
+                        showActivateConfirm = false
+                    }
+                )
+            }
+        }
     }
 
     // MARK: - 有効化済み: 通常コンテンツ
 
     private var mainContent: some View {
-        Group {
+        ZStack(alignment: .bottomTrailing) {
             if channels.isEmpty {
                 emptyState
+                    .frame(maxWidth: .infinity, maxHeight: .infinity)
             } else {
-                List {
-                    infoSection
-                    channelsSection
+                ScrollView {
+                    LazyVStack(spacing: Theme.Spacing.md) {
+                        infoSection
+                        channelsSection
+                    }
+                    .padding(.horizontal, Theme.Spacing.md)
+                    .padding(.vertical, Theme.Spacing.sm)
+                    .padding(.bottom, 80)
                 }
-                .listStyle(.insetGrouped)
+                .background(Theme.Color.bg)
             }
+
+            Button { showAddSheet = true } label: {
+                Image(systemName: "plus")
+                    .font(.system(size: 22, weight: .semibold))
+                    .foregroundStyle(Theme.Color.accentInk)
+                    .frame(width: 56, height: 56)
+                    .background(Theme.Color.accent)
+                    .clipShape(Circle())
+                    .shadow(color: Theme.Color.accent.opacity(0.3), radius: 8, x: 0, y: 4)
+            }
+            .padding(.trailing, Theme.Spacing.lg)
+            .padding(.bottom, Theme.Spacing.xl)
         }
     }
 
     private var infoSection: some View {
-        Section {
-            HStack(spacing: .spacing12) {
-                Image(systemName: "info.circle.fill").foregroundStyle(Color.accentIndigo)
-                VStack(alignment: .leading, spacing: 2) {
+        FormSection("ステータスチャンネル", icon: "info.circle") {
+            VStack(alignment: .leading, spacing: Theme.Spacing.xs) {
+                HStack(spacing: Theme.Spacing.sm) {
+                    Image(systemName: "info.circle.fill")
+                        .font(Theme.Font.caption)
+                        .foregroundStyle(Theme.Color.textTertiary)
                     Text("チャンネル名が約10分ごとに自動更新されます")
-                        .font(.captionRegular).foregroundStyle(Color.textSecondary)
+                        .font(Theme.Font.caption)
+                        .foregroundStyle(Theme.Color.textSecondary)
+                }
+                HStack(spacing: Theme.Spacing.sm) {
+                    Image(systemName: "exclamationmark.triangle.fill")
+                        .font(Theme.Font.caption)
+                        .foregroundStyle(Theme.Color.textTertiary)
                     Text("Discordの制限: 10分に2回まで変更可能")
-                        .font(.captionSmall).foregroundStyle(Color.textTertiary)
+                        .font(Theme.Font.caption)
+                        .foregroundStyle(Theme.Color.textTertiary)
                 }
             }
-            .padding(.vertical, .spacing4)
         }
     }
 
     private var channelsSection: some View {
-        Section("チャンネル一覧") {
-            ForEach(channels) { channel in
-                StatChannelRow(channel: channel) { newEnabled in
-                    await toggleChannel(channel, enabled: newEnabled)
-                } onRefresh: {
-                    await refreshChannel(channel)
+        VStack(alignment: .leading, spacing: Theme.Spacing.sm) {
+            // Header
+            HStack(spacing: Theme.Spacing.xs) {
+                Image(systemName: "list.bullet")
+                    .font(Theme.Font.caption)
+                    .foregroundStyle(Theme.Color.textTertiary)
+                Text("チャンネル一覧")
+                    .font(Theme.Font.caption2)
+                    .fontWeight(.semibold)
+                    .foregroundStyle(Theme.Color.textTertiary)
+                    .textCase(.uppercase)
+                Spacer()
+                Text("\(channels.count) チャンネル")
+                    .font(Theme.Font.caption2)
+                    .foregroundStyle(Theme.Color.textTertiary)
+                    .monospaced()
+            }
+
+            Card {
+                VStack(spacing: 0) {
+                    ForEach(channels) { channel in
+                        StatChannelRow(channel: channel) { newEnabled in
+                            await toggleChannel(channel, enabled: newEnabled)
+                        } onRefresh: {
+                            await refreshChannel(channel)
+                        } onDelete: {
+                            deleteTarget = channel
+                            showDeleteConfirm = true
+                        }
+                        if channel.id != channels.last?.id {
+                            Divider().background(Theme.Color.line)
+                        }
+                    }
                 }
             }
-            .onDelete { indexSet in Task { await deleteChannels(at: indexSet) } }
         }
     }
 
     private var emptyState: some View {
-        VStack(spacing: .spacing24) {
-            Spacer()
-            VStack(spacing: .spacing16) {
-                ZStack {
-                    Circle().fill(Color.accentIndigo.opacity(0.1)).frame(width: 80, height: 80)
-                    Text("📊").font(.system(size: 36))
-                }
-                VStack(spacing: .spacing8) {
-                    Text("ステータスチャンネルなし")
-                        .font(.titleMedium).foregroundStyle(Color.textPrimary)
-                    Text("サーバーの統計をボイスチャンネルの\n名前としてリアルタイム表示できます")
-                        .font(.bodySmall).foregroundStyle(Color.textSecondary)
-                        .multilineTextAlignment(.center)
-                }
+        VStack(spacing: Theme.Spacing.md) {
+            ZStack {
+                RoundedRectangle(cornerRadius: Theme.Radius.card)
+                    .fill(Theme.Color.surface)
+                    .frame(width: 80, height: 80)
+                Image(systemName: "chart.bar.fill")
+                    .font(.system(size: 32))
+                    .foregroundStyle(Theme.Color.textTertiary)
             }
-            Button {
-                showAddSheet = true
-            } label: {
-                Label("チャンネルを追加", systemImage: "plus")
-                    .font(.bodySmall.weight(.semibold))
-                    .foregroundStyle(.white)
-                    .padding(.horizontal, .spacing24).frame(height: 44)
-                    .background(Color.accentIndigo).clipShape(Capsule())
+            VStack(spacing: Theme.Spacing.sm) {
+                Text("ステータスチャンネルなし")
+                    .font(Theme.Font.title3)
+                    .foregroundStyle(Theme.Color.textPrimary)
+                Text("サーバーの統計をボイスチャンネルの\n名前としてリアルタイム表示できます")
+                    .font(Theme.Font.bodySmall)
+                    .foregroundStyle(Theme.Color.textSecondary)
+                    .multilineTextAlignment(.center)
+                Text("右下のボタンからチャンネルを追加できます")
+                    .font(Theme.Font.caption)
+                    .foregroundStyle(Theme.Color.textTertiary)
             }
-            Spacer()
         }
+        .frame(maxWidth: .infinity, maxHeight: .infinity)
+        .background(Theme.Color.bg)
     }
 
     // MARK: - Actions
@@ -172,7 +258,7 @@ struct StatChannelsView: View {
             // ステータス再取得
             let userId = KeychainHelper.load(forKey: "discord_user_id") ?? ""
             subStatus = (try? await services.subscription.fetchStatus(discordUserId: userId)) ?? subStatus
-            withAnimation { toast = "このサーバーを有効化しました 🎉" }
+            withAnimation { toast = "このサーバーを有効化しました" }
         } catch {
             withAnimation { toast = "有効化に失敗しました: \(error.localizedDescription)" }
         }
@@ -195,21 +281,29 @@ struct StatChannelsView: View {
         withAnimation { toast = "チャンネルを更新しました" }
     }
 
-    private func deleteChannels(at indexSet: IndexSet) async {
-        for idx in indexSet {
-            try? await services.statChannels.delete(id: channels[idx].id)
-        }
-        withAnimation { channels.remove(atOffsets: indexSet) }
+    private func deleteChannel(_ channel: StatChannel) async {
+        try? await services.statChannels.delete(id: channel.id)
+        withAnimation { channels.removeAll { $0.id == channel.id } }
     }
 
     private func toastView(_ message: String) -> some View {
-        HStack(spacing: .spacing8) {
-            Image(systemName: "checkmark.circle.fill").foregroundStyle(.white)
-            Text(message).font(.captionRegular).fontWeight(.semibold).foregroundStyle(.white)
+        HStack(spacing: Theme.Spacing.sm) {
+            Image(systemName: "checkmark.circle.fill")
+                .font(Theme.Font.caption)
+                .foregroundStyle(Theme.Color.statusOK)
+            Text(message)
+                .font(Theme.Font.caption)
+                .fontWeight(.semibold)
+                .foregroundStyle(Theme.Color.textPrimary)
         }
-        .padding(.horizontal, .spacing20).frame(height: 44)
-        .background(Color.accentGreen).clipShape(Capsule())
-        .shadow(color: .black.opacity(0.15), radius: 8, y: 4)
+        .padding(.horizontal, Theme.Spacing.lg)
+        .frame(height: 44)
+        .background(Theme.Color.surfaceRaised)
+        .clipShape(Capsule())
+        .overlay(
+            Capsule()
+                .stroke(Theme.Color.line, lineWidth: 1)
+        )
     }
 }
 
@@ -220,105 +314,101 @@ private struct PaywallView: View {
 
     var body: some View {
         ScrollView {
-            VStack(spacing: .spacing32) {
-                Spacer().frame(height: .spacing16)
+            VStack(spacing: Theme.Spacing.xxl) {
+                Spacer().frame(height: Theme.Spacing.md)
 
                 // アイコン + タイトル
-                VStack(spacing: .spacing16) {
+                VStack(spacing: Theme.Spacing.md) {
                     ZStack {
-                        Circle()
-                            .fill(LinearGradient(
-                                colors: [Color.accentOrange.opacity(0.2), Color.accentPink.opacity(0.2)],
-                                startPoint: .topLeading, endPoint: .bottomTrailing))
+                        RoundedRectangle(cornerRadius: Theme.Radius.card)
+                            .fill(Theme.Color.surface)
                             .frame(width: 96, height: 96)
                         Image(systemName: "crown.fill")
-                            .font(.system(size: 44))
-                            .foregroundStyle(
-                                LinearGradient(colors: [Color.accentOrange, Color.accentPink],
-                                               startPoint: .topLeading, endPoint: .bottomTrailing))
+                            .font(.system(size: 40))
+                            .foregroundStyle(Theme.Color.accent)
                     }
 
-                    VStack(spacing: .spacing8) {
+                    VStack(spacing: Theme.Spacing.sm) {
                         Text("Noxy Pro の機能です")
-                            .font(.displayMedium).foregroundStyle(Color.textPrimary)
+                            .font(Theme.Font.title3)
+                            .foregroundStyle(Theme.Color.textPrimary)
                         Text("サーバーの統計情報をDiscordの\nチャンネル名にリアルタイム表示できます")
-                            .font(.bodySmall).foregroundStyle(Color.textSecondary)
+                            .font(Theme.Font.bodySmall)
+                            .foregroundStyle(Theme.Color.textSecondary)
                             .multilineTextAlignment(.center)
                     }
                 }
                 .padding(.horizontal)
 
                 // チャンネル表示プレビュー（ロック付き）
-                VStack(alignment: .leading, spacing: .spacing8) {
+                VStack(alignment: .leading, spacing: Theme.Spacing.sm) {
                     Text("表示イメージ")
-                        .font(.captionRegular).foregroundStyle(Color.textTertiary)
-                        .padding(.horizontal, .spacing16)
+                        .font(Theme.Font.caption)
+                        .foregroundStyle(Theme.Color.textTertiary)
+                        .padding(.horizontal, Theme.Spacing.md)
 
                     VStack(spacing: 0) {
                         previewRow(.members,  isLast: false)
-                        Divider().padding(.leading, .spacing32)
+                        Divider().padding(.leading, Theme.Spacing.xl)
                         previewRow(.online,   isLast: false)
-                        Divider().padding(.leading, .spacing32)
+                        Divider().padding(.leading, Theme.Spacing.xl)
                         previewRow(.boosts,   isLast: false)
-                        Divider().padding(.leading, .spacing32)
+                        Divider().padding(.leading, Theme.Spacing.xl)
                         previewRow(.vcUsers,  isLast: true)
                     }
-                    .background(Color.bgSurface)
-                    .clipShape(RoundedRectangle(cornerRadius: .cornerRadiusMedium))
+                    .background(Theme.Color.surface)
+                    .clipShape(RoundedRectangle(cornerRadius: Theme.Radius.card))
                     .overlay(
-                        RoundedRectangle(cornerRadius: .cornerRadiusMedium)
-                            .stroke(Color.accentOrange.opacity(0.3), lineWidth: 1)
+                        RoundedRectangle(cornerRadius: Theme.Radius.card)
+                            .stroke(Theme.Color.lineStrong, lineWidth: 1)
                     )
-                    .padding(.horizontal, .spacing16)
+                    .padding(.horizontal, Theme.Spacing.md)
                 }
 
                 // 価格説明
-                HStack(spacing: .spacing8) {
-                    Image(systemName: "checkmark.circle.fill").foregroundStyle(Color.accentGreen)
+                HStack(spacing: Theme.Spacing.sm) {
+                    Image(systemName: "checkmark.circle.fill")
+                        .font(Theme.Font.caption)
+                        .foregroundStyle(Theme.Color.statusOK)
                     Text("サーバー1台から月額100円で利用可能")
-                        .font(.bodySmall).foregroundStyle(Color.textSecondary)
+                        .font(Theme.Font.bodySmall)
+                        .foregroundStyle(Theme.Color.textSecondary)
                 }
 
                 // CTA ボタン
-                VStack(spacing: .spacing12) {
-                    Button(action: onSubscribe) {
-                        HStack(spacing: .spacing8) {
-                            Image(systemName: "crown.fill")
-                            Text("Noxy Pro を始める")
-                                .fontWeight(.semibold)
-                        }
-                        .foregroundStyle(.white)
-                        .frame(maxWidth: .infinity).frame(height: 52)
-                        .background(
-                            LinearGradient(colors: [Color.accentOrange, Color.accentPink],
-                                           startPoint: .leading, endPoint: .trailing))
-                        .clipShape(RoundedRectangle(cornerRadius: .cornerRadiusMedium))
+                VStack(spacing: Theme.Spacing.sm) {
+                    AccentButton(title: "Noxy Pro を始める") {
+                        onSubscribe()
                     }
-                    .buttonStyle(ScalePressButtonStyle())
 
                     Text("月額 ¥100〜 · いつでも解約可能")
-                        .font(.captionRegular).foregroundStyle(Color.textTertiary)
+                        .font(Theme.Font.caption)
+                        .foregroundStyle(Theme.Color.textTertiary)
                 }
                 .padding(.horizontal)
 
-                Spacer().frame(height: .spacing16)
+                Spacer().frame(height: Theme.Spacing.md)
             }
         }
-        .background(Color.bgPrimary)
+        .background(Theme.Color.bg)
     }
 
     private func previewRow(_ type: StatType, isLast: Bool) -> some View {
-        HStack(spacing: .spacing10) {
+        HStack(spacing: Theme.Spacing.sm) {
             Image(systemName: "speaker.wave.1.fill")
-                .font(.caption).foregroundStyle(Color.textTertiary)
+                .font(Theme.Font.caption)
+                .foregroundStyle(Theme.Color.textTertiary)
             Text(type.channelName(value: sampleValue(type)))
-                .font(.caption).foregroundStyle(Color.textSecondary)
+                .font(Theme.Font.caption)
+                .foregroundStyle(Theme.Color.textSecondary)
+                .monospaced()
             Spacer()
             Image(systemName: "lock.fill")
-                .font(.caption2).foregroundStyle(Color.accentOrange.opacity(0.7))
+                .font(Theme.Font.caption2)
+                .foregroundStyle(Theme.Color.textTertiary)
         }
-        .padding(.horizontal, .spacing16)
-        .padding(.vertical, .spacing10)
+        .padding(.horizontal, Theme.Spacing.md)
+        .padding(.vertical, Theme.Spacing.sm)
     }
 
     private func sampleValue(_ type: StatType) -> Int {
@@ -340,113 +430,145 @@ private struct ActivationPromptView: View {
     let onSubscribe: () -> Void
 
     var body: some View {
-        VStack(spacing: .spacing32) {
+        VStack(spacing: Theme.Spacing.xxl) {
             Spacer()
 
-            VStack(spacing: .spacing16) {
+            VStack(spacing: Theme.Spacing.md) {
                 ZStack {
-                    Circle()
-                        .fill(Color.accentIndigo.opacity(0.1))
+                    RoundedRectangle(cornerRadius: Theme.Radius.card)
+                        .fill(Theme.Color.surface)
                         .frame(width: 80, height: 80)
-                    Image(systemName: availableSlots > 0 ? "server.rack" : "exclamationmark.circle.fill")
-                        .font(.system(size: 36))
-                        .foregroundStyle(availableSlots > 0 ? Color.accentIndigo : Color.accentOrange)
+                    Image(systemName: availableSlots > 0 ? "server.rack" : "exclamationmark.triangle.fill")
+                        .font(.system(size: 32))
+                        .foregroundStyle(availableSlots > 0 ? Theme.Color.textTertiary : Theme.Color.statusWarn)
                 }
 
-                VStack(spacing: .spacing8) {
+                VStack(spacing: Theme.Spacing.sm) {
                     Text(availableSlots > 0 ? "このサーバーは未有効化です" : "スロットが満杯です")
-                        .font(.titleMedium).foregroundStyle(Color.textPrimary)
+                        .font(Theme.Font.title3)
+                        .foregroundStyle(Theme.Color.textPrimary)
 
                     Text(availableSlots > 0
                          ? "ステータスチャンネル機能を使うには\nこのサーバーを有効化してください"
                          : "現在のプランでは有効化できるサーバーが\n満杯です。プランをアップグレードするか\n別のサーバーの有効化を解除してください")
-                        .font(.bodySmall).foregroundStyle(Color.textSecondary)
+                        .font(Theme.Font.bodySmall)
+                        .foregroundStyle(Theme.Color.textSecondary)
                         .multilineTextAlignment(.center)
                 }
             }
             .padding(.horizontal)
 
-            VStack(spacing: .spacing12) {
+            VStack(spacing: Theme.Spacing.sm) {
                 if availableSlots > 0 {
                     // 有効化ボタン
                     Button {
                         Task { await onActivate() }
                     } label: {
-                        HStack(spacing: .spacing8) {
+                        HStack(spacing: Theme.Spacing.sm) {
                             if isActivating {
-                                ProgressView().tint(.white)
+                                ProgressView().tint(Theme.Color.accentInk)
                             } else {
                                 Image(systemName: "checkmark.circle")
                             }
                             Text(isActivating ? "有効化中..." : "このサーバーを有効化")
-                                .fontWeight(.semibold)
+                                .font(Theme.Font.bodyMedium)
                         }
-                        .foregroundStyle(.white)
-                        .frame(maxWidth: .infinity).frame(height: 52)
-                        .background(Color.accentIndigo)
-                        .clipShape(RoundedRectangle(cornerRadius: .cornerRadiusMedium))
+                        .foregroundStyle(Theme.Color.accentInk)
+                        .frame(maxWidth: .infinity)
+                        .frame(height: 52)
+                        .background(Theme.Color.accent, in: RoundedRectangle(cornerRadius: Theme.Radius.button))
                     }
                     .disabled(isActivating)
-                    .buttonStyle(ScalePressButtonStyle())
+                    .buttonStyle(.plain)
 
                     Text("残りスロット: \(availableSlots)台")
-                        .font(.captionRegular).foregroundStyle(Color.textTertiary)
+                        .font(Theme.Font.caption)
+                        .foregroundStyle(Theme.Color.textTertiary)
+                        .monospaced()
                 } else {
                     // スロット不足 → アップグレード誘導
-                    Button(action: onSubscribe) {
-                        Text("プランをアップグレード")
-                            .fontWeight(.semibold)
-                            .foregroundStyle(.white)
-                            .frame(maxWidth: .infinity).frame(height: 52)
-                            .background(Color.accentOrange)
-                            .clipShape(RoundedRectangle(cornerRadius: .cornerRadiusMedium))
+                    AccentButton(title: "プランをアップグレード") {
+                        onSubscribe()
                     }
-                    .buttonStyle(ScalePressButtonStyle())
                 }
             }
             .padding(.horizontal)
 
             Spacer()
         }
-        .background(Color.bgPrimary)
+        .background(Theme.Color.bg)
     }
 }
 
-// MARK: - StatChannelRow（既存、変更なし）
+// MARK: - StatChannelRow
 
 private struct StatChannelRow: View {
     let channel: StatChannel
     let onToggle: (Bool) async -> Void
     let onRefresh: () async -> Void
+    let onDelete: () -> Void
 
     @State private var isToggling  = false
     @State private var isRefreshing = false
 
     var body: some View {
-        HStack(spacing: .spacing12) {
+        HStack(spacing: Theme.Spacing.sm) {
+            // 状態カラーバー
+            RoundedRectangle(cornerRadius: 1.5)
+                .fill(channel.isEnabled ? Theme.Color.statusOK : Theme.Color.textTertiary)
+                .frame(width: 3)
+
+            // アイコン
             ZStack {
-                RoundedRectangle(cornerRadius: .cornerRadiusSmall)
-                    .fill(iconColor.opacity(0.12)).frame(width: 36, height: 36)
-                Text(channel.statType.icon).font(.system(size: 18))
+                RoundedRectangle(cornerRadius: Theme.Radius.chip)
+                    .fill(Theme.Color.surfaceRaised)
+                    .frame(width: 36, height: 36)
+                Image(systemName: channel.statType.systemImage)
+                    .font(.system(size: 16))
+                    .foregroundStyle(Theme.Color.textSecondary)
             }
+
+            // 主情報
             VStack(alignment: .leading, spacing: 2) {
-                Text(channel.statType.label).font(.body).foregroundStyle(Color.textPrimary)
+                Text(channel.statType.label)
+                    .font(Theme.Font.body)
+                    .foregroundStyle(Theme.Color.textPrimary)
                 if channel.lastValue >= 0 {
-                    Text(channel.channelName).font(.captionRegular)
-                        .foregroundStyle(Color.textSecondary).lineLimit(1)
+                    Text(channel.displayValue)
+                        .font(Theme.Font.mono)
+                        .foregroundStyle(Theme.Color.textSecondary)
                 } else {
-                    Text("未取得").font(.captionRegular).foregroundStyle(Color.textTertiary)
+                    Text("未取得")
+                        .font(Theme.Font.caption)
+                        .foregroundStyle(Theme.Color.textTertiary)
                 }
             }
+
             Spacer()
+
+            // メタ: 最終更新
+            if let updated = channel.lastUpdatedAt {
+                Text(timeString(updated))
+                    .font(Theme.Font.monoCap)
+                    .foregroundStyle(Theme.Color.textTertiary)
+            }
+
+            // 更新ボタン
             Button {
                 isRefreshing = true
                 Task { await onRefresh(); isRefreshing = false }
             } label: {
                 if isRefreshing { ProgressView().scaleEffect(0.7) }
-                else { Image(systemName: "arrow.clockwise").font(.caption).foregroundStyle(Color.textTertiary) }
+                else {
+                    Image(systemName: "arrow.clockwise")
+                        .font(Theme.Font.caption)
+                        .foregroundStyle(Theme.Color.textTertiary)
+                }
             }
-            .buttonStyle(.plain).frame(width: 28, height: 28)
+            .buttonStyle(.plain)
+            .frame(width: 28, height: 28)
+
+            // Toggle
             Toggle("", isOn: Binding(
                 get: { channel.isEnabled },
                 set: { newVal in
@@ -454,18 +576,25 @@ private struct StatChannelRow: View {
                     Task { await onToggle(newVal); isToggling = false }
                 }
             ))
-            .tint(Color.accentIndigo).labelsHidden().disabled(isToggling)
+            .tint(Theme.Color.accent)
+            .labelsHidden()
+            .disabled(isToggling)
         }
-        .padding(.vertical, .spacing4)
+        .padding(.vertical, Theme.Spacing.sm)
+        .contentShape(Rectangle())
+        .swipeActions(edge: .trailing, allowsFullSwipe: false) {
+            Button(role: .destructive) {
+                onDelete()
+            } label: {
+                Label("削除", systemImage: "trash")
+            }
+        }
     }
 
-    private var iconColor: Color {
-        switch channel.statType {
-        case .members: return .accentIndigo
-        case .online:  return .accentGreen
-        case .boosts:  return .accentOrange
-        case .vcUsers: return .accentPurple
-        }
+    private func timeString(_ date: Date) -> String {
+        let formatter = DateFormatter()
+        formatter.dateFormat = "HH:mm"
+        return formatter.string(from: date)
     }
 }
 
@@ -485,94 +614,111 @@ private struct StatChannelAddSheet: View {
 
     var body: some View {
         NavigationStack {
-            List {
-                Section {
-                    HStack(spacing: .spacing10) {
-                        Image(systemName: "info.circle.fill").foregroundStyle(Color.accentIndigo)
-                        VStack(alignment: .leading, spacing: 2) {
-                            Text("ボイスチャンネルが自動作成されます").font(.captionRegular).foregroundStyle(Color.textPrimary)
-                            Text("誰も入室できない設定で配置されます").font(.captionSmall).foregroundStyle(Color.textSecondary)
-                        }
-                    }
-                    .padding(.vertical, .spacing4)
-                } header: {
-                    HStack {
-                        Text("統計の種類を選択")
-                        Spacer()
-                        if !selectedTypes.isEmpty {
-                            Text("\(selectedTypes.count)件選択中")
-                                .font(.captionSmall)
-                                .foregroundStyle(Color.accentIndigo)
-                        }
-                    }
-                }
-
-                Section {
-                    ForEach(StatType.allCases) { type in
-                        Button {
-                            if selectedTypes.contains(type) {
-                                selectedTypes.remove(type)
-                            } else {
-                                selectedTypes.insert(type)
-                            }
-                        } label: {
-                            HStack(spacing: .spacing12) {
-                                ZStack {
-                                    RoundedRectangle(cornerRadius: .cornerRadiusSmall)
-                                        .fill(accentColor(type).opacity(0.12)).frame(width: 36, height: 36)
-                                    Text(type.icon).font(.system(size: 18))
-                                }
+            ScrollView {
+                LazyVStack(spacing: Theme.Spacing.md) {
+                    FormSection("統計の種類を選択", icon: "list.bullet") {
+                        VStack(alignment: .leading, spacing: Theme.Spacing.xs) {
+                            HStack(spacing: Theme.Spacing.sm) {
+                                Image(systemName: "info.circle.fill")
+                                    .font(Theme.Font.caption)
+                                    .foregroundStyle(Theme.Color.textTertiary)
                                 VStack(alignment: .leading, spacing: 2) {
-                                    Text(type.label).font(.body).foregroundStyle(Color.textPrimary)
-                                    Text(type.description).font(.captionRegular).foregroundStyle(Color.textSecondary)
+                                    Text("ボイスチャンネルが自動作成されます")
+                                        .font(Theme.Font.caption)
+                                        .foregroundStyle(Theme.Color.textPrimary)
+                                    Text("誰も入室できない設定で配置されます")
+                                        .font(Theme.Font.caption2)
+                                        .foregroundStyle(Theme.Color.textSecondary)
                                 }
-                                Spacer()
-                                Image(systemName: selectedTypes.contains(type) ? "checkmark.circle.fill" : "circle")
-                                    .foregroundStyle(selectedTypes.contains(type) ? Color.accentIndigo : Color.textTertiary)
-                                    .font(.system(size: 20))
-                                    .animation(.easeInOut(duration: 0.15), value: selectedTypes.contains(type))
                             }
-                            .padding(.vertical, .spacing4).contentShape(Rectangle())
+                            if !selectedTypes.isEmpty {
+                                HStack {
+                                    Spacer()
+                                    Text("\(selectedTypes.count)件選択中")
+                                        .font(Theme.Font.caption2)
+                                        .foregroundStyle(Theme.Color.accent)
+                                        .monospaced()
+                                }
+                            }
                         }
-                        .buttonStyle(.plain)
                     }
-                }
 
-                if let error = errorMessage {
-                    Section {
-                        Label(error, systemImage: "exclamationmark.triangle.fill")
-                            .font(.captionRegular).foregroundStyle(Color.accentRed)
+                    FormSection("種類", icon: "chart.bar") {
+                        VStack(spacing: 0) {
+                            ForEach(StatType.allCases) { type in
+                                Button {
+                                    if selectedTypes.contains(type) {
+                                        selectedTypes.remove(type)
+                                    } else {
+                                        selectedTypes.insert(type)
+                                    }
+                                } label: {
+                                    HStack(spacing: Theme.Spacing.sm) {
+                                        ZStack {
+                                            RoundedRectangle(cornerRadius: Theme.Radius.chip)
+                                                .fill(Theme.Color.surfaceRaised)
+                                                .frame(width: 36, height: 36)
+                                            Image(systemName: type.systemImage)
+                                                .font(.system(size: 16))
+                                                .foregroundStyle(Theme.Color.textSecondary)
+                                        }
+                                        VStack(alignment: .leading, spacing: 2) {
+                                            Text(type.label)
+                                                .font(Theme.Font.body)
+                                                .foregroundStyle(Theme.Color.textPrimary)
+                                            Text(type.description)
+                                                .font(Theme.Font.caption)
+                                                .foregroundStyle(Theme.Color.textSecondary)
+                                        }
+                                        Spacer()
+                                        Image(systemName: selectedTypes.contains(type) ? "checkmark.circle.fill" : "circle")
+                                            .foregroundStyle(selectedTypes.contains(type) ? Theme.Color.accent : Theme.Color.textTertiary)
+                                            .font(.system(size: 20))
+                                            .animation(.easeInOut(duration: 0.15), value: selectedTypes.contains(type))
+                                    }
+                                    .padding(.vertical, Theme.Spacing.sm)
+                                    .contentShape(Rectangle())
+                                }
+                                .buttonStyle(.plain)
+                                if type.id != StatType.allCases.last?.id {
+                                    Divider().background(Theme.Color.line)
+                                }
+                            }
+                        }
+                    }
+
+                    if let error = errorMessage {
+                        FormSection("エラー", icon: "exclamationmark.triangle") {
+                            Label(error, systemImage: "exclamationmark.triangle.fill")
+                                .font(Theme.Font.caption)
+                                .foregroundStyle(Theme.Color.statusBad)
+                        }
                     }
                 }
+                .padding(.horizontal, Theme.Spacing.md)
+                .padding(.vertical, Theme.Spacing.sm)
             }
-            .listStyle(.insetGrouped)
+            .background(Theme.Color.bg)
             .navigationTitle("チャンネル追加")
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
                 ToolbarItem(placement: .topBarLeading) {
-                    Button("キャンセル") { dismiss() }.foregroundStyle(Color.textSecondary)
+                    Button("キャンセル") { dismiss() }
+                        .foregroundStyle(Theme.Color.textSecondary)
                 }
                 ToolbarItem(placement: .topBarTrailing) {
                     if isCreating { ProgressView() }
                     else {
                         Button("作成") { Task { await create() } }
+                            .font(Theme.Font.bodyMedium)
                             .fontWeight(.semibold)
-                            .foregroundStyle(canCreate ? Color.accentIndigo : Color.textTertiary)
+                            .foregroundStyle(canCreate ? Theme.Color.accent : Theme.Color.textTertiary)
                             .disabled(!canCreate)
                     }
                 }
             }
         }
         .presentationDetents([.medium])
-    }
-
-    private func accentColor(_ type: StatType) -> Color {
-        switch type {
-        case .members: return .accentIndigo
-        case .online:  return .accentGreen
-        case .boosts:  return .accentOrange
-        case .vcUsers: return .accentPurple
-        }
     }
 
     private func create() async {
@@ -624,4 +770,26 @@ private struct StatChannelAddSheet: View {
 #Preview("課金済み・未有効化") {
     NavigationStack { StatChannelsView(guildId: "g001") }
         .environment(\.services, ServiceContainer.live())
+}
+
+#Preview("有効化済み・空") {
+    NavigationStack { StatChannelsView(guildId: "g001") }
+        .environment(\.services, ServiceContainer.live())
+}
+
+#Preview("有効化済み・リスト") {
+    NavigationStack { StatChannelsView(guildId: "g001") }
+        .environment(\.services, ServiceContainer.live())
+}
+
+#Preview("有効化済み・リスト Dark") {
+    NavigationStack { StatChannelsView(guildId: "g001") }
+        .environment(\.services, ServiceContainer.live())
+        .preferredColorScheme(.dark)
+}
+
+#Preview("有効化済み・リスト Light") {
+    NavigationStack { StatChannelsView(guildId: "g001") }
+        .environment(\.services, ServiceContainer.live())
+        .preferredColorScheme(.light)
 }

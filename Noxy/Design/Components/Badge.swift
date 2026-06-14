@@ -2,17 +2,17 @@ import SwiftUI
 
 struct Badge: View {
     let text: String
-    var color: Color = .accentIndigo
+    var color: Color = Theme.Color.accent
     var style: BadgeStyle = .filled
 
     enum BadgeStyle { case filled, outlined }
 
     var body: some View {
         Text(text)
-            .font(.captionSmall)
+            .font(Theme.Font.caption2)
             .bold()
             .tracking(0.4)
-            .foregroundStyle(style == .filled ? .white : color)
+            .foregroundStyle(style == .filled ? Theme.Color.accentInk : color)
             .padding(.horizontal, 5)
             .padding(.vertical, 2)
             .background(
@@ -28,13 +28,13 @@ struct Badge: View {
 }
 
 #Preview {
-    HStack(spacing: .spacing8) {
-        Badge(text: "BOT", color: .accentIndigo)
-        Badge(text: "NEW", color: .accentGreen)
-        Badge(text: "BETA", color: .accentOrange)
-        Badge(text: "PRO", color: .accentPink)
-        Badge(text: "ADMIN", color: .accentPurple, style: .outlined)
+    HStack(spacing: Theme.Spacing.xs) {
+        Badge(text: "BOT", color: Theme.Color.accent)
+        Badge(text: "NEW", color: Theme.Color.statusOK)
+        Badge(text: "BETA", color: Theme.Color.statusWarn)
+        Badge(text: "PRO", color: Theme.Color.statusBad)
+        Badge(text: "ADMIN", color: Theme.Color.accent, style: .outlined)
     }
     .padding()
-    .background(Color.bgPrimary)
+    .background(Theme.Color.bg)
 }

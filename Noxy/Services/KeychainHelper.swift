@@ -4,7 +4,7 @@ import Security
 // MARK: - KeychainHelper (#3: トークンを UserDefaults ではなく Keychain に保存)
 
 enum KeychainHelper {
-    private static let service = Bundle.main.bundleIdentifier ?? "com.Noxy"
+    nonisolated private static let service = "com.Noxy"
 
     // MARK: - Save
 

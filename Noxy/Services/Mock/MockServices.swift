@@ -248,7 +248,7 @@ actor MockTicketService: TicketServiceProtocol {
         let msg = TicketMessage(
             id: UUID().uuidString, ticketId: ticketId,
             userId: "staff001", username: "Noxy Bot",
-            content: message, isStaff: true, createdAt: .now
+            content: message, isStaff: true, createdAt: .now, source: "app"
         )
         messages.append(msg)
         guard let idx = tickets.firstIndex(where: { $0.id == ticketId }) else { return }
