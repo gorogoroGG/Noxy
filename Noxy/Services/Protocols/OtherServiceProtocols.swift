@@ -48,6 +48,11 @@ protocol GreetingServiceProtocol: Sendable {
     func save(_ settings: GreetingSettings) async throws -> GreetingSettings
 }
 
+protocol VCNotificationServiceProtocol: Sendable {
+    func fetchSettings(guildId: String) async throws -> VCNotificationSettings
+    func saveSettings(_ settings: VCNotificationSettings) async throws -> VCNotificationSettings
+}
+
 protocol SubscriptionServiceProtocol: Sendable {
     /// Worker からサブスク状態を取得
     func fetchStatus(discordUserId: String) async throws -> SubscriptionStatus
@@ -59,6 +64,25 @@ protocol SubscriptionServiceProtocol: Sendable {
     func activateServer(guildId: String) async throws
     /// サーバーの有効化を解除
     func deactivateServer(guildId: String) async throws
+}
+
+protocol InviteTrackerServiceProtocol: Sendable {
+    func fetchLeaderboard(guildId: String, period: InvitePeriod) async throws -> [InviteStats]
+    func fetchMemberDetail(guildId: String, userId: String) async throws -> InviteMemberDetail
+    func fetchTree(guildId: String, userId: String) async throws -> InviteTreeNode
+    func fetchSettings(guildId: String) async throws -> InviteTrackerSettings
+    func saveSettings(_ settings: InviteTrackerSettings) async throws -> InviteTrackerSettings
+    func fetchCampaigns(guildId: String) async throws -> [InviteCampaign]
+    func createCampaign(guildId: String, name: String, description: String?,
+                        inviteCode: String?, targetCount: Int?, endsAt: Date?) async throws -> InviteCampaign
+    func deleteCampaign(id: String) async throws
+    // Invite Panel
+    func deployInvitePanel(guildId: String, channelId: String, channelName: String) async throws -> InvitePanel
+    func fetchInvitePanels(guildId: String) async throws -> [InvitePanel]
+    func deleteInvitePanel(id: String) async throws
+    // Personal Invite Links
+    func fetchPersonalInviteLinks(guildId: String) async throws -> [PersonalInviteLink]
+    func revokePersonalInviteLink(id: String) async throws
 }
 
 protocol StatChannelServiceProtocol: Sendable {

@@ -23,6 +23,7 @@ struct ShopsListView: View {
             case .orders: OrdersListView(guildId: guildId)
             }
         }
+        .frame(maxHeight: .infinity)
         .background(Theme.Color.bg)
         .navigationTitle(shopType.label)
         .navigationBarTitleDisplayMode(.inline)
@@ -139,52 +140,53 @@ private struct ShopPanelListView: View {
                     .overlay(Divider().background(Theme.Color.line), alignment: .bottom)
                 }
 
-                ScrollView {
-                    LazyVStack(spacing: Theme.Spacing.md) {
-                        if isLoading {
-                            ForEach(0..<3) { _ in skeletonCard }
-                                .transition(.opacity)
-                        } else if filteredShops.isEmpty {
-                            emptyState
-                                .transition(.opacity)
-                        } else {
-                            SectionLabel(title: "\(shopType.label)リスト")
+                GeometryReader { geometry in
+                    ScrollView {
+                        VStack(spacing: Theme.Spacing.md) {
+                            if isLoading {
+                                ForEach(0..<3) { _ in skeletonCard }
+                                    .transition(.opacity)
+                            } else if filteredShops.isEmpty {
+                                emptyState
+                                    .transition(.opacity)
+                            } else {
+                                VStack(spacing: Theme.Spacing.sm) {
+                                    ForEach(filteredShops) { shop in
+                                        ShopRow(
+                                            shop: shop,
+                                            productCount: productCounts[shop.id] ?? 0,
+                                            isDeploying: deployingId == shop.id,
+                                            onStatusTap: { statusShop = shop },
+                                            onSettings:  { settingsShop = shop },
+                                            onProducts:  { productsShop = shop },
+                                            onDeploy: {
+                                                if shop.isDeployed {
+                                                    pendingRedeployShop = shop
+                                                    showRedeployConfirm = true
+                                                } else {
+                                                    deployTargetShop = shop
+                                                }
+                                            },
+                                            onDelete: {
+                                                deletingShop = shop
+                                                showDeleteConfirm = true
+                                            }
+                                        )
+                                        .background(Theme.Color.surface)
+                                        .clipShape(RoundedRectangle(cornerRadius: Theme.Radius.card))
+                                    }
+                                }
                                 .padding(.horizontal, Theme.Spacing.md)
 
-                            VStack(spacing: Theme.Spacing.sm) {
-                                ForEach(filteredShops) { shop in
-                                    ShopRow(
-                                        shop: shop,
-                                        productCount: productCounts[shop.id] ?? 0,
-                                        isDeploying: deployingId == shop.id,
-                                        onStatusTap: { statusShop = shop },
-                                        onSettings:  { settingsShop = shop },
-                                        onProducts:  { productsShop = shop },
-                                        onDeploy: {
-                                            if shop.isDeployed {
-                                                pendingRedeployShop = shop
-                                                showRedeployConfirm = true
-                                            } else {
-                                                deployTargetShop = shop
-                                            }
-                                        },
-                                        onDelete: {
-                                            deletingShop = shop
-                                            showDeleteConfirm = true
-                                        }
-                                    )
-                                    .background(Theme.Color.surface)
-                                    .clipShape(RoundedRectangle(cornerRadius: Theme.Radius.card))
-                                }
+                                bottomPad
                             }
-                            .padding(.horizontal, Theme.Spacing.md)
-
-                            bottomPad
                         }
+                        .padding(.top, Theme.Spacing.sm)
+                        .frame(minHeight: geometry.size.height + 1)
                     }
-                    .padding(.top, Theme.Spacing.md)
                 }
             }
+            .frame(maxHeight: .infinity)
 
             Button { showCreate = true } label: {
                 HStack(spacing: Theme.Spacing.xs) {

@@ -5,6 +5,7 @@ struct VerifyRequestsView: View {
     let panelId: String?  // nil = 全パネルの申請を表示
 
     @Environment(\.services) private var services
+    @Environment(AppState.self) private var appState
     @State private var requests: [VerifyRequest] = []
     @State private var isLoading = true
     @State private var processingId: String? = nil
@@ -51,8 +52,16 @@ struct VerifyRequestsView: View {
     }
 
     private func load() async {
-        isLoading = true
-        requests = (try? await services.verify.fetchRequests(guildId: guildId, status: .pending)) ?? []
+        if let cached: [VerifyRequest] = appState.guildData(.verifyRequests, guild: guildId) {
+            requests = cached
+            isLoading = false
+        } else {
+            isLoading = true
+        }
+        if let fetched = try? await services.verify.fetchRequests(guildId: guildId, status: .pending) {
+            requests = fetched
+            appState.setGuildData(fetched, .verifyRequests, guild: guildId)
+        }
         isLoading = false
     }
 

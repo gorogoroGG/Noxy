@@ -248,7 +248,7 @@ actor MockTicketService: TicketServiceProtocol {
         let msg = TicketMessage(
             id: UUID().uuidString, ticketId: ticketId,
             userId: "staff001", username: "Noxy Bot",
-            content: message, isStaff: true, createdAt: .now, source: "app"
+            content: message, isStaff: true, createdAt: .now    , source: "app"
         )
         messages.append(msg)
         guard let idx = tickets.firstIndex(where: { $0.id == ticketId }) else { return }
@@ -451,6 +451,23 @@ actor MockTempChannelService: TempChannelServiceProtocol {
     }
 }
 
+// MARK: - VCNotification
+
+actor MockVCNotificationService: VCNotificationServiceProtocol {
+    private var stored: [String: VCNotificationSettings] = [:]
+
+    func fetchSettings(guildId: String) async throws -> VCNotificationSettings {
+        try await mockDelay()
+        return stored[guildId] ?? VCNotificationSettings.defaultSettings(guildId: guildId)
+    }
+
+    func saveSettings(_ settings: VCNotificationSettings) async throws -> VCNotificationSettings {
+        try await mockDelay()
+        stored[settings.guildId] = settings
+        return settings
+    }
+}
+
 // MARK: - ReactionRole
 
 actor MockReactionRoleService: ReactionRoleServiceProtocol {
@@ -482,7 +499,17 @@ actor MockReactionRoleService: ReactionRoleServiceProtocol {
 actor MockShopService: ShopServiceProtocol {
     nonisolated(unsafe) private var shops: [Shop] = []
     nonisolated(unsafe) private var products: [Product] = []
-    nonisolated(unsafe) private var orders: [Order] = []
+    nonisolated(unsafe) private var orders: [Order] = (1...14).map { i in
+        let statuses: [OrderStatus] = [.open, .paid, .delivered, .completed, .cancelled, .disputed]
+        return Order(id: "o\(i)", shopId: "s1", productId: "p1", guildId: "g001", channelId: "c1",
+                     buyerUserId: "u\(i)", buyerUsername: "buyer\(i)", productName: "サンプル商品 \(i)",
+                     productPriceDisplay: "¥\(i * 120)", status: statuses[i % statuses.count],
+                     buyerConfirmed: false, sellerConfirmed: false, buyerCancelRequested: false,
+                     sellerCancelRequested: false, paymentUrl: i % 2 == 0 ? "https://example.com/pay" : nil,
+                     paymentSubmittedAt: nil, createdAt: Date().addingTimeInterval(Double(-i * 3600)),
+                     paidAt: nil, deliveredAt: nil, completedAt: nil, cancelledAt: nil,
+                     archivedAt: nil, autoDeleteAt: nil)
+    } // TEMP-TEST seed
 
     func fetchShops(guildId: String) async throws -> [Shop] {
         try await mockDelay()
@@ -681,5 +708,205 @@ actor MockSubscriptionService: SubscriptionServiceProtocol {
             expiresAt: status.expiresAt,
             activatedGuildIds: ids
         )
+    }
+}
+
+// MARK: - InviteTracker
+
+actor MockInviteTrackerService: InviteTrackerServiceProtocol {
+    // MARK: Seed data
+
+    private static let guildId = "g001"
+
+    private static let leaderboard: [InviteStats] = [
+        InviteStats(userId: "u001", guildId: guildId, username: "taro_san",   displayName: "太郎",    avatarUrl: nil, totalInvites: 15, validInvites: 12, leftInvites: 2, fakeInvites: 1, influenceScore: 34, treeSize: 22, retentionRate: 0.857, rank: 1),
+        InviteStats(userId: "u002", guildId: guildId, username: "hanako_777", displayName: "花子",    avatarUrl: nil, totalInvites: 10, validInvites: 8,  leftInvites: 2, fakeInvites: 0, influenceScore: 18, treeSize: 11, retentionRate: 0.800, rank: 2),
+        InviteStats(userId: "u003", guildId: guildId, username: "ryo_game",   displayName: "涼",      avatarUrl: nil, totalInvites: 8,  validInvites: 7,  leftInvites: 1, fakeInvites: 0, influenceScore: 14, treeSize: 7,  retentionRate: 0.875, rank: 3),
+        InviteStats(userId: "u004", guildId: guildId, username: "mika_art",   displayName: "美香",    avatarUrl: nil, totalInvites: 6,  validInvites: 4,  leftInvites: 1, fakeInvites: 1, influenceScore: 8,  treeSize: 4,  retentionRate: 0.800, rank: 4),
+        InviteStats(userId: "u005", guildId: guildId, username: "kenji_dev",  displayName: "健二",    avatarUrl: nil, totalInvites: 5,  validInvites: 5,  leftInvites: 0, fakeInvites: 0, influenceScore: 7,  treeSize: 2,  retentionRate: 1.000, rank: 5),
+        InviteStats(userId: "u006", guildId: guildId, username: "yuki_music", displayName: "雪",      avatarUrl: nil, totalInvites: 4,  validInvites: 3,  leftInvites: 1, fakeInvites: 0, influenceScore: 5,  treeSize: 1,  retentionRate: 0.750, rank: 6),
+        InviteStats(userId: "u007", guildId: guildId, username: "haru_net",   displayName: "春太",    avatarUrl: nil, totalInvites: 3,  validInvites: 3,  leftInvites: 0, fakeInvites: 0, influenceScore: 3,  treeSize: 0,  retentionRate: 1.000, rank: 7),
+        InviteStats(userId: "u008", guildId: guildId, username: "sora_blue",  displayName: "空",      avatarUrl: nil, totalInvites: 2,  validInvites: 1,  leftInvites: 1, fakeInvites: 0, influenceScore: 2,  treeSize: 0,  retentionRate: 0.500, rank: 8),
+    ]
+
+    private static let tree = InviteTreeNode(
+        userId: "u001", username: "taro_san", displayName: "太郎",
+        avatarUrl: nil, isCurrentMember: true,
+        joinedAt: Date().addingTimeInterval(-60 * 60 * 24 * 90),
+        leftAt: nil, directInvites: 3, totalDescendants: 22,
+        children: [
+            InviteTreeNode(
+                userId: "u002", username: "hanako_777", displayName: "花子",
+                avatarUrl: nil, isCurrentMember: true,
+                joinedAt: Date().addingTimeInterval(-60 * 60 * 24 * 60),
+                leftAt: nil, directInvites: 4, totalDescendants: 11,
+                children: [
+                    InviteTreeNode(
+                        userId: "u005", username: "kenji_dev", displayName: "健二",
+                        avatarUrl: nil, isCurrentMember: true,
+                        joinedAt: Date().addingTimeInterval(-60 * 60 * 24 * 40),
+                        leftAt: nil, directInvites: 2, totalDescendants: 2,
+                        children: [
+                            InviteTreeNode(userId: "u012", username: "rin_ui", displayName: "凛", avatarUrl: nil, isCurrentMember: true, joinedAt: Date().addingTimeInterval(-60 * 60 * 24 * 20), leftAt: nil, directInvites: 0, totalDescendants: 0, children: []),
+                            InviteTreeNode(userId: "u013", username: "ao_chan", displayName: "葵", avatarUrl: nil, isCurrentMember: false, joinedAt: Date().addingTimeInterval(-60 * 60 * 24 * 15), leftAt: Date().addingTimeInterval(-60 * 60 * 24 * 5), directInvites: 0, totalDescendants: 0, children: []),
+                        ]
+                    ),
+                    InviteTreeNode(
+                        userId: "u006", username: "yuki_music", displayName: "雪",
+                        avatarUrl: nil, isCurrentMember: true,
+                        joinedAt: Date().addingTimeInterval(-60 * 60 * 24 * 35),
+                        leftAt: nil, directInvites: 1, totalDescendants: 1,
+                        children: [
+                            InviteTreeNode(userId: "u014", username: "souta_x", displayName: "奏太", avatarUrl: nil, isCurrentMember: true, joinedAt: Date().addingTimeInterval(-60 * 60 * 24 * 10), leftAt: nil, directInvites: 0, totalDescendants: 0, children: []),
+                        ]
+                    ),
+                    InviteTreeNode(userId: "u015", username: "nana_77", displayName: "七", avatarUrl: nil, isCurrentMember: false, joinedAt: Date().addingTimeInterval(-60 * 60 * 24 * 50), leftAt: Date().addingTimeInterval(-60 * 60 * 24 * 30), directInvites: 0, totalDescendants: 0, children: []),
+                    InviteTreeNode(userId: "u016", username: "riku_z",  displayName: "陸", avatarUrl: nil, isCurrentMember: true, joinedAt: Date().addingTimeInterval(-60 * 60 * 24 * 45), leftAt: nil, directInvites: 0, totalDescendants: 0, children: []),
+                ]
+            ),
+            InviteTreeNode(
+                userId: "u003", username: "ryo_game", displayName: "涼",
+                avatarUrl: nil, isCurrentMember: true,
+                joinedAt: Date().addingTimeInterval(-60 * 60 * 24 * 55),
+                leftAt: nil, directInvites: 3, totalDescendants: 7,
+                children: [
+                    InviteTreeNode(userId: "u007", username: "haru_net", displayName: "春太", avatarUrl: nil, isCurrentMember: true, joinedAt: Date().addingTimeInterval(-60 * 60 * 24 * 30), leftAt: nil, directInvites: 0, totalDescendants: 0, children: []),
+                    InviteTreeNode(userId: "u008", username: "sora_blue", displayName: "空", avatarUrl: nil, isCurrentMember: false, joinedAt: Date().addingTimeInterval(-60 * 60 * 24 * 28), leftAt: Date().addingTimeInterval(-60 * 60 * 24 * 3), directInvites: 0, totalDescendants: 0, children: []),
+                    InviteTreeNode(userId: "u009", username: "mei_star", displayName: "芽衣", avatarUrl: nil, isCurrentMember: true, joinedAt: Date().addingTimeInterval(-60 * 60 * 24 * 25), leftAt: nil, directInvites: 0, totalDescendants: 0, children: []),
+                ]
+            ),
+            InviteTreeNode(
+                userId: "u004", username: "mika_art", displayName: "美香",
+                avatarUrl: nil, isCurrentMember: true,
+                joinedAt: Date().addingTimeInterval(-60 * 60 * 24 * 70),
+                leftAt: nil, directInvites: 2, totalDescendants: 4,
+                children: [
+                    InviteTreeNode(userId: "u010", username: "kai_99", displayName: "海", avatarUrl: nil, isCurrentMember: true, joinedAt: Date().addingTimeInterval(-60 * 60 * 24 * 50), leftAt: nil, directInvites: 0, totalDescendants: 0, children: []),
+                    InviteTreeNode(userId: "u011", username: "tsuki_m", displayName: "月", avatarUrl: nil, isCurrentMember: false, joinedAt: Date().addingTimeInterval(-60 * 60 * 24 * 48), leftAt: Date().addingTimeInterval(-60 * 60 * 24 * 10), directInvites: 0, totalDescendants: 0, children: []),
+                ]
+            ),
+        ]
+    )
+
+    nonisolated(unsafe) private var campaigns: [InviteCampaign] = [
+        InviteCampaign(id: "c1", guildId: "g001", name: "夏の招待キャンペーン", description: "友達を呼んでサーバーを盛り上げよう！", inviteCode: "noxy-summer", targetCount: 100, currentCount: 67, startsAt: Date().addingTimeInterval(-60 * 60 * 24 * 7), endsAt: Date().addingTimeInterval(60 * 60 * 24 * 7), isActive: true, createdAt: Date().addingTimeInterval(-60 * 60 * 24 * 7)),
+        InviteCampaign(id: "c2", guildId: "g001", name: "コミュニティ拡大月間", description: nil, inviteCode: nil, targetCount: 50, currentCount: 50, startsAt: Date().addingTimeInterval(-60 * 60 * 24 * 30), endsAt: Date().addingTimeInterval(-60 * 60 * 24 * 1), isActive: false, createdAt: Date().addingTimeInterval(-60 * 60 * 24 * 30)),
+    ]
+
+    nonisolated(unsafe) private var settings = InviteTrackerSettings(
+        guildId: "g001", isEnabled: true, logChannelId: nil,
+        notifyOnJoin: true, notifyOnLeave: false,
+        fakeInviteThresholdHours: 24,
+        milestones: [
+            InviteMilestone(id: "m1", guildId: "g001", count: 5,  roleId: "r1", roleName: "招待者"),
+            InviteMilestone(id: "m2", guildId: "g001", count: 20, roleId: "r2", roleName: "招待マスター"),
+        ]
+    )
+
+    // MARK: Protocol
+
+    func fetchLeaderboard(guildId: String, period: InvitePeriod) async throws -> [InviteStats] {
+        try await mockDelay()
+        return Self.leaderboard.map { InviteStats(userId: $0.userId, guildId: guildId, username: $0.username, displayName: $0.displayName, avatarUrl: $0.avatarUrl, totalInvites: $0.totalInvites, validInvites: $0.validInvites, leftInvites: $0.leftInvites, fakeInvites: $0.fakeInvites, influenceScore: $0.influenceScore, treeSize: $0.treeSize, retentionRate: $0.retentionRate, rank: $0.rank) }
+    }
+
+    func fetchMemberDetail(guildId: String, userId: String) async throws -> InviteMemberDetail {
+        try await mockDelay()
+        let stat = Self.leaderboard.first { $0.userId == userId } ?? Self.leaderboard[0]
+        let count = min(stat.validInvites + stat.leftInvites, 6)
+        var invitees: [InviteEventEntry] = []
+        for i in 0..<count {
+            let left: Date? = (i % 4 == 0) ? Date().addingTimeInterval(Double(-i * 86400)) : nil
+            invitees.append(InviteEventEntry(
+                userId: "inv\(i)", username: "user_\(i)", displayName: "招待者\(i + 1)",
+                avatarUrl: nil,
+                joinedAt: Date().addingTimeInterval(Double(-i * 86400 * 3)),
+                leftAt: left
+            ))
+        }
+        let invitedByUserId: String? = userId == "u001" ? nil : "u001"
+        let invitedByUsername: String? = userId == "u001" ? nil : "taro_san"
+        let invitedByDisplayName: String? = userId == "u001" ? nil : "太郎"
+        let path: [String] = userId == "u001" ? [] : ["太郎", stat.displayName]
+        return InviteMemberDetail(
+            stats: stat, recentInvitees: invitees,
+            invitedByUserId: invitedByUserId,
+            invitedByUsername: invitedByUsername,
+            invitedByDisplayName: invitedByDisplayName,
+            invitePathDisplayNames: path
+        )
+    }
+
+    func fetchTree(guildId: String, userId: String) async throws -> InviteTreeNode {
+        try await mockDelay()
+        return Self.tree
+    }
+
+    func fetchSettings(guildId: String) async throws -> InviteTrackerSettings {
+        try await mockDelay(); return settings
+    }
+
+    func saveSettings(_ s: InviteTrackerSettings) async throws -> InviteTrackerSettings {
+        try await mockDelay(); settings = s; return s
+    }
+
+    func fetchCampaigns(guildId: String) async throws -> [InviteCampaign] {
+        try await mockDelay(); return campaigns
+    }
+
+    func createCampaign(guildId: String, name: String, description: String?,
+                        inviteCode: String?, targetCount: Int?, endsAt: Date?) async throws -> InviteCampaign {
+        try await mockDelay()
+        let c = InviteCampaign(id: UUID().uuidString, guildId: guildId, name: name,
+                               description: description, inviteCode: inviteCode,
+                               targetCount: targetCount, currentCount: 0,
+                               startsAt: Date(), endsAt: endsAt, isActive: true, createdAt: Date())
+        campaigns.append(c); return c
+    }
+
+    func deleteCampaign(id: String) async throws {
+        try await mockDelay(); campaigns.removeAll { $0.id == id }
+    }
+
+    // MARK: - Invite Panel
+
+    nonisolated(unsafe) var panels: [InvitePanel] = [
+        InvitePanel(id: "p1", guildId: "g001", channelId: "ch001", channelName: "📩招待リンク",
+                    messageId: "msg001", createdAt: Date().addingTimeInterval(-86400 * 3)),
+    ]
+
+    nonisolated(unsafe) var personalInvites: [PersonalInviteLink] = [
+        PersonalInviteLink(id: "pi1", guildId: "g001", userId: "u001", username: "taro_san",
+                           displayName: "太郎", inviteCode: "abc123", inviteUrl: "https://discord.gg/abc123",
+                           channelId: "ch001", createdAt: Date().addingTimeInterval(-86400 * 2)),
+        PersonalInviteLink(id: "pi2", guildId: "g001", userId: "u002", username: "hanako",
+                           displayName: "花子", inviteCode: "def456", inviteUrl: "https://discord.gg/def456",
+                           channelId: "ch001", createdAt: Date().addingTimeInterval(-86400)),
+        PersonalInviteLink(id: "pi3", guildId: "g001", userId: "u003", username: "ryo_san",
+                           displayName: "涼", inviteCode: "ghi789", inviteUrl: "https://discord.gg/ghi789",
+                           channelId: "ch001", createdAt: Date().addingTimeInterval(-3600 * 5)),
+    ]
+
+    func deployInvitePanel(guildId: String, channelId: String, channelName: String) async throws -> InvitePanel {
+        try await mockDelay()
+        let panel = InvitePanel(id: UUID().uuidString, guildId: guildId, channelId: channelId,
+                                channelName: channelName, messageId: "new_msg", createdAt: Date())
+        panels.append(panel); return panel
+    }
+
+    func fetchInvitePanels(guildId: String) async throws -> [InvitePanel] {
+        try await mockDelay(); return panels.filter { $0.guildId == guildId }
+    }
+
+    func deleteInvitePanel(id: String) async throws {
+        try await mockDelay(); panels.removeAll { $0.id == id }
+    }
+
+    func fetchPersonalInviteLinks(guildId: String) async throws -> [PersonalInviteLink] {
+        try await mockDelay(); return personalInvites.filter { $0.guildId == guildId }
+    }
+
+    func revokePersonalInviteLink(id: String) async throws {
+        try await mockDelay(); personalInvites.removeAll { $0.id == id }
     }
 }

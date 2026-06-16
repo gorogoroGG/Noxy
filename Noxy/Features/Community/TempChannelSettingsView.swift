@@ -6,6 +6,7 @@ struct TempChannelSettingsView: View {
     let guildId: String
 
     @Environment(\.services) private var services
+    @Environment(AppState.self) private var appState
     @State private var settings: TempChannelSettings? = nil
     @State private var isLoading = true
     @State private var isSaving = false
@@ -307,12 +308,7 @@ struct TempChannelSettingsView: View {
 
     // MARK: - Actions
 
-    private func loadAll() async {
-        isLoading = true
-        async let settingsTask     = services.tempChannel.fetchSettings(guildId: guildId)
-        async let activeTask       = services.tempChannel.fetchActiveChannels(guildId: guildId)
-
-        let s = (try? await settingsTask) ?? TempChannelSettings.defaultSettings(guildId: guildId)
+    private func applySettings(_ s: TempChannelSettings) {
         settings = s
         enabled              = s.enabled
         categoryId           = s.categoryId ?? ""
@@ -322,8 +318,31 @@ struct TempChannelSettingsView: View {
         joinLeaveNotif       = s.joinLeaveNotification
         watchAllVcs          = s.watchAllVcs
         minMembers           = s.minMembers
+    }
 
-        activeChannels = (try? await activeTask) ?? []
+    private func loadAll() async {
+        // 先読み済みキャッシュがあれば即適用
+        if let cachedS: TempChannelSettings = appState.guildData(.tempChannelSettings, guild: guildId) {
+            applySettings(cachedS)
+            if let cachedA: [ActiveTempChannel] = appState.guildData(.tempChannelActive, guild: guildId) {
+                activeChannels = cachedA
+            }
+            isLoading = false
+        } else {
+            isLoading = true
+        }
+
+        async let settingsTask     = services.tempChannel.fetchSettings(guildId: guildId)
+        async let activeTask       = services.tempChannel.fetchActiveChannels(guildId: guildId)
+
+        let s = (try? await settingsTask) ?? settings ?? TempChannelSettings.defaultSettings(guildId: guildId)
+        applySettings(s)
+        appState.setGuildData(s, .tempChannelSettings, guild: guildId)
+
+        if let active = try? await activeTask {
+            activeChannels = active
+            appState.setGuildData(active, .tempChannelActive, guild: guildId)
+        }
 
         struct RawCh: Decodable { let id: String; let name: String; let type: Int }
         if let chs = try? await WorkerClient().get("/bot/channels?guild_id=\(guildId)") as [RawCh] {

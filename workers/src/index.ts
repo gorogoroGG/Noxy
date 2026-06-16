@@ -1047,6 +1047,86 @@ export default {
         const userId: string   = ix.member?.user?.id ?? ix.user?.id ?? '';
         const guildId: string  = ix.guild_id ?? '';
 
+        // ── 個人招待リンク取得ボタン personal_invite:{guildId} ──────────
+        const personalInviteMatch = customId.match(/^personal_invite:(.+)$/);
+        if (personalInviteMatch) {
+          const gId = personalInviteMatch[1];
+          const username    = ix.member?.user?.username    ?? ix.user?.username    ?? userId;
+          const displayName = ix.member?.nick ?? ix.member?.user?.global_name ?? ix.member?.user?.username ?? username;
+
+          // 既存の個人リンクを確認
+          const existingResp = await sb(`/personal_invites?guild_id=eq.${gId}&user_id=eq.${userId}`);
+          const existing: any[] = existingResp.ok ? await existingResp.json() : [];
+
+          let inviteCode: string;
+          let inviteUrl: string;
+
+          if (existing.length > 0) {
+            // 既存リンクを再表示
+            inviteCode = existing[0].invite_code;
+            inviteUrl  = existing[0].invite_url;
+          } else {
+            // 新しいDiscord招待リンクを作成（最初のパネルのチャンネルIDを使用）
+            const panelsResp = await sb(`/invite_panels?guild_id=eq.${gId}&limit=1`);
+            const panelRows: any[] = panelsResp.ok ? await panelsResp.json() : [];
+            const targetChannelId = panelRows.length > 0 ? panelRows[0].channel_id : '';
+
+            if (!targetChannelId) {
+              return jsonResponse({ type: 4, data: { content: '❌ 招待パネルの設定が見つかりません。', flags: 64 } });
+            }
+
+            // Discord Invite API: unique=true で必ず新しいコードを発行
+            const inviteResp = await fetch(`https://discord.com/api/v10/channels/${targetChannelId}/invites`, {
+              method: 'POST',
+              headers: { Authorization: `Bot ${env.DISCORD_BOT_TOKEN}`, 'Content-Type': 'application/json' },
+              body: JSON.stringify({ max_age: 0, max_uses: 0, unique: true }),
+            });
+
+            if (!inviteResp.ok) {
+              return jsonResponse({ type: 4, data: { content: '❌ 招待リンクの作成に失敗しました。', flags: 64 } });
+            }
+            const invite = await inviteResp.json() as { code: string };
+            inviteCode = invite.code;
+            inviteUrl  = `https://discord.gg/${inviteCode}`;
+
+            // DBに保存
+            await sb('/personal_invites', {
+              method: 'POST',
+              headers: { Prefer: 'return=representation' },
+              body: JSON.stringify({
+                guild_id: gId, user_id: userId, username, display_name: displayName,
+                invite_code: inviteCode, invite_url: inviteUrl, channel_id: targetChannelId,
+              }),
+            });
+
+            // DMでも送信（失敗しても無視）
+            try {
+              const dmChResp = await fetch('https://discord.com/api/v10/users/@me/channels', {
+                method: 'POST',
+                headers: { Authorization: `Bot ${env.DISCORD_BOT_TOKEN}`, 'Content-Type': 'application/json' },
+                body: JSON.stringify({ recipient_id: userId }),
+              });
+              if (dmChResp.ok) {
+                const dmCh = await dmChResp.json() as { id: string };
+                await fetch(`https://discord.com/api/v10/channels/${dmCh.id}/messages`, {
+                  method: 'POST',
+                  headers: { Authorization: `Bot ${env.DISCORD_BOT_TOKEN}`, 'Content-Type': 'application/json' },
+                  body: JSON.stringify({
+                    content: `🔗 **あなた専用の招待リンクを発行しました！**\n\n${inviteUrl}\n\nこのリンクを使って友達をサーバーに招待してください。このリンクはあなただけのものです。`,
+                  }),
+                });
+              }
+            } catch (_) { /* DM送信失敗は無視 */ }
+          }
+
+          const isNew = existing.length === 0;
+          const message = isNew
+            ? `✅ **あなた専用の招待リンクを発行しました！**\n\n${inviteUrl}\n\n※ このメッセージはあなたにだけ表示されています。`
+            : `🔗 **あなたの招待リンクはこちらです**\n\n${inviteUrl}\n\n※ このメッセージはあなたにだけ表示されています。`;
+
+          return jsonResponse({ type: 4, data: { content: message, flags: 64 } });
+        }
+
         // ── チケット開設ボタン ticket_open_{panelId} ──────────────────
         const ticketOpenMatch = customId.match(/^ticket_open_(.+)$/);
         if (ticketOpenMatch) {
@@ -3954,6 +4034,311 @@ export default {
       const rows: StatChannelRow[] = getResp.ok ? await getResp.json() : [];
       if (rows.length === 0) return new Response('Not found', { status: 404 });
       await updateSingleStatChannel(rows[0], env);
+      return new Response(JSON.stringify({ ok: true }), { headers: { 'Content-Type': 'application/json' } });
+    }
+
+    // ── Invite Tracker ────────────────────────────────────────────────
+
+    // GET /bot/invite-tracker/leaderboard?guild_id=xxx&period=xxx
+    if (url.pathname === '/bot/invite-tracker/leaderboard' && request.method === 'GET') {
+      const guildId = url.searchParams.get('guild_id');
+      const period  = url.searchParams.get('period') ?? 'all_time';
+      if (!guildId) return new Response('Missing guild_id', { status: 400 });
+
+      let filter = `guild_id=eq.${guildId}`;
+      if (period === 'today') {
+        const since = new Date(); since.setHours(0, 0, 0, 0);
+        filter += `&joined_since=gte.${since.toISOString()}`;
+      } else if (period === 'week') {
+        const since = new Date(); since.setDate(since.getDate() - 7);
+        filter += `&joined_since=gte.${since.toISOString()}`;
+      } else if (period === 'month') {
+        const since = new Date(); since.setMonth(since.getMonth() - 1);
+        filter += `&joined_since=gte.${since.toISOString()}`;
+      }
+
+      const resp = await sb(`/invite_stats?${filter}&order=valid_invites.desc&limit=50`);
+      if (!resp.ok) return new Response('Supabase error', { status: 500 });
+      const rows: any[] = await resp.json();
+      return new Response(JSON.stringify(rows.map((r, i) => ({ ...r, rank: i + 1,
+        userId: r.user_id, guildId: r.guild_id, displayName: r.display_name,
+        avatarUrl: r.avatar_url, totalInvites: r.total_invites, validInvites: r.valid_invites,
+        leftInvites: r.left_invites, fakeInvites: r.fake_invites, influenceScore: r.influence_score,
+        treeSize: r.tree_size, retentionRate: r.retention_rate,
+      }))), { headers: { 'Content-Type': 'application/json' } });
+    }
+
+    // GET /bot/invite-tracker/member?guild_id=xxx&user_id=xxx
+    if (url.pathname === '/bot/invite-tracker/member' && request.method === 'GET') {
+      const guildId = url.searchParams.get('guild_id');
+      const userId  = url.searchParams.get('user_id');
+      if (!guildId || !userId) return new Response('Missing params', { status: 400 });
+
+      const [statsResp, eventsResp, parentResp] = await Promise.all([
+        sb(`/invite_stats?guild_id=eq.${guildId}&user_id=eq.${userId}`),
+        sb(`/invite_events?guild_id=eq.${guildId}&inviter_user_id=eq.${userId}&order=joined_at.desc&limit=20`),
+        sb(`/invite_events?guild_id=eq.${guildId}&invitee_user_id=eq.${userId}&limit=1`),
+      ]);
+
+      const stats: any[] = statsResp.ok ? await statsResp.json() : [];
+      const events: any[] = eventsResp.ok ? await eventsResp.json() : [];
+      const parents: any[] = parentResp.ok ? await parentResp.json() : [];
+
+      const statsRow = stats[0];
+      const parentRow = parents[0];
+
+      return new Response(JSON.stringify({
+        stats: statsRow ? {
+          userId: statsRow.user_id, guildId: statsRow.guild_id,
+          username: statsRow.username, displayName: statsRow.display_name,
+          avatarUrl: statsRow.avatar_url, totalInvites: statsRow.total_invites,
+          validInvites: statsRow.valid_invites, leftInvites: statsRow.left_invites,
+          fakeInvites: statsRow.fake_invites, influenceScore: statsRow.influence_score,
+          treeSize: statsRow.tree_size, retentionRate: statsRow.retention_rate, rank: null,
+        } : null,
+        recentInvitees: events.map(e => ({
+          userId: e.invitee_user_id, username: e.invitee_username, displayName: e.invitee_display_name,
+          avatarUrl: e.invitee_avatar_url, joinedAt: e.joined_at, leftAt: e.left_at,
+        })),
+        invitedByUserId:      parentRow?.inviter_user_id ?? null,
+        invitedByUsername:    parentRow?.inviter_username ?? null,
+        invitedByDisplayName: parentRow?.inviter_display_name ?? null,
+        invitePathDisplayNames: [],
+      }), { headers: { 'Content-Type': 'application/json' } });
+    }
+
+    // GET /bot/invite-tracker/tree?guild_id=xxx&user_id=xxx
+    if (url.pathname === '/bot/invite-tracker/tree' && request.method === 'GET') {
+      const guildId = url.searchParams.get('guild_id');
+      const userId  = url.searchParams.get('user_id');
+      if (!guildId || !userId) return new Response('Missing params', { status: 400 });
+
+      // Recursively build tree (max 4 levels to avoid N+1)
+      async function buildTree(uid: string, depth: number): Promise<any> {
+        const [statsResp, childrenResp] = await Promise.all([
+          sb(`/invite_stats?guild_id=eq.${guildId}&user_id=eq.${uid}`),
+          sb(`/invite_events?guild_id=eq.${guildId}&inviter_user_id=eq.${uid}&order=joined_at.asc`),
+        ]);
+        const statsRows: any[] = statsResp.ok ? await statsResp.json() : [];
+        const childEvents: any[] = childrenResp.ok ? await childrenResp.json() : [];
+        const s = statsRows[0] ?? { user_id: uid, username: uid, display_name: uid, avatar_url: null, is_current_member: true, joined_at: null, left_at: null, direct_invites: 0, tree_size: 0 };
+
+        const children = depth < 4
+          ? await Promise.all(childEvents.map(c => buildTree(c.invitee_user_id, depth + 1)))
+          : [];
+
+        return {
+          userId: s.user_id, username: s.username, displayName: s.display_name,
+          avatarUrl: s.avatar_url, isCurrentMember: true,
+          joinedAt: s.joined_at ?? null, leftAt: null,
+          directInvites: childEvents.length, totalDescendants: s.tree_size ?? 0,
+          children,
+        };
+      }
+
+      const tree = await buildTree(userId, 0);
+      return new Response(JSON.stringify(tree), { headers: { 'Content-Type': 'application/json' } });
+    }
+
+    // GET /bot/invite-tracker/settings?guild_id=xxx
+    if (url.pathname === '/bot/invite-tracker/settings' && request.method === 'GET') {
+      const guildId = url.searchParams.get('guild_id');
+      if (!guildId) return new Response('Missing guild_id', { status: 400 });
+
+      const [settingsResp, milestonesResp] = await Promise.all([
+        sb(`/invite_tracker_settings?guild_id=eq.${guildId}`),
+        sb(`/invite_milestones?guild_id=eq.${guildId}&order=count.asc`),
+      ]);
+      const settings: any[] = settingsResp.ok ? await settingsResp.json() : [];
+      const milestones: any[] = milestonesResp.ok ? await milestonesResp.json() : [];
+
+      const s = settings[0] ?? { guild_id: guildId, is_enabled: false, log_channel_id: null, notify_on_join: true, notify_on_leave: true, fake_invite_threshold_hours: 24 };
+      return new Response(JSON.stringify({
+        guildId: s.guild_id, isEnabled: s.is_enabled, logChannelId: s.log_channel_id,
+        notifyOnJoin: s.notify_on_join, notifyOnLeave: s.notify_on_leave,
+        fakeInviteThresholdHours: s.fake_invite_threshold_hours,
+        milestones: milestones.map(m => ({ id: m.id, guildId: m.guild_id, count: m.count, roleId: m.role_id, roleName: m.role_name })),
+      }), { headers: { 'Content-Type': 'application/json' } });
+    }
+
+    // POST /bot/invite-tracker/settings
+    if (url.pathname === '/bot/invite-tracker/settings' && request.method === 'POST') {
+      const body = await request.json() as any;
+      const payload = {
+        guild_id: body.guildId, is_enabled: body.isEnabled,
+        log_channel_id: body.logChannelId, notify_on_join: body.notifyOnJoin,
+        notify_on_leave: body.notifyOnLeave, fake_invite_threshold_hours: body.fakeInviteThresholdHours,
+      };
+      const resp = await sb(`/invite_tracker_settings?guild_id=eq.${body.guildId}`, {
+        method: 'PATCH', headers: { Prefer: 'return=representation' }, body: JSON.stringify(payload),
+      });
+      if (!resp.ok) {
+        // Insert if not found
+        const insResp = await sb('/invite_tracker_settings', {
+          method: 'POST', headers: { Prefer: 'return=representation' }, body: JSON.stringify(payload),
+        });
+        if (!insResp.ok) return new Response(await insResp.text(), { status: insResp.status });
+        const rows: any[] = await insResp.json();
+        return new Response(JSON.stringify({ ...body, ...rows[0] }), { headers: { 'Content-Type': 'application/json' } });
+      }
+      const rows: any[] = await resp.json();
+      return new Response(JSON.stringify({ ...body, ...rows[0] }), { headers: { 'Content-Type': 'application/json' } });
+    }
+
+    // GET /bot/invite-tracker/campaigns?guild_id=xxx
+    if (url.pathname === '/bot/invite-tracker/campaigns' && request.method === 'GET') {
+      const guildId = url.searchParams.get('guild_id');
+      if (!guildId) return new Response('Missing guild_id', { status: 400 });
+
+      const resp = await sb(`/invite_campaigns?guild_id=eq.${guildId}&order=created_at.desc`);
+      if (!resp.ok) return new Response('Supabase error', { status: 500 });
+      const rows: any[] = await resp.json();
+      return new Response(JSON.stringify(rows.map(c => ({
+        id: c.id, guildId: c.guild_id, name: c.name, description: c.description,
+        inviteCode: c.invite_code, targetCount: c.target_count, currentCount: c.current_count,
+        startsAt: c.starts_at, endsAt: c.ends_at, isActive: c.is_active, createdAt: c.created_at,
+      }))), { headers: { 'Content-Type': 'application/json' } });
+    }
+
+    // POST /bot/invite-tracker/campaigns
+    if (url.pathname === '/bot/invite-tracker/campaigns' && request.method === 'POST') {
+      const body = await request.json() as any;
+      const resp = await sb('/invite_campaigns', {
+        method: 'POST',
+        headers: { Prefer: 'return=representation' },
+        body: JSON.stringify({
+          guild_id: body.guildId, name: body.name, description: body.description ?? null,
+          invite_code: body.inviteCode ?? null, target_count: body.targetCount ?? null,
+          current_count: 0, starts_at: new Date().toISOString(),
+          ends_at: body.endsAt ?? null, is_active: true,
+        }),
+      });
+      if (!resp.ok) return new Response(await resp.text(), { status: resp.status });
+      const rows: any[] = await resp.json();
+      const c = rows[0];
+      return new Response(JSON.stringify({
+        id: c.id, guildId: c.guild_id, name: c.name, description: c.description,
+        inviteCode: c.invite_code, targetCount: c.target_count, currentCount: c.current_count,
+        startsAt: c.starts_at, endsAt: c.ends_at, isActive: c.is_active, createdAt: c.created_at,
+      }), { status: 201, headers: { 'Content-Type': 'application/json' } });
+    }
+
+    // DELETE /bot/invite-tracker/campaigns/:id
+    const campaignDeleteMatch = url.pathname.match(/^\/bot\/invite-tracker\/campaigns\/([^/]+)$/);
+    if (campaignDeleteMatch && request.method === 'DELETE') {
+      const id = campaignDeleteMatch[1];
+      await sb(`/invite_campaigns?id=eq.${id}`, { method: 'DELETE' });
+      return new Response(JSON.stringify({ ok: true }), { headers: { 'Content-Type': 'application/json' } });
+    }
+
+    // ── Invite Panel ──────────────────────────────────────────────────
+
+    // POST /bot/invite-tracker/panel  → Discordチャンネルにボタンを送信してパネル登録
+    if (url.pathname === '/bot/invite-tracker/panel' && request.method === 'POST') {
+      const body = await request.json() as { guildId: string; channelId: string; channelName: string };
+      const { guildId: gId, channelId, channelName } = body;
+
+      // Discord にメッセージ + ボタンを送信
+      const msgResp = await fetch(`https://discord.com/api/v10/channels/${channelId}/messages`, {
+        method: 'POST',
+        headers: { Authorization: `Bot ${env.DISCORD_BOT_TOKEN}`, 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          embeds: [{
+            title: '🔗 あなた専用の招待リンク',
+            description: 'ボタンを押すと、あなただけの招待リンクが発行されます。友達をサーバーに招待しよう！',
+            color: 0x9B59B6,
+          }],
+          components: [{
+            type: 1,
+            components: [{
+              type: 2,
+              style: 1,
+              label: '招待リンクを取得する',
+              custom_id: `personal_invite:${gId}`,
+              emoji: { name: '🔗' },
+            }],
+          }],
+        }),
+      });
+
+      if (!msgResp.ok) {
+        const err = await msgResp.text();
+        return new Response(JSON.stringify({ error: `Discord API: ${err}` }), { status: msgResp.status, headers: { 'Content-Type': 'application/json' } });
+      }
+      const msg = await msgResp.json() as { id: string };
+
+      // DBに保存
+      const insertResp = await sb('/invite_panels', {
+        method: 'POST',
+        headers: { Prefer: 'return=representation' },
+        body: JSON.stringify({ guild_id: gId, channel_id: channelId, channel_name: channelName, message_id: msg.id }),
+      });
+      if (!insertResp.ok) return new Response(await insertResp.text(), { status: insertResp.status });
+      const rows: any[] = await insertResp.json();
+      const p = rows[0];
+      return new Response(JSON.stringify({
+        id: p.id, guildId: p.guild_id, channelId: p.channel_id, channelName: p.channel_name,
+        messageId: p.message_id, createdAt: p.created_at,
+      }), { status: 201, headers: { 'Content-Type': 'application/json' } });
+    }
+
+    // GET /bot/invite-tracker/panels?guild_id=xxx
+    if (url.pathname === '/bot/invite-tracker/panels' && request.method === 'GET') {
+      const guildId = url.searchParams.get('guild_id');
+      if (!guildId) return new Response('Missing guild_id', { status: 400 });
+      const resp = await sb(`/invite_panels?guild_id=eq.${guildId}&order=created_at.desc`);
+      if (!resp.ok) return new Response('Supabase error', { status: 500 });
+      const rows: any[] = await resp.json();
+      return new Response(JSON.stringify(rows.map(p => ({
+        id: p.id, guildId: p.guild_id, channelId: p.channel_id, channelName: p.channel_name,
+        messageId: p.message_id, createdAt: p.created_at,
+      }))), { headers: { 'Content-Type': 'application/json' } });
+    }
+
+    // DELETE /bot/invite-tracker/panels/:id  → Discordメッセージ削除 + DB削除
+    const panelDeleteMatch = url.pathname.match(/^\/bot\/invite-tracker\/panels\/([^/]+)$/);
+    if (panelDeleteMatch && request.method === 'DELETE') {
+      const id = panelDeleteMatch[1];
+      const getResp = await sb(`/invite_panels?id=eq.${id}`);
+      const rows: any[] = getResp.ok ? await getResp.json() : [];
+      if (rows.length > 0 && rows[0].message_id) {
+        await fetch(`https://discord.com/api/v10/channels/${rows[0].channel_id}/messages/${rows[0].message_id}`, {
+          method: 'DELETE',
+          headers: { Authorization: `Bot ${env.DISCORD_BOT_TOKEN}` },
+        }).catch(() => {});
+      }
+      await sb(`/invite_panels?id=eq.${id}`, { method: 'DELETE' });
+      return new Response(JSON.stringify({ ok: true }), { headers: { 'Content-Type': 'application/json' } });
+    }
+
+    // GET /bot/invite-tracker/personal-invites?guild_id=xxx
+    if (url.pathname === '/bot/invite-tracker/personal-invites' && request.method === 'GET') {
+      const guildId = url.searchParams.get('guild_id');
+      if (!guildId) return new Response('Missing guild_id', { status: 400 });
+      const resp = await sb(`/personal_invites?guild_id=eq.${guildId}&order=created_at.desc`);
+      if (!resp.ok) return new Response('Supabase error', { status: 500 });
+      const rows: any[] = await resp.json();
+      return new Response(JSON.stringify(rows.map(p => ({
+        id: p.id, guildId: p.guild_id, userId: p.user_id, username: p.username,
+        displayName: p.display_name, inviteCode: p.invite_code, inviteUrl: p.invite_url,
+        channelId: p.channel_id, createdAt: p.created_at,
+      }))), { headers: { 'Content-Type': 'application/json' } });
+    }
+
+    // DELETE /bot/invite-tracker/personal-invites/:id
+    const personalInviteDeleteMatch = url.pathname.match(/^\/bot\/invite-tracker\/personal-invites\/([^/]+)$/);
+    if (personalInviteDeleteMatch && request.method === 'DELETE') {
+      const id = personalInviteDeleteMatch[1];
+      // Discordの招待リンクも削除
+      const getResp = await sb(`/personal_invites?id=eq.${id}`);
+      const rows: any[] = getResp.ok ? await getResp.json() : [];
+      if (rows.length > 0) {
+        await fetch(`https://discord.com/api/v10/invites/${rows[0].invite_code}`, {
+          method: 'DELETE',
+          headers: { Authorization: `Bot ${env.DISCORD_BOT_TOKEN}` },
+        }).catch(() => {});
+      }
+      await sb(`/personal_invites?id=eq.${id}`, { method: 'DELETE' });
       return new Response(JSON.stringify({ ok: true }), { headers: { 'Content-Type': 'application/json' } });
     }
 

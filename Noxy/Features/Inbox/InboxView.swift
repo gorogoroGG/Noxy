@@ -62,6 +62,9 @@ struct InboxView: View {
     @State private var closingTicket: Ticket? = nil
     @State private var isClosing = false
 
+    // メンバー詳細
+    @State private var selectedOpenedByMember: Member? = nil
+
     // サーバー切替
     @State private var showGuildPicker = false
 
@@ -178,6 +181,14 @@ struct InboxView: View {
         .toast($toast)
         .sheet(isPresented: $showGuildPicker) {
             GuildPickerSheet()
+        }
+        .sheet(item: $selectedOpenedByMember) { member in
+            MemberDetailView(
+                member: member,
+                guildId: appState.selectedGuildId,
+                allRoles: selectableRoles(for: appState.selectedGuildId),
+                onAction: { action in await handleMemberAction(action, member: member) }
+            )
         }
         .task(id: appState.selectedGuildId) { await load() }
         .onOpenURL { url in
@@ -419,7 +430,15 @@ struct InboxView: View {
             }
         } header: {
             VStack(alignment: .leading, spacing: 0) {
+                // アクティビティセクションとの視覚的境界
+                Rectangle()
+                    .fill(Theme.Color.lineStrong)
+                    .frame(height: 1)
+
                 HStack(alignment: .center, spacing: Theme.Spacing.xs) {
+                    Image(systemName: "tray.fill")
+                        .font(.system(size: 11, weight: .semibold))
+                        .foregroundStyle(Theme.Color.textTertiary)
                     SectionLabel(title: "受信箱")
                     let total = waitingSection.count + inProgressSection.count + reportSection.count
                     if total > 0 {
@@ -433,7 +452,7 @@ struct InboxView: View {
                     Spacer()
                 }
                 .padding(.horizontal, Theme.Spacing.md)
-                .padding(.top, Theme.Spacing.sm)
+                .padding(.top, Theme.Spacing.md)
                 .padding(.bottom, 6)
 
                 filterChipBar
@@ -444,20 +463,22 @@ struct InboxView: View {
         }
     }
 
-    // サブセクションヘッダー行
+    // サブセクションヘッダー行（受信箱の子グループとして表示）
     private func inboxSubheader(_ title: String, count: Int) -> some View {
-        HStack(alignment: .center, spacing: Theme.Spacing.xs) {
-            SectionLabel(title: title)
+        HStack(spacing: 6) {
+            Text(title)
+                .font(.system(size: 10, weight: .semibold))
+                .foregroundStyle(Theme.Color.textTertiary)
+                .tracking(0.4)
             Text("\(count)")
                 .font(.system(size: 10, weight: .bold, design: .monospaced))
-                .foregroundStyle(Theme.Color.accentInk)
-                .padding(.horizontal, 5)
-                .padding(.vertical, 1)
-                .background(Theme.Color.accent, in: Capsule())
-            Spacer()
+                .foregroundStyle(Theme.Color.accent)
+            Rectangle()
+                .fill(Theme.Color.line)
+                .frame(height: 1)
         }
         .padding(.horizontal, Theme.Spacing.md)
-        .padding(.top, Theme.Spacing.sm)
+        .padding(.top, 10)
         .padding(.bottom, 4)
         .listRowInsets(EdgeInsets())
         .listRowBackground(Theme.Color.bg)
@@ -559,10 +580,22 @@ struct InboxView: View {
                             Image(systemName: "person.fill")
                                 .font(.system(size: 10))
                                 .foregroundStyle(Theme.Color.textTertiary)
-                            Text(ticket.openedBy)
-                                .font(Theme.Font.caption2)
-                                .foregroundStyle(Theme.Color.textTertiary)
-                                .lineLimit(1)
+                            if let member = memberForId(ticket.openedBy) {
+                                Button {
+                                    selectedOpenedByMember = member
+                                } label: {
+                                    Text("@\(member.username)")
+                                        .font(Theme.Font.caption2)
+                                        .foregroundStyle(Theme.Color.accent)
+                                        .lineLimit(1)
+                                }
+                                .buttonStyle(.borderless)
+                            } else {
+                                Text(ticket.openedBy)
+                                    .font(Theme.Font.caption2)
+                                    .foregroundStyle(Theme.Color.textTertiary)
+                                    .lineLimit(1)
+                            }
                             if let assignee = ticket.assignedToUserId, !assignee.isEmpty {
                                 Text("·")
                                     .font(Theme.Font.caption2)
@@ -790,10 +823,16 @@ struct InboxView: View {
     // MARK: - Data loading
 
     private func load() async {
-        isLoading = true
-
         let guildId = appState.selectedGuildId
         guard !guildId.isEmpty else { isLoading = false; return }
+
+        // 先読み済みチケットがあれば即表示（共有キャッシュ）
+        if let cachedTickets = appState.cachedTickets[guildId] {
+            tickets = cachedTickets
+            isLoading = false
+        } else {
+            isLoading = true
+        }
 
         async let ticketsTask   = (try? await services.tickets.fetchAll(guildId: guildId)) ?? []
         async let warningsTask  = (try? await ModerationService().fetchWarnings(guildId: guildId)) ?? []
@@ -807,6 +846,7 @@ struct InboxView: View {
             activities = a
             isLoading  = false
         }
+        appState.cacheTickets(t, for: guildId)
 
         syncBadge()
     }
@@ -876,6 +916,45 @@ struct InboxView: View {
         } catch {
             closingTicket = nil
             toast = ToastMessage(type: .error, message: "クローズに失敗しました")
+        }
+    }
+
+    // MARK: - Member helpers
+
+    private func memberForId(_ userId: String) -> Member? {
+        let members: [Member]? = appState.guildData(.members, guild: appState.selectedGuildId)
+        return members?.first(where: { $0.id == userId })
+    }
+
+    private func selectableRoles(for guildId: String) -> [DiscordRole] {
+        (appState.guildData(.roles, guild: guildId) ?? [])
+            .filter { $0.name != "@everyone" && !$0.managed }
+    }
+
+    @MainActor
+    private func handleMemberAction(_ action: MemberAction, member: Member) async {
+        let guildId = appState.selectedGuildId
+        do {
+            switch action {
+            case .kick(let dm):
+                if let msg = dm, !msg.isEmpty { try? await services.members.sendDM(memberId: member.id, message: msg) }
+                try await services.members.kick(memberId: member.id, guildId: guildId, reason: nil)
+            case .ban(let dm):
+                if let msg = dm, !msg.isEmpty { try? await services.members.sendDM(memberId: member.id, message: msg) }
+                try await services.members.ban(memberId: member.id, guildId: guildId, reason: nil)
+            case .timeout(let until, let dm):
+                if let msg = dm, !msg.isEmpty { try? await services.members.sendDM(memberId: member.id, message: msg) }
+                try await services.members.timeout(memberId: member.id, guildId: guildId, until: until)
+            case .sendDM(let msg):
+                try await services.members.sendDM(memberId: member.id, message: msg)
+            case .addRole(let roleId):
+                try await services.members.addRole(memberId: member.id, guildId: guildId, roleId: roleId)
+            case .removeRole(let roleId):
+                try await services.members.removeRole(memberId: member.id, guildId: guildId, roleId: roleId)
+            }
+            selectedOpenedByMember = nil
+        } catch {
+            toast = ToastMessage(type: .error, message: "操作に失敗しました")
         }
     }
 

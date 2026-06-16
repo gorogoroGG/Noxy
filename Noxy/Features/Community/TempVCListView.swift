@@ -290,11 +290,19 @@ struct TempVCListView: View {
     // MARK: - Actions
 
     private func loadAll(silent: Bool = false) async {
-        if !silent { isLoading = true }
+        // 先読み済みキャッシュがあれば即表示
+        if !silent, let cached: [TempVCSource] = appState.guildData(.tempVCSources, guild: guildId) {
+            sources = cached
+            isLoading = false
+        } else if !silent {
+            isLoading = true
+        }
 
-        let fetched = (try? await services.tempVCSource.fetchSources(guildId: guildId)) ?? []
-        if !silent || !fetched.isEmpty {
-            sources = fetched
+        if let fetched = try? await services.tempVCSource.fetchSources(guildId: guildId) {
+            if !silent || !fetched.isEmpty {
+                sources = fetched
+            }
+            appState.setGuildData(fetched, .tempVCSources, guild: guildId)
         }
 
         struct RawCh: Decodable { let id: String; let name: String; let type: Int }

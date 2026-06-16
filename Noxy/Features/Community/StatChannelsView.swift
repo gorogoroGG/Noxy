@@ -1,4 +1,5 @@
 import SwiftUI
+import Combine
 
 // MARK: - StatChannelsView
 
@@ -6,6 +7,7 @@ struct StatChannelsView: View {
     let guildId: String
     @Environment(\.services)    private var services
     @Environment(\.dismiss)     private var dismiss
+    @Environment(AppState.self) private var appState
 
     @State private var channels:     [StatChannel]       = []
     @State private var subStatus:    SubscriptionStatus  = .inactive
@@ -17,6 +19,7 @@ struct StatChannelsView: View {
     @State private var showDeleteConfirm = false
     @State private var deleteTarget: StatChannel? = nil
     @State private var showActivateConfirm = false
+    @State private var now = Date()
 
     // デバッグ時は DB から取得した subStatus をそのまま使う（debug-setup で実際に書き込むため）
     private var effectiveStatus: SubscriptionStatus { subStatus }
@@ -52,6 +55,16 @@ struct StatChannelsView: View {
                 channels.append(contentsOf: newChannels)
                 let names = newChannels.map { $0.statType.label }.joined(separator: "・")
                 withAnimation { toast = "\(names)チャンネルを作成しました" }
+                // 作成直後に初回データ取得（レート制限対象外）
+                Task {
+                    for ch in newChannels {
+                        try? await services.statChannels.refresh(id: ch.id)
+                    }
+                    if let fetched = try? await services.statChannels.fetchAll(guildId: guildId) {
+                        withAnimation { channels = fetched }
+                        appState.setGuildData(fetched, .statChannels, guild: guildId)
+                    }
+                }
             }
         }
         .sheet(isPresented: $showSubscribe) {
@@ -70,6 +83,9 @@ struct StatChannelsView: View {
             }
         }
         .animation(.easeInOut(duration: 0.2), value: toast)
+        .onReceive(Timer.publish(every: 60, on: .main, in: .common).autoconnect()) { date in
+            now = date
+        }
         .task { await load() }
         .refreshable { await load() }
         .overlay {
@@ -195,7 +211,7 @@ struct StatChannelsView: View {
             Card {
                 VStack(spacing: 0) {
                     ForEach(channels) { channel in
-                        StatChannelRow(channel: channel) { newEnabled in
+                        StatChannelRow(channel: channel, now: now) { newEnabled in
                             await toggleChannel(channel, enabled: newEnabled)
                         } onRefresh: {
                             await refreshChannel(channel)
@@ -242,12 +258,21 @@ struct StatChannelsView: View {
     // MARK: - Actions
 
     private func load() async {
-        isLoading = true
+        // 先読み済みキャッシュがあれば即表示
+        if let cached: [StatChannel] = appState.guildData(.statChannels, guild: guildId) {
+            channels = cached
+            isLoading = false
+        } else {
+            isLoading = true
+        }
         let userId = KeychainHelper.load(forKey: "discord_user_id") ?? ""
         async let statusTask   = services.subscription.fetchStatus(discordUserId: userId)
         async let channelsTask = services.statChannels.fetchAll(guildId: guildId)
         subStatus = (try? await statusTask)   ?? .inactive
-        channels  = (try? await channelsTask) ?? []
+        if let fetched = try? await channelsTask {
+            channels = fetched
+            appState.setGuildData(fetched, .statChannels, guild: guildId)
+        }
         isLoading = false
     }
 
@@ -255,9 +280,14 @@ struct StatChannelsView: View {
         isActivating = true
         do {
             try await services.subscription.activateServer(guildId: guildId)
-            // ステータス再取得
             let userId = KeychainHelper.load(forKey: "discord_user_id") ?? ""
-            subStatus = (try? await services.subscription.fetchStatus(discordUserId: userId)) ?? subStatus
+            async let statusTask   = services.subscription.fetchStatus(discordUserId: userId)
+            async let channelsTask = services.statChannels.fetchAll(guildId: guildId)
+            subStatus = (try? await statusTask) ?? subStatus
+            if let fetched = try? await channelsTask {
+                channels = fetched
+                appState.setGuildData(fetched, .statChannels, guild: guildId)
+            }
             withAnimation { toast = "このサーバーを有効化しました" }
         } catch {
             withAnimation { toast = "有効化に失敗しました: \(error.localizedDescription)" }
@@ -276,8 +306,18 @@ struct StatChannelsView: View {
     }
 
     private func refreshChannel(_ channel: StatChannel) async {
+        guard ManualRefreshLimit.canRefresh(channelId: channel.id) else {
+            if let mins = ManualRefreshLimit.remainingMinutes(channelId: channel.id) {
+                withAnimation { toast = "手動取得は \(mins)分後に可能です" }
+            }
+            return
+        }
+        ManualRefreshLimit.record(channelId: channel.id)
         try? await services.statChannels.refresh(id: channel.id)
-        await load()
+        if let fetched = try? await services.statChannels.fetchAll(guildId: guildId) {
+            withAnimation { channels = fetched }
+            appState.setGuildData(fetched, .statChannels, guild: guildId)
+        }
         withAnimation { toast = "チャンネルを更新しました" }
     }
 
@@ -352,9 +392,7 @@ private struct PaywallView: View {
                         Divider().padding(.leading, Theme.Spacing.xl)
                         previewRow(.online,   isLast: false)
                         Divider().padding(.leading, Theme.Spacing.xl)
-                        previewRow(.boosts,   isLast: false)
-                        Divider().padding(.leading, Theme.Spacing.xl)
-                        previewRow(.vcUsers,  isLast: true)
+                        previewRow(.boosts,   isLast: true)
                     }
                     .background(Theme.Color.surface)
                     .clipShape(RoundedRectangle(cornerRadius: Theme.Radius.card))
@@ -416,7 +454,6 @@ private struct PaywallView: View {
         case .members:  return 1_234
         case .online:   return 89
         case .boosts:   return 7
-        case .vcUsers:  return 3
         }
     }
 }
@@ -500,16 +537,60 @@ private struct ActivationPromptView: View {
     }
 }
 
+// MARK: - ManualRefreshLimit（手動取得レート制限: 30分に1回）
+
+private enum ManualRefreshLimit {
+    static let cooldown: TimeInterval = 1800 // 30分
+
+    static func canRefresh(channelId: String) -> Bool {
+        guard let last = UserDefaults.standard.object(forKey: key(channelId)) as? Date else { return true }
+        return Date().timeIntervalSince(last) >= cooldown
+    }
+
+    static func record(channelId: String) {
+        UserDefaults.standard.set(Date(), forKey: key(channelId))
+    }
+
+    static func remainingMinutes(channelId: String) -> Int? {
+        guard let last = UserDefaults.standard.object(forKey: key(channelId)) as? Date else { return nil }
+        let remaining = cooldown - Date().timeIntervalSince(last)
+        guard remaining > 0 else { return nil }
+        return max(1, Int(ceil(remaining / 60)))
+    }
+
+    private static func key(_ id: String) -> String { "stat_manual_refresh_\(id)" }
+}
+
 // MARK: - StatChannelRow
 
 private struct StatChannelRow: View {
     let channel: StatChannel
+    let now: Date
     let onToggle: (Bool) async -> Void
     let onRefresh: () async -> Void
     let onDelete: () -> Void
 
-    @State private var isToggling  = false
+    @State private var isToggling   = false
     @State private var isRefreshing = false
+
+    private var canManualRefresh: Bool {
+        !isRefreshing && ManualRefreshLimit.canRefresh(channelId: channel.id)
+    }
+
+    // 次回自動更新までの残り時間（"X分後に自動更新" or "まもなく更新"）
+    private var autoUpdateCountdown: String? {
+        guard let updated = channel.lastUpdatedAt else { return nil }
+        let remaining = updated.addingTimeInterval(3600).timeIntervalSince(now)
+        if remaining <= 60 { return "まもなく更新" }
+        return "\(Int(remaining / 60))分後に自動更新"
+    }
+
+    // 手動更新ボタンのクールダウンラベル（"あとX分" or nil）
+    private var cooldownLabel: String? {
+        guard !ManualRefreshLimit.canRefresh(channelId: channel.id) else { return nil }
+        guard let mins = ManualRefreshLimit.remainingMinutes(channelId: channel.id) else { return nil }
+        return "あと\(mins)分"
+    }
 
     var body: some View {
         HStack(spacing: Theme.Spacing.sm) {
@@ -542,31 +623,44 @@ private struct StatChannelRow: View {
                         .font(Theme.Font.caption)
                         .foregroundStyle(Theme.Color.textTertiary)
                 }
+                if let countdown = autoUpdateCountdown {
+                    Text(countdown)
+                        .font(.system(size: 10))
+                        .foregroundStyle(Theme.Color.textTertiary)
+                }
             }
 
             Spacer()
 
-            // メタ: 最終更新
+            // メタ: 最終更新時刻
             if let updated = channel.lastUpdatedAt {
                 Text(timeString(updated))
                     .font(Theme.Font.monoCap)
                     .foregroundStyle(Theme.Color.textTertiary)
             }
 
-            // 更新ボタン
+            // 手動更新ボタン
             Button {
+                guard canManualRefresh else { return }
                 isRefreshing = true
                 Task { await onRefresh(); isRefreshing = false }
             } label: {
-                if isRefreshing { ProgressView().scaleEffect(0.7) }
-                else {
+                if isRefreshing {
+                    ProgressView().scaleEffect(0.7)
+                } else if let label = cooldownLabel {
+                    Text(label)
+                        .font(.system(size: 9, weight: .semibold))
+                        .foregroundStyle(Theme.Color.textTertiary)
+                        .fixedSize()
+                } else {
                     Image(systemName: "arrow.clockwise")
                         .font(Theme.Font.caption)
-                        .foregroundStyle(Theme.Color.textTertiary)
+                        .foregroundStyle(canManualRefresh ? Theme.Color.textTertiary : Theme.Color.textTertiary.opacity(0.4))
                 }
             }
             .buttonStyle(.plain)
-            .frame(width: 28, height: 28)
+            .frame(width: 40, height: 28)
+            .disabled(!canManualRefresh)
 
             // Toggle
             Toggle("", isOn: Binding(
@@ -583,9 +677,7 @@ private struct StatChannelRow: View {
         .padding(.vertical, Theme.Spacing.sm)
         .contentShape(Rectangle())
         .swipeActions(edge: .trailing, allowsFullSwipe: false) {
-            Button(role: .destructive) {
-                onDelete()
-            } label: {
+            Button(role: .destructive) { onDelete() } label: {
                 Label("削除", systemImage: "trash")
             }
         }
@@ -765,31 +857,37 @@ private struct StatChannelAddSheet: View {
 #Preview("未課金") {
     NavigationStack { StatChannelsView(guildId: "g001") }
         .environment(\.services, ServiceContainer.live())
+        .environment(AppState())
 }
 
 #Preview("課金済み・未有効化") {
     NavigationStack { StatChannelsView(guildId: "g001") }
         .environment(\.services, ServiceContainer.live())
+        .environment(AppState())
 }
 
 #Preview("有効化済み・空") {
     NavigationStack { StatChannelsView(guildId: "g001") }
         .environment(\.services, ServiceContainer.live())
+        .environment(AppState())
 }
 
 #Preview("有効化済み・リスト") {
     NavigationStack { StatChannelsView(guildId: "g001") }
         .environment(\.services, ServiceContainer.live())
+        .environment(AppState())
 }
 
 #Preview("有効化済み・リスト Dark") {
     NavigationStack { StatChannelsView(guildId: "g001") }
         .environment(\.services, ServiceContainer.live())
+        .environment(AppState())
         .preferredColorScheme(.dark)
 }
 
 #Preview("有効化済み・リスト Light") {
     NavigationStack { StatChannelsView(guildId: "g001") }
         .environment(\.services, ServiceContainer.live())
+        .environment(AppState())
         .preferredColorScheme(.light)
 }

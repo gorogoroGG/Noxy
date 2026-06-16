@@ -285,3 +285,176 @@ export function statChannelLabel(type: StatType, value: number): string {
     case 'vc_users': return `🎙️ VC中: ${value}人`;
   }
 }
+
+// ── InviteTracker ─────────────────────────────────────────────
+
+export interface InviteEventRow {
+  id: string;
+  guild_id: string;
+  inviter_user_id: string;
+  invitee_user_id: string;
+  invitee_username: string;
+  invitee_display_name: string;
+  invitee_avatar_url: string | null;
+  invite_code: string | null;
+  joined_at: string;
+  left_at: string | null;
+  is_fake: boolean;
+}
+
+export interface InviteStatsRow {
+  user_id: string;
+  guild_id: string;
+  username: string;
+  display_name: string;
+  avatar_url: string | null;
+  total_invites: number;
+  valid_invites: number;
+  left_invites: number;
+  fake_invites: number;
+  influence_score: number;
+  tree_size: number;
+  retention_rate: number;
+}
+
+export interface InviteTrackerSettingsRow {
+  guild_id: string;
+  is_enabled: boolean;
+  log_channel_id: string | null;
+  notify_on_join: boolean;
+  notify_on_leave: boolean;
+  fake_invite_threshold_hours: number;
+}
+
+export interface InviteMilestoneRow {
+  id: string;
+  guild_id: string;
+  count: number;
+  role_id: string;
+  role_name: string;
+}
+
+export interface InviteCampaignRow {
+  id: string;
+  guild_id: string;
+  name: string;
+  description: string | null;
+  invite_code: string | null;
+  target_count: number | null;
+  current_count: number;
+  starts_at: string;
+  ends_at: string | null;
+  is_active: boolean;
+  created_at: string;
+}
+
+export function mapInviteStats(r: InviteStatsRow, rank?: number) {
+  return {
+    userId:         r.user_id,
+    guildId:        r.guild_id,
+    username:       r.username,
+    displayName:    r.display_name,
+    avatarUrl:      r.avatar_url ?? null,
+    totalInvites:   r.total_invites,
+    validInvites:   r.valid_invites,
+    leftInvites:    r.left_invites,
+    fakeInvites:    r.fake_invites,
+    influenceScore: r.influence_score,
+    treeSize:       r.tree_size,
+    retentionRate:  r.retention_rate,
+    rank:           rank ?? null,
+  };
+}
+
+export function mapInviteEvent(e: InviteEventRow) {
+  return {
+    userId:      e.invitee_user_id,
+    username:    e.invitee_username,
+    displayName: e.invitee_display_name,
+    avatarUrl:   e.invitee_avatar_url ?? null,
+    joinedAt:    e.joined_at,
+    leftAt:      e.left_at ?? null,
+  };
+}
+
+export function mapInviteCampaign(c: InviteCampaignRow) {
+  return {
+    id:           c.id,
+    guildId:      c.guild_id,
+    name:         c.name,
+    description:  c.description ?? null,
+    inviteCode:   c.invite_code ?? null,
+    targetCount:  c.target_count ?? null,
+    currentCount: c.current_count,
+    startsAt:     c.starts_at,
+    endsAt:       c.ends_at ?? null,
+    isActive:     c.is_active,
+    createdAt:    c.created_at,
+  };
+}
+
+export function mapInviteSettings(s: InviteTrackerSettingsRow, milestones: InviteMilestoneRow[]) {
+  return {
+    guildId:                  s.guild_id,
+    isEnabled:                s.is_enabled,
+    logChannelId:             s.log_channel_id ?? null,
+    notifyOnJoin:             s.notify_on_join,
+    notifyOnLeave:            s.notify_on_leave,
+    fakeInviteThresholdHours: s.fake_invite_threshold_hours,
+    milestones: milestones.map(m => ({
+      id:       m.id,
+      guildId:  m.guild_id,
+      count:    m.count,
+      roleId:   m.role_id,
+      roleName: m.role_name,
+    })),
+  };
+}
+
+// ── InvitePanel / PersonalInvite ──────────────────────────────
+
+export interface InvitePanelRow {
+  id: string;
+  guild_id: string;
+  channel_id: string;
+  channel_name: string | null;
+  message_id: string | null;
+  created_at: string;
+}
+
+export interface PersonalInviteRow {
+  id: string;
+  guild_id: string;
+  user_id: string;
+  username: string;
+  display_name: string;
+  invite_code: string;
+  invite_url: string;
+  channel_id: string;
+  created_at: string;
+}
+
+export function mapInvitePanel(p: InvitePanelRow) {
+  return {
+    id:          p.id,
+    guildId:     p.guild_id,
+    channelId:   p.channel_id,
+    channelName: p.channel_name ?? null,
+    messageId:   p.message_id ?? null,
+    createdAt:   p.created_at,
+  };
+}
+
+export function mapPersonalInvite(p: PersonalInviteRow) {
+  return {
+    id:          p.id,
+    guildId:     p.guild_id,
+    userId:      p.user_id,
+    username:    p.username,
+    displayName: p.display_name,
+    inviteCode:  p.invite_code,
+    inviteUrl:   p.invite_url,
+    channelId:   p.channel_id,
+    createdAt:   p.created_at,
+  };
+}

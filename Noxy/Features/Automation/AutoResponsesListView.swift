@@ -5,6 +5,7 @@ import SwiftUI
 struct AutoResponsesListView: View {
     let guildId: String
     @Environment(\.services) private var services
+    @Environment(AppState.self) private var appState
     @State private var responses: [AutoResponse] = []
     @State private var isLoading = true
     @State private var showEditor = false
@@ -110,7 +111,14 @@ struct AutoResponsesListView: View {
     // MARK: Data
 
     private func loadResponses() async {
-        responses = (try? await services.autoResponses.fetchAll(guildId: guildId)) ?? []
+        if let cached: [AutoResponse] = appState.guildData(.autoResponses, guild: guildId) {
+            responses = cached
+            isLoading = false
+        }
+        if let fetched = try? await services.autoResponses.fetchAll(guildId: guildId) {
+            responses = fetched
+            appState.setGuildData(fetched, .autoResponses, guild: guildId)
+        }
         isLoading = false
     }
 
@@ -382,4 +390,5 @@ struct AutoResponseEditorView: View {
         AutoResponsesListView(guildId: "g001")
     }
     .environment(\.services, ServiceContainer.live())
+    .environment(AppState())
 }

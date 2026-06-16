@@ -17,12 +17,14 @@ final class ServiceContainer {
     let auth:               any AuthServiceProtocol
     let reactionRoles:      any ReactionRoleServiceProtocol
     let greeting:           any GreetingServiceProtocol
+    let vcNotification:     any VCNotificationServiceProtocol
     let tempChannel:        any TempChannelServiceProtocol
     let tempVCSource:       any TempVCSourceServiceProtocol
     let shops:              any ShopServiceProtocol
     let statChannels:       any StatChannelServiceProtocol
     let subscription:       any SubscriptionServiceProtocol
     let verify:             any VerifyServiceProtocol
+    let inviteTracker:      any InviteTrackerServiceProtocol
 
     private init(
         embeds:            any EmbedServiceProtocol,
@@ -37,12 +39,14 @@ final class ServiceContainer {
         auth:              any AuthServiceProtocol,
         reactionRoles:     any ReactionRoleServiceProtocol,
         greeting:          any GreetingServiceProtocol,
+        vcNotification:    any VCNotificationServiceProtocol,
         tempChannel:       any TempChannelServiceProtocol,
         tempVCSource:      any TempVCSourceServiceProtocol,
         shops:             any ShopServiceProtocol,
         statChannels:      any StatChannelServiceProtocol,
         subscription:      any SubscriptionServiceProtocol,
-        verify:            any VerifyServiceProtocol
+        verify:            any VerifyServiceProtocol,
+        inviteTracker:     any InviteTrackerServiceProtocol
     ) {
         self.embeds = embeds
         self.guilds = guilds
@@ -56,12 +60,14 @@ final class ServiceContainer {
         self.auth = auth
         self.reactionRoles = reactionRoles
         self.greeting = greeting
+        self.vcNotification = vcNotification
         self.tempChannel = tempChannel
         self.tempVCSource = tempVCSource
         self.shops = shops
         self.statChannels = statChannels
         self.subscription = subscription
         self.verify = verify
+        self.inviteTracker = inviteTracker
     }
 
     /// モック用（プレビュー・テスト）
@@ -79,12 +85,14 @@ final class ServiceContainer {
             auth:              MockAuthService(),
             reactionRoles:     MockReactionRoleService(),
             greeting:          MockGreetingService(),
+            vcNotification:    MockVCNotificationService(),
             tempChannel:       MockTempChannelService(),
             tempVCSource:      MockTempVCSourceService(),
             shops:             MockShopService(),
             statChannels:      WorkerStatChannelService(),
             subscription:      MockSubscriptionService(),
-            verify:            MockVerifyService()
+            verify:            MockVerifyService(),
+            inviteTracker:     MockInviteTrackerService()
         )
     }
 
@@ -103,12 +111,14 @@ final class ServiceContainer {
             auth:              SupabaseAuthService(),
             reactionRoles:     SupabaseReactionRoleService(),
             greeting:          SupabaseGreetingService(),
+            vcNotification:    WorkerVCNotificationService(),
             tempChannel:       WorkerTempChannelService(),
             tempVCSource:      WorkerTempVCSourceService(),
             shops:             WorkerShopService(),
             statChannels:      WorkerStatChannelService(),
             subscription:      WorkerSubscriptionService(),
-            verify:            WorkerVerifyService()
+            verify:            WorkerVerifyService(),
+            inviteTracker:     WorkerInviteTrackerService()
         )
     }
 }

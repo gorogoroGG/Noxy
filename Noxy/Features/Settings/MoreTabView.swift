@@ -8,6 +8,18 @@ struct MoreTabView: View {
     @State private var subStatus: SubscriptionStatus = .inactive
     @State private var showSignOutConfirm = false
     @State private var showDebugResetConfirm = false
+    @State private var webViewURL: URL? = nil
+
+    // MARK: - App Store Connect URLs
+    private var privacyPolicyURL: URL? {
+        URL(string: "https://gorogorogg.github.io/home/noxy/privacy.html")
+    }
+    private var supportURL: URL? {
+        URL(string: "https://gorogorogg.github.io/home/noxy/support.html")
+    }
+    private var termsOfUseURL: URL? {
+        URL(string: "https://www.apple.com/legal/internet-services/itunes/dev/stdeula/")
+    }
 
     var body: some View {
         NavigationStack {
@@ -34,6 +46,9 @@ struct MoreTabView: View {
         .task { await loadSubStatus() }
         .onReceive(NotificationCenter.default.publisher(for: PlatformHelper.willEnterForegroundNotification)) { _ in
             Task { await loadSubStatus() }
+        }
+        .sheet(item: $webViewURL) { url in
+            WebViewSheet(url: url)
         }
         .overlay {
             if showSignOutConfirm {
@@ -154,36 +169,7 @@ struct MoreTabView: View {
                 }
                 .buttonStyle(.plain)
 
-                // 有料ユーザーのみ表示
-                if subStatus.isActive {
-                    Divider().background(Theme.Color.line)
-
-                    NavigationLink {
-                        ServerActivationView()
-                    } label: {
-                        HStack(spacing: Theme.Spacing.sm) {
-                            Image(systemName: "server.rack")
-                                .foregroundStyle(Theme.Color.textSecondary)
-                                .frame(width: 28)
-                            VStack(alignment: .leading, spacing: 2) {
-                                Text("サーバーの有効化")
-                                    .font(Theme.Font.body)
-                                    .foregroundStyle(Theme.Color.textPrimary)
-                                Text("スロット: \(subStatus.usedSlots) / \(subStatus.purchasedSlots) 使用中")
-                                    .font(Theme.Font.caption)
-                                    .foregroundStyle(Theme.Color.textSecondary)
-                                    .monospaced()
-                            }
-                            Spacer()
-                            Image(systemName: "chevron.right")
-                                .font(Theme.Font.caption)
-                                .foregroundStyle(Theme.Color.textTertiary)
-                        }
-                        .padding(.vertical, Theme.Spacing.sm)
-                        .contentShape(Rectangle())
-                    }
-                    .buttonStyle(.plain)
-                }
+                // サーバーの有効化は削除
             }
         }
     }
@@ -224,11 +210,35 @@ struct MoreTabView: View {
                 }
                 .buttonStyle(.plain)
                 Divider().background(Theme.Color.line)
-                SettingsRow(icon: "server.rack", title: "接続済みサーバー")
-                    .opacity(0.5)
-                Divider().background(Theme.Color.line)
-                SettingsRow(icon: "lock.shield.fill", title: "権限")
-                    .opacity(0.5)
+                Button {
+                    openBotInviteURL()
+                } label: {
+                    HStack(spacing: Theme.Spacing.sm) {
+                        Image(systemName: "plus.circle.fill")
+                            .foregroundStyle(Theme.Color.accent)
+                            .frame(width: 28)
+                        Text("Botをサーバーに追加")
+                            .font(Theme.Font.body)
+                            .foregroundStyle(Theme.Color.textPrimary)
+                        Spacer()
+                        Image(systemName: "arrow.up.right")
+                            .font(Theme.Font.caption)
+                            .foregroundStyle(Theme.Color.textTertiary)
+                    }
+                    .padding(.vertical, Theme.Spacing.sm)
+                    .contentShape(Rectangle())
+                }
+                .buttonStyle(.plain)
+            }
+        }
+    }
+
+    private func openBotInviteURL() {
+        Task {
+            if let url = try? await DiscordService().generalInviteURL() {
+                PlatformHelper.openURL(url)
+            } else if let fallback = URL(string: "https://discord.com/oauth2/authorize?client_id=1257646175054245918&scope=bot&permissions=8") {
+                PlatformHelper.openURL(fallback)
             }
         }
     }
@@ -236,9 +246,6 @@ struct MoreTabView: View {
     private var dataSection: some View {
         FormSection("データ", icon: "externaldrive") {
             VStack(spacing: 0) {
-                SettingsRow(icon: "square.and.arrow.up", title: "データをエクスポート")
-                    .opacity(0.5)
-                Divider().background(Theme.Color.line)
                 Button {
                     // TODO: キャッシュ削除
                 } label: {
@@ -259,14 +266,26 @@ struct MoreTabView: View {
                 }
                 .buttonStyle(.plain)
                 Divider().background(Theme.Color.line)
-                SettingsRow(icon: "envelope.fill", title: "お問い合わせ")
-                    .opacity(0.5)
+                Button {
+                    webViewURL = supportURL
+                } label: {
+                    SettingsRow(icon: "envelope.fill", title: "お問い合わせ")
+                }
+                .buttonStyle(.plain)
                 Divider().background(Theme.Color.line)
-                SettingsRow(icon: "ant.fill", title: "バグを報告")
-                    .opacity(0.5)
+                Button {
+                    webViewURL = supportURL
+                } label: {
+                    SettingsRow(icon: "ant.fill", title: "バグを報告")
+                }
+                .buttonStyle(.plain)
                 Divider().background(Theme.Color.line)
-                SettingsRow(icon: "lightbulb.fill", title: "機能を提案")
-                    .opacity(0.5)
+                Button {
+                    webViewURL = supportURL
+                } label: {
+                    SettingsRow(icon: "lightbulb.fill", title: "機能を提案")
+                }
+                .buttonStyle(.plain)
             }
         }
     }
@@ -292,14 +311,19 @@ struct MoreTabView: View {
                 }
                 .padding(.vertical, Theme.Spacing.sm)
                 Divider().background(Theme.Color.line)
-                SettingsRow(icon: "hand.raised.fill", title: "プライバシーポリシー")
-                    .opacity(0.5)
+                Button {
+                    webViewURL = privacyPolicyURL
+                } label: {
+                    SettingsRow(icon: "hand.raised.fill", title: "プライバシーポリシー")
+                }
+                .buttonStyle(.plain)
                 Divider().background(Theme.Color.line)
-                SettingsRow(icon: "doc.text.fill", title: "利用規約")
-                    .opacity(0.5)
-                Divider().background(Theme.Color.line)
-                SettingsRow(icon: "curlybraces", title: "オープンソースライセンス")
-                    .opacity(0.5)
+                Button {
+                    webViewURL = termsOfUseURL
+                } label: {
+                    SettingsRow(icon: "doc.text.fill", title: "利用規約")
+                }
+                .buttonStyle(.plain)
             }
         }
     }
@@ -391,6 +415,12 @@ struct MoreTabView: View {
         }
     }
     #endif
+}
+
+// MARK: - URL Identifiable
+
+extension URL: Identifiable {
+    public var id: String { absoluteString }
 }
 
 // MARK: - SettingsRow

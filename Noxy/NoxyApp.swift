@@ -14,7 +14,7 @@ struct RootView: View {
     @State private var authManager: AuthManager
     @State private var appState = AppState()
     @State private var showSplash    = true
-    @State private var timerElapsed  = false
+    @State private var bootFinished  = false
     @AppStorage("hasSeenOnboarding") private var hasSeenOnboarding = false
     @AppStorage("colorScheme") private var colorSchemePref = "システム"
 
@@ -39,8 +39,6 @@ struct RootView: View {
         Group {
             if !hasSeenOnboarding {
                 OnboardingView()
-            } else if !authManager.isLoggedIn {
-                LoginView()
             } else {
                 mainContent
             }
@@ -52,22 +50,29 @@ struct RootView: View {
         .preferredColorScheme(preferredScheme)
     }
 
-    // MainTabView を先に描画し、SplashView をオーバーレイで重ねる。
-    // タイマー（1.2s）と isAppReady の両方が揃った時点でスプラッシュをフェードアウト。
+    // 起動直後は常にスプラッシュを最前面に表示する。
+    // スプラッシュ表示中に AuthManager がセッション復元（ログイン状態の確認）を行い、
+    //   - ログイン済み  → そのままブートを進めてホームへ
+    //   - 未ログイン    → スプラッシュ内にログインボタンをふわっと表示
+    // という流れにすることで「スプラッシュ前にログイン画面が一瞬出る」問題を防ぐ。
+    // ホーム（MainTabView）はログイン済みのときだけ背面に用意し、
+    // ブート完了（onFinished）と isAppReady が揃った時点でスプラッシュをフェードアウトする。
     private var mainContent: some View {
         ZStack {
-            MainTabView()
+            if authManager.isLoggedIn {
+                MainTabView()
+            }
 
             if showSplash {
-                SplashView()
-                    .transition(.opacity)
-                    .zIndex(999)
-                    .onAppear {
-                        DispatchQueue.main.asyncAfter(deadline: .now() + 1.2) {
-                            timerElapsed = true
-                            dismissSplashIfReady()
-                        }
+                SplashView(
+                    authManager: authManager,
+                    onFinished: {
+                        bootFinished = true
+                        dismissSplashIfReady()
                     }
+                )
+                .transition(.opacity)
+                .zIndex(999)
             }
         }
         .animation(.easeInOut(duration: 0.45), value: showSplash)
@@ -77,7 +82,7 @@ struct RootView: View {
     }
 
     private func dismissSplashIfReady() {
-        guard timerElapsed && appState.isAppReady else { return }
+        guard bootFinished && appState.isAppReady else { return }
         withAnimation(.easeInOut(duration: 0.45)) {
             showSplash = false
         }

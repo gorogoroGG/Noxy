@@ -4,6 +4,7 @@ import Charts
 struct AnalyticsView: View {
     let guildId: String
     @Environment(\.services) private var services
+    @Environment(AppState.self) private var appState
     @State private var stats: AnalyticsStats? = nil
     @State private var isLoading = true
     @State private var selectedPeriod = "7d"
@@ -142,7 +143,15 @@ struct AnalyticsView: View {
     }
 
     private func load() async {
-        stats = try? await services.analytics.fetchStats(guildId: guildId)
+        // 先読み済みキャッシュがあれば即表示
+        if let cached: AnalyticsStats = appState.guildData(.analytics, guild: guildId) {
+            stats = cached
+            isLoading = false
+        }
+        if let fetched = try? await services.analytics.fetchStats(guildId: guildId) {
+            stats = fetched
+            appState.setGuildData(fetched, .analytics, guild: guildId)
+        }
         isLoading = false
     }
 }
@@ -150,4 +159,5 @@ struct AnalyticsView: View {
 #Preview {
     AnalyticsView(guildId: "g001")
         .environment(\.services, ServiceContainer.live())
+        .environment(AppState())
 }

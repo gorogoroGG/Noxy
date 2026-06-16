@@ -6,7 +6,6 @@ enum StatType: String, Codable, CaseIterable, Identifiable {
     case members  = "members"
     case online   = "online"
     case boosts   = "boosts"
-    case vcUsers  = "vc_users"
 
     var id: String { rawValue }
 
@@ -15,7 +14,6 @@ enum StatType: String, Codable, CaseIterable, Identifiable {
         case .members:  return "総メンバー数"
         case .online:   return "オンライン人数"
         case .boosts:   return "Boost 数"
-        case .vcUsers:  return "VC 接続中"
         }
     }
 
@@ -24,7 +22,6 @@ enum StatType: String, Codable, CaseIterable, Identifiable {
         case .members:  return "👥"
         case .online:   return "🟢"
         case .boosts:   return "🚀"
-        case .vcUsers:  return "🎙️"
         }
     }
 
@@ -33,7 +30,6 @@ enum StatType: String, Codable, CaseIterable, Identifiable {
         case .members:  return "person.3.fill"
         case .online:   return "circle.fill"
         case .boosts:   return "bolt.fill"
-        case .vcUsers:  return "waveform.and.mic"
         }
     }
 
@@ -42,7 +38,6 @@ enum StatType: String, Codable, CaseIterable, Identifiable {
         case .members:  return "サーバーの総メンバー数"
         case .online:   return "現在オンラインのメンバー数"
         case .boosts:   return "サーバーブースト数"
-        case .vcUsers:  return "VC に接続中のメンバー数"
         }
     }
 
@@ -51,7 +46,6 @@ enum StatType: String, Codable, CaseIterable, Identifiable {
         case .members:  return "👥 メンバー: \(value)"
         case .online:   return "🟢 オンライン: \(value)"
         case .boosts:   return "🚀 Boost: \(value)"
-        case .vcUsers:  return "🎙️ VC中: \(value)人"
         }
     }
 }

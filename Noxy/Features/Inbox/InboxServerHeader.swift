@@ -84,6 +84,9 @@ struct InboxServerHeader: View {
 struct GuildPickerSheet: View {
     @Environment(\.dismiss) private var dismiss
     @Environment(AppState.self) private var appState
+    @Environment(\.services) private var services
+
+    @State private var isRefreshing = false
 
     var body: some View {
         NavigationStack {
@@ -98,35 +101,93 @@ struct GuildPickerSheet: View {
                         description: Text("BotをDiscordサーバーに追加してください")
                     )
                 } else {
-                    ForEach(available) { guild in
-                        Button {
-                            Task { await appState.switchServer(to: guild) }
-                            dismiss()
-                        } label: {
-                            HStack(spacing: Theme.Spacing.md) {
-                                ServerIconView(imageUrl: guild.iconUrl, name: guild.name, size: 40)
-                                Text(guild.name)
-                                    .font(Theme.Font.body)
-                                    .foregroundStyle(Theme.Color.textPrimary)
-                                Spacer()
-                                if guild.id == appState.selectedGuildId {
-                                    Image(systemName: "checkmark")
-                                        .foregroundStyle(Theme.Color.accent)
+                    Section {
+                        ForEach(available) { guild in
+                            Button {
+                                Task { await appState.switchServer(to: guild) }
+                                dismiss()
+                            } label: {
+                                HStack(spacing: Theme.Spacing.md) {
+                                    ServerIconView(imageUrl: guild.iconUrl, name: guild.name, size: 40)
+                                    Text(guild.name)
+                                        .font(Theme.Font.body)
+                                        .foregroundStyle(Theme.Color.textPrimary)
+                                    Spacer()
+                                    if guild.id == appState.selectedGuildId {
+                                        Image(systemName: "checkmark")
+                                            .foregroundStyle(Theme.Color.accent)
+                                    }
                                 }
                             }
+                            .buttonStyle(.plain)
                         }
-                        .buttonStyle(.plain)
                     }
+                }
+
+                Section {
+                    Button {
+                        openBotInviteURL()
+                    } label: {
+                        HStack(spacing: Theme.Spacing.sm) {
+                            Image(systemName: "plus.circle.fill")
+                                .foregroundStyle(Theme.Color.accent)
+                                .frame(width: 28)
+                            Text("Botをサーバーに追加")
+                                .font(Theme.Font.body)
+                                .foregroundStyle(Theme.Color.textPrimary)
+                            Spacer()
+                            Image(systemName: "arrow.up.right")
+                                .font(Theme.Font.caption2)
+                                .foregroundStyle(Theme.Color.textTertiary)
+                        }
+                    }
+                    .buttonStyle(.plain)
                 }
             }
             .listStyle(.insetGrouped)
             .navigationTitle("サーバーを切替")
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
+                ToolbarItem(placement: .topBarLeading) {
+                    if isRefreshing {
+                        ProgressView()
+                            .tint(Theme.Color.accent)
+                    }
+                }
                 ToolbarItem(placement: .topBarTrailing) {
                     Button("完了") { dismiss() }
                         .foregroundStyle(Theme.Color.accent)
                 }
+            }
+        }
+        .onReceive(NotificationCenter.default.publisher(for: PlatformHelper.willEnterForegroundNotification)) { _ in
+            Task { await refreshGuilds() }
+        }
+    }
+
+    private func openBotInviteURL() {
+        Task {
+            if let url = try? await DiscordService().generalInviteURL() {
+                PlatformHelper.openURL(url)
+            } else if let fallback = URL(string: "https://discord.com/oauth2/authorize?client_id=1257646175054245918&scope=bot&permissions=8") {
+                PlatformHelper.openURL(fallback)
+            }
+        }
+    }
+
+    @MainActor
+    private func refreshGuilds() async {
+        isRefreshing = true
+        defer { isRefreshing = false }
+        let previousBotGuildIds = Set(appState.botGuilds.map(\.id))
+        let botGuilds = (try? await DiscordService().fetchBotGuilds()) ?? []
+        let fetchedGuilds = (try? await services.guilds.fetchAll()) ?? []
+        appState.botGuilds = botGuilds
+        if !fetchedGuilds.isEmpty { appState.guilds = fetchedGuilds }
+        let newBotGuildIds = Set(botGuilds.map(\.id))
+        if newBotGuildIds != previousBotGuildIds {
+            withAnimation(.easeInOut(duration: 0.3)) {
+                appState.needsReload.toggle()
             }
         }
     }

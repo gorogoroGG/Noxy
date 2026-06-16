@@ -7,6 +7,7 @@ struct VerifyPanelListView: View {
     let guildId: String
 
     @Environment(\.services) private var services
+    @Environment(AppState.self) private var appState
     @State private var panel: VerifyPanel? = nil
     @State private var pendingCount = 0
     @State private var isLoading = true
@@ -245,7 +246,16 @@ struct VerifyPanelListView: View {
     // MARK: - Actions
 
     private func load() async {
-        isLoading = true
+        // 先読み済みキャッシュがあれば即表示
+        if let cachedPanels: [VerifyPanel] = appState.guildData(.verifyPanels, guild: guildId) {
+            panel = cachedPanels.first
+            if let cachedReqs: [VerifyRequest] = appState.guildData(.verifyRequests, guild: guildId) {
+                pendingCount = cachedReqs.count
+            }
+            isLoading = false
+        } else {
+            isLoading = true
+        }
         async let panelTask = services.verify.fetchPanels(guildId: guildId)
         async let reqTask = services.verify.fetchRequests(guildId: guildId, status: .pending)
         async let chTask: [(id: String, name: String)] = {
@@ -253,9 +263,14 @@ struct VerifyPanelListView: View {
             guard let chs = try? await WorkerClient().get("/bot/channels?guild_id=\(guildId)") as [RawCh] else { return [] }
             return chs.filter { $0.type == 0 }.map { ($0.id, $0.name) }
         }()
-        let panels = (try? await panelTask) ?? []
-        panel = panels.first
-        pendingCount = ((try? await reqTask) ?? []).count
+        if let panels = try? await panelTask {
+            panel = panels.first
+            appState.setGuildData(panels, .verifyPanels, guild: guildId)
+        }
+        if let reqs = try? await reqTask {
+            pendingCount = reqs.count
+            appState.setGuildData(reqs, .verifyRequests, guild: guildId)
+        }
         channels = await chTask
         isLoading = false
     }

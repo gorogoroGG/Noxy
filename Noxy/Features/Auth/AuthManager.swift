@@ -7,6 +7,9 @@ final class AuthManager {
     var isLoggedIn: Bool = false
     var currentUser: User? = nil
     var isLoading: Bool = false
+    /// 起動時のセッション復元チェックが完了したか。
+    /// スプラッシュ表示中にログイン状態を判定するために使う（false の間は「確認中」）。
+    var authChecked: Bool = false
 
     private let services: ServiceContainer
 
@@ -43,6 +46,7 @@ final class AuthManager {
                 currentUser = user
                 isLoggedIn = true
             }
+            authChecked = true
         }
     }
 }

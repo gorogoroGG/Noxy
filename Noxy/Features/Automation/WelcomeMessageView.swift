@@ -488,14 +488,7 @@ struct WelcomeMessageView: View {
 
     // MARK: - Load / Save
 
-    private func load() async {
-        guard !appState.selectedGuildId.isEmpty else { isLoading = false; return }
-        async let sTask = services.greeting.fetch(guildId: appState.selectedGuildId)
-        async let cTask = services.guilds.fetchChannels(guildId: appState.selectedGuildId)
-        async let rTask = DiscordService().fetchRoles(guildId: appState.selectedGuildId)
-        let s = (try? await sTask) ?? GreetingSettings.defaultSettings(guildId: appState.selectedGuildId)
-        channels = (try? await cTask) ?? []
-        roles    = (try? await rTask) ?? []
+    private func applyGreeting(_ s: GreetingSettings) {
         welcomeEnabled     = s.welcomeEnabled
         welcomeChannelId   = s.welcomeChannelId
         welcomeChannelName = s.welcomeChannelName
@@ -512,6 +505,28 @@ struct WelcomeMessageView: View {
         goodbyeDmEnabled   = s.goodbyeDmEnabled
         goodbyeDmMessage   = s.goodbyeDmMessage
         settings = s
+    }
+
+    private func load() async {
+        let gid = appState.selectedGuildId
+        guard !gid.isEmpty else { isLoading = false; return }
+
+        // 先読み済みキャッシュがあれば即表示
+        if let cachedS: GreetingSettings = appState.guildData(.greeting, guild: gid) {
+            applyGreeting(cachedS)
+            if let cachedC: [Channel] = appState.guildData(.channels, guild: gid) { channels = cachedC }
+            if let cachedR: [DiscordRole] = appState.guildData(.roles, guild: gid) { roles = cachedR }
+            isLoading = false
+        }
+
+        async let sTask = services.greeting.fetch(guildId: gid)
+        async let cTask = services.guilds.fetchChannels(guildId: gid)
+        async let rTask = DiscordService().fetchRoles(guildId: gid)
+        let s = (try? await sTask) ?? settings ?? GreetingSettings.defaultSettings(guildId: gid)
+        applyGreeting(s)
+        appState.setGuildData(s, .greeting, guild: gid)
+        if let c = try? await cTask { channels = c; appState.setGuildData(c, .channels, guild: gid) }
+        if let r = try? await rTask { roles = r; appState.setGuildData(r, .roles, guild: gid) }
         isLoading = false
     }
 

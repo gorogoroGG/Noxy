@@ -2,6 +2,7 @@ import SwiftUI
 
 struct SlashCommandsView: View {
     @Environment(\.services) private var services
+    @Environment(AppState.self) private var appState
     @State private var commands: [SlashCommand] = []
     @State private var isLoading = true
     @State private var selectedCommand: SlashCommand? = nil
@@ -41,7 +42,14 @@ struct SlashCommandsView: View {
             }
         }
         .task {
-            commands = (try? await services.bot.fetchCommands()) ?? []
+            if let cached: [SlashCommand] = appState.guildData(.slashCommands, guild: appState.selectedGuildId) {
+                commands = cached
+                isLoading = false
+            }
+            if let fetched = try? await services.bot.fetchCommands() {
+                commands = fetched
+                appState.setGuildData(fetched, .slashCommands, guild: appState.selectedGuildId)
+            }
             isLoading = false
         }
     }
@@ -132,4 +140,5 @@ struct CommandDetailView: View {
 #Preview {
     SlashCommandsView()
         .environment(\.services, ServiceContainer.live())
+        .environment(AppState())
 }

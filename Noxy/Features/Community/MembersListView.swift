@@ -6,6 +6,7 @@ import SwiftUI
 struct MembersListView: View {
     let guildId: String
     @Environment(\.services) private var services
+    @Environment(AppState.self) private var appState
     @State private var members: [Member] = []
     @State private var roles: [DiscordRole] = []
     @State private var isLoading = true
@@ -460,14 +461,35 @@ font: Theme.Font.monoCap,
     }
 
     private func load() async {
-        isLoading = true; errorMessage = nil
+        errorMessage = nil
+        // 先読み済みキャッシュがあれば即表示
+        if let cachedM: [Member] = appState.guildData(.members, guild: guildId) {
+            members = cachedM
+            if let cachedR: [DiscordRole] = appState.guildData(.roles, guild: guildId) { roles = cachedR }
+            if let cachedP: [VerifyPanel] = appState.guildData(.verifyPanels, guild: guildId) { verifyPanel = cachedP.first }
+            isLoading = false
+        } else {
+            isLoading = true
+        }
+
         async let mTask = services.members.fetchMembers(guildId: guildId)
         async let rTask = DiscordService().fetchRoles(guildId: guildId)
         async let vTask = services.verify.fetchPanels(guildId: guildId)
-        do { members = try await mTask } catch { errorMessage = "メンバー取得失敗。BotのSERVER MEMBERS INTENTを確認してください。" }
-        roles = (try? await rTask) ?? []
-        let panels = (try? await vTask) ?? []
-        verifyPanel = panels.first
+        do {
+            let fetched = try await mTask
+            members = fetched
+            appState.setGuildData(fetched, .members, guild: guildId)
+        } catch {
+            if members.isEmpty { errorMessage = "メンバー取得失敗。BotのSERVER MEMBERS INTENTを確認してください。" }
+        }
+        if let r = try? await rTask {
+            roles = r
+            appState.setGuildData(r, .roles, guild: guildId)
+        }
+        if let panels = try? await vTask {
+            verifyPanel = panels.first
+            appState.setGuildData(panels, .verifyPanels, guild: guildId)
+        }
         isLoading = false
     }
 }

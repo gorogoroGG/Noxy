@@ -6,6 +6,7 @@ struct OrdersListView: View {
     let guildId: String
 
     @Environment(\.services) private var services
+    @Environment(AppState.self) private var appState
     @State private var orders: [Order] = []
     @State private var isLoading = true
     @State private var selectedGroup: StatusGroup? = nil
@@ -68,43 +69,44 @@ struct OrdersListView: View {
     var body: some View {
         VStack(spacing: 0) {
             statsHeader
+            searchBar
 
-            List {
-                if isLoading {
-                    HStack { Spacer(); ProgressView(); Spacer() }
-                        .listRowBackground(Color(.systemGroupedBackground))
-                        .listRowSeparator(.hidden)
-                        .padding(.top, 40)
-                } else if filtered.isEmpty {
-                    emptyState
-                        .listRowBackground(Color(.systemGroupedBackground))
-                        .listRowSeparator(.hidden)
-                } else {
-                    Text("\(filtered.count)件")
-                        .font(.captionSmall).foregroundStyle(Color.textTertiary)
-                        .listRowInsets(EdgeInsets(top: 8, leading: 16, bottom: 2, trailing: 16))
-                        .listRowBackground(Color(.systemGroupedBackground))
-                        .listRowSeparator(.hidden)
+            GeometryReader { geometry in
+                ScrollView {
+                    VStack(spacing: 0) {
+                        if isLoading {
+                            HStack { Spacer(); ProgressView(); Spacer() }
+                                .padding(.top, 40)
+                        } else if filtered.isEmpty {
+                            emptyState
+                        } else {
+                            Text("\(filtered.count)件")
+                                .font(.captionSmall)
+                                .foregroundStyle(Color.textTertiary)
+                                .frame(maxWidth: .infinity, alignment: .leading)
+                                .padding(.horizontal, 16)
+                                .padding(.top, 8)
+                                .padding(.bottom, 2)
 
-                    ForEach(filtered) { order in
-                        OrderCard(order: order)
-                            .contentShape(Rectangle())
-                            .onTapGesture { selectedOrder = order }
-                            .listRowInsets(EdgeInsets(top: 4, leading: 16, bottom: 4, trailing: 16))
-                            .listRowBackground(Color(.systemGroupedBackground))
-                            .listRowSeparator(.hidden)
+                            ForEach(filtered) { order in
+                                OrderCard(order: order)
+                                    .contentShape(Rectangle())
+                                    .onTapGesture { selectedOrder = order }
+                                    .padding(.horizontal, 16)
+                                    .padding(.vertical, 4)
+                            }
+
+                            Color.clear.frame(height: 60)
+                        }
                     }
+                    .frame(minHeight: geometry.size.height + 1)
                 }
-
-                Color.clear.frame(height: 60)
-                    .listRowBackground(Color(.systemGroupedBackground))
-                    .listRowSeparator(.hidden)
+                .background(Color(.systemGroupedBackground))
+                .refreshable { await load() }
             }
-            .listStyle(.plain)
-            .background(Color(.systemGroupedBackground))
-            .searchable(text: $searchText, prompt: "商品名・購入者で検索")
-            .refreshable { await load() }
+            .frame(maxHeight: .infinity)
         }
+        .frame(maxHeight: .infinity)
         .background(Color(.systemGroupedBackground))
         .sheet(item: $selectedOrder) { order in
             OrderDetailView(order: order, guildId: guildId) { updated in
@@ -157,6 +159,43 @@ struct OrdersListView: View {
         .overlay(Divider(), alignment: .bottom)
     }
 
+    // MARK: - Search Bar（固定ヘッダー内に置くインライン検索）
+    // List への .searchable はネストした固定ヘッダーとスクロール時に競合し UI が崩れるため、
+    // ナビバー検索ではなくインラインの検索フィールドを使う。
+
+    private var searchBar: some View {
+        HStack(spacing: 8) {
+            Image(systemName: "magnifyingglass")
+                .font(.system(size: 14, weight: .medium))
+                .foregroundStyle(Color.textTertiary)
+
+            TextField("商品名・購入者で検索", text: $searchText)
+                .font(.bodySmall)
+                .foregroundStyle(Color.textPrimary)
+                .textInputAutocapitalization(.never)
+                .autocorrectionDisabled()
+                .submitLabel(.search)
+
+            if !searchText.isEmpty {
+                Button {
+                    searchText = ""
+                } label: {
+                    Image(systemName: "xmark.circle.fill")
+                        .font(.system(size: 16))
+                        .foregroundStyle(Color.textTertiary)
+                }
+                .buttonStyle(.plain)
+            }
+        }
+        .padding(.horizontal, 12)
+        .frame(height: 38)
+        .background(Color(.tertiarySystemGroupedBackground), in: RoundedRectangle(cornerRadius: 10))
+        .padding(.horizontal, 12)
+        .padding(.vertical, 8)
+        .background(Color(.secondarySystemGroupedBackground))
+        .overlay(Divider(), alignment: .bottom)
+    }
+
     // MARK: - Empty
 
     private var emptyState: some View {
@@ -173,8 +212,16 @@ struct OrdersListView: View {
     }
 
     private func load() async {
-        isLoading = true
-        orders = (try? await services.shops.fetchOrders(guildId: guildId, status: nil)) ?? []
+        if let cached: [Order] = appState.guildData(.orders, guild: guildId) {
+            orders = cached
+            isLoading = false
+        } else {
+            isLoading = true
+        }
+        if let fetched = try? await services.shops.fetchOrders(guildId: guildId, status: nil) {
+            orders = fetched
+            appState.setGuildData(fetched, .orders, guild: guildId)
+        }
         isLoading = false
     }
 }

@@ -68,6 +68,8 @@ struct MainTabView: View {
         .animation(.easeInOut(duration: 0.3), value: appState.isBotNotInAnyGuild)
         .animation(.easeInOut(duration: 0.3), value: appState.isBotOffline)
         .task(id: appState.needsReload) { await loadInitialData() }
+        // 選択サーバーが決まる/切り替わるたびに、全データをスプラッシュ裏で先読みする
+        .task(id: appState.selectedGuildId) { await prefetchGuildData(appState.selectedGuildId) }
         .onChange(of: scenePhase) { _, phase in
             guard phase == .active else { return }
             if appState.selectedGuild == nil, !appState.selectedGuildId.isEmpty {
@@ -168,6 +170,60 @@ struct MainTabView: View {
 
         await startBotPolling()
         await inboxState.refresh(using: services.notifications)
+    }
+
+    // MARK: - Prefetch（スプラッシュ中に選択サーバーの全データを先読み）
+    //
+    // 各画面は cache-first（AppState のキャッシュを即表示 → 裏で最新化）で実装されているため、
+    // ここで全ギルドスコープのデータを並列に pull してキャッシュを温めておくと、
+    // スプラッシュ明けに各画面を開いた瞬間から最新データが表示される。
+    // isAppReady はブロックしない（スプラッシュ演出の残り時間で完了する想定）。
+    @MainActor
+    private func prefetchGuildData(_ guildId: String) async {
+        guard !guildId.isEmpty else { return }
+
+        // すべて並列で発火（失敗は握りつぶしてキャッシュは前回値を維持）
+        async let embedsT         = services.embeds.fetchByGuild(guildId)
+        async let ticketsT        = services.tickets.fetchAll(guildId: guildId)
+        async let ticketPanelsT   = services.tickets.fetchPanels(guildId: guildId)
+        async let shopsT          = services.shops.fetchShops(guildId: guildId)
+        async let reactionRolesT  = services.reactionRoles.fetchAll(guildId: guildId)
+        async let membersT        = services.members.fetchMembers(guildId: guildId)
+        async let rolesT          = DiscordService().fetchRoles(guildId: guildId)
+        async let channelsT       = services.guilds.fetchChannels(guildId: guildId)
+        async let analyticsT      = services.analytics.fetchStats(guildId: guildId)
+        async let autoRespT       = services.autoResponses.fetchAll(guildId: guildId)
+        async let statChannelsT   = services.statChannels.fetchAll(guildId: guildId)
+        async let verifyPanelsT   = services.verify.fetchPanels(guildId: guildId)
+        async let verifyReqsT     = services.verify.fetchRequests(guildId: guildId, status: .pending)
+        async let greetingT       = services.greeting.fetch(guildId: guildId)
+        async let tempSettingsT   = services.tempChannel.fetchSettings(guildId: guildId)
+        async let tempActiveT     = services.tempChannel.fetchActiveChannels(guildId: guildId)
+        async let tempVCT         = services.tempVCSource.fetchSources(guildId: guildId)
+        async let ordersT         = services.shops.fetchOrders(guildId: guildId, status: nil)
+        async let slashT          = services.bot.fetchCommands()
+
+        // 専用キャッシュ
+        if let v = try? await embedsT        { appState.cacheEmbeds(v, for: guildId) }
+        if let v = try? await ticketsT       { appState.cacheTickets(v, for: guildId) }
+        if let v = try? await ticketPanelsT  { appState.cacheTicketPanels(v, for: guildId) }
+        if let v = try? await shopsT         { appState.cacheShops(v, for: guildId) }
+        if let v = try? await reactionRolesT { appState.cacheReactionRoles(v, for: guildId) }
+        // 汎用キャッシュ
+        if let v = try? await membersT       { appState.setGuildData(v, .members, guild: guildId) }
+        if let v = try? await rolesT         { appState.setGuildData(v, .roles, guild: guildId) }
+        if let v = try? await channelsT      { appState.setGuildData(v, .channels, guild: guildId) }
+        if let v = try? await analyticsT     { appState.setGuildData(v, .analytics, guild: guildId) }
+        if let v = try? await autoRespT      { appState.setGuildData(v, .autoResponses, guild: guildId) }
+        if let v = try? await statChannelsT  { appState.setGuildData(v, .statChannels, guild: guildId) }
+        if let v = try? await verifyPanelsT  { appState.setGuildData(v, .verifyPanels, guild: guildId) }
+        if let v = try? await verifyReqsT    { appState.setGuildData(v, .verifyRequests, guild: guildId) }
+        if let v = try? await greetingT      { appState.setGuildData(v, .greeting, guild: guildId) }
+        if let v = try? await tempSettingsT  { appState.setGuildData(v, .tempChannelSettings, guild: guildId) }
+        if let v = try? await tempActiveT    { appState.setGuildData(v, .tempChannelActive, guild: guildId) }
+        if let v = try? await tempVCT        { appState.setGuildData(v, .tempVCSources, guild: guildId) }
+        if let v = try? await ordersT        { appState.setGuildData(v, .orders, guild: guildId) }
+        if let v = try? await slashT         { appState.setGuildData(v, .slashCommands, guild: guildId) }
     }
 
     private func restoreSelectedGuild() async {

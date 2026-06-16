@@ -55,6 +55,37 @@ final class AppState {
     var cachedShops: [String: [Shop]] = [:]
     var cachedReactionRoles: [String: [ReactionRoleItem]] = [:]
 
+    // MARK: - 汎用ギルドキャッシュ（スプラッシュ先読み用）
+    // 上記の専用キャッシュに加え、その他のギルドスコープのデータを型を問わず保持する。
+    // スプラッシュ中に prefetchGuildData がまとめて書き込み、各画面が cache-first で読む。
+
+    /// キャッシュ対象のデータ種別
+    enum GuildDataKind: String {
+        case members, roles, channels, analytics
+        case autoResponses, statChannels
+        case verifyPanels, verifyRequests, greeting
+        case vcNotificationSettings
+        case tempChannelSettings, tempChannelActive, tempVCSources
+        case orders, slashCommands
+        case inviteLeaderboard, inviteCampaigns
+    }
+
+    private var guildDataCache: [String: Any] = [:]
+
+    private func guildDataKey(_ kind: GuildDataKind, _ guildId: String) -> String {
+        "\(kind.rawValue)#\(guildId)"
+    }
+
+    /// 先読み済みのデータを取り出す（型は呼び出し側の文脈から推論）
+    func guildData<T>(_ kind: GuildDataKind, guild guildId: String) -> T? {
+        guildDataCache[guildDataKey(kind, guildId)] as? T
+    }
+
+    /// 先読みしたデータを保存する
+    func setGuildData<T>(_ value: T, _ kind: GuildDataKind, guild guildId: String) {
+        guildDataCache[guildDataKey(kind, guildId)] = value
+    }
+
     func cacheEmbeds(_ embeds: [EmbedModel], for guildId: String) {
         cachedEmbeds[guildId] = embeds
     }
@@ -77,6 +108,14 @@ final class AppState {
         cachedTickets.removeValue(forKey: guildId)
         cachedShops.removeValue(forKey: guildId)
         cachedReactionRoles.removeValue(forKey: guildId)
+        // 汎用キャッシュからも該当ギルドのエントリを削除
+        for kind in [GuildDataKind.members, .roles, .channels, .analytics,
+                     .autoResponses, .statChannels, .verifyPanels, .verifyRequests,
+                     .greeting, .tempChannelSettings, .tempChannelActive,
+                     .tempVCSources, .orders, .slashCommands,
+                     .inviteLeaderboard, .inviteCampaigns] {
+            guildDataCache.removeValue(forKey: guildDataKey(kind, guildId))
+        }
     }
 
     /// サーバーを切り替える。同じサーバーを選んだ場合は何もしない。
