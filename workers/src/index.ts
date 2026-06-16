@@ -938,8 +938,10 @@ function hexToUint8Array(hex: string): Uint8Array {
 
 export default {
   // HTTP API エンドポイント
-  async fetch(request: Request, env: Env): Promise<Response> {
+  async fetch(request: Request, env: Env, ctx: ExecutionContext): Promise<Response> {
     const url = new URL(request.url);
+    // Supabase fetch ヘルパー（インタラクションハンドラーを含む全ルートで使用）
+    const sb = makeSupabaseFetch(env);
 
     // ── CORS プリフライト (#10) ──────────────────────────────
     if (request.method === 'OPTIONS') {
@@ -1050,81 +1052,91 @@ export default {
         // ── 個人招待リンク取得ボタン personal_invite:{guildId} ──────────
         const personalInviteMatch = customId.match(/^personal_invite:(.+)$/);
         if (personalInviteMatch) {
-          const gId = personalInviteMatch[1];
-          const username    = ix.member?.user?.username    ?? ix.user?.username    ?? userId;
-          const displayName = ix.member?.nick ?? ix.member?.user?.global_name ?? ix.member?.user?.username ?? username;
+          try {
+            const gId         = personalInviteMatch[1];
+            const username    = ix.member?.user?.username ?? ix.user?.username ?? userId;
+            const displayName = ix.member?.nick ?? ix.member?.user?.global_name ?? ix.member?.user?.username ?? username;
 
-          // 既存の個人リンクを確認
-          const existingResp = await sb(`/personal_invites?guild_id=eq.${gId}&user_id=eq.${userId}`);
-          const existing: any[] = existingResp.ok ? await existingResp.json() : [];
+            // 既存リンクとパネル情報を並列取得（直列だと遅い）
+            const [existingResp, panelsResp] = await Promise.all([
+              sb(`/personal_invites?guild_id=eq.${gId}&user_id=eq.${userId}`),
+              sb(`/invite_panels?guild_id=eq.${gId}&limit=1`),
+            ]);
+            const existing: any[]  = existingResp.ok  ? await existingResp.json()  : [];
+            const panelRows: any[] = panelsResp.ok    ? await panelsResp.json()    : [];
 
-          let inviteCode: string;
-          let inviteUrl: string;
+            let inviteCode: string;
+            let inviteUrl: string;
+            let isNew = false;
 
-          if (existing.length > 0) {
-            // 既存リンクを再表示
-            inviteCode = existing[0].invite_code;
-            inviteUrl  = existing[0].invite_url;
-          } else {
-            // 新しいDiscord招待リンクを作成（最初のパネルのチャンネルIDを使用）
-            const panelsResp = await sb(`/invite_panels?guild_id=eq.${gId}&limit=1`);
-            const panelRows: any[] = panelsResp.ok ? await panelsResp.json() : [];
-            const targetChannelId = panelRows.length > 0 ? panelRows[0].channel_id : '';
+            if (existing.length > 0) {
+              // 既存リンクを再表示
+              inviteCode = existing[0].invite_code;
+              inviteUrl  = existing[0].invite_url;
+            } else {
+              isNew = true;
+              const targetChannelId = panelRows.length > 0 ? panelRows[0].channel_id : '';
+              if (!targetChannelId) {
+                return jsonResponse({ type: 4, data: { content: '❌ 招待パネルの設定が見つかりません。管理者にご連絡ください。', flags: 64 } });
+              }
 
-            if (!targetChannelId) {
-              return jsonResponse({ type: 4, data: { content: '❌ 招待パネルの設定が見つかりません。', flags: 64 } });
-            }
-
-            // Discord Invite API: unique=true で必ず新しいコードを発行
-            const inviteResp = await fetch(`https://discord.com/api/v10/channels/${targetChannelId}/invites`, {
-              method: 'POST',
-              headers: { Authorization: `Bot ${env.DISCORD_BOT_TOKEN}`, 'Content-Type': 'application/json' },
-              body: JSON.stringify({ max_age: 0, max_uses: 0, unique: true }),
-            });
-
-            if (!inviteResp.ok) {
-              return jsonResponse({ type: 4, data: { content: '❌ 招待リンクの作成に失敗しました。', flags: 64 } });
-            }
-            const invite = await inviteResp.json() as { code: string };
-            inviteCode = invite.code;
-            inviteUrl  = `https://discord.gg/${inviteCode}`;
-
-            // DBに保存
-            await sb('/personal_invites', {
-              method: 'POST',
-              headers: { Prefer: 'return=representation' },
-              body: JSON.stringify({
-                guild_id: gId, user_id: userId, username, display_name: displayName,
-                invite_code: inviteCode, invite_url: inviteUrl, channel_id: targetChannelId,
-              }),
-            });
-
-            // DMでも送信（失敗しても無視）
-            try {
-              const dmChResp = await fetch('https://discord.com/api/v10/users/@me/channels', {
+              // Discord Invite API
+              const inviteResp = await fetch(`https://discord.com/api/v10/channels/${targetChannelId}/invites`, {
                 method: 'POST',
                 headers: { Authorization: `Bot ${env.DISCORD_BOT_TOKEN}`, 'Content-Type': 'application/json' },
-                body: JSON.stringify({ recipient_id: userId }),
+                body: JSON.stringify({ max_age: 0, max_uses: 0, unique: true }),
               });
-              if (dmChResp.ok) {
-                const dmCh = await dmChResp.json() as { id: string };
-                await fetch(`https://discord.com/api/v10/channels/${dmCh.id}/messages`, {
-                  method: 'POST',
-                  headers: { Authorization: `Bot ${env.DISCORD_BOT_TOKEN}`, 'Content-Type': 'application/json' },
-                  body: JSON.stringify({
-                    content: `🔗 **あなた専用の招待リンクを発行しました！**\n\n${inviteUrl}\n\nこのリンクを使って友達をサーバーに招待してください。このリンクはあなただけのものです。`,
-                  }),
-                });
+              if (!inviteResp.ok) {
+                const errText = await inviteResp.text();
+                console.error('[personal_invite] Discord invite creation failed:', inviteResp.status, errText);
+                return jsonResponse({ type: 4, data: { content: '❌ 招待リンクの作成に失敗しました。Botの権限を確認してください。', flags: 64 } });
               }
-            } catch (_) { /* DM送信失敗は無視 */ }
+              const invite = await inviteResp.json() as { code: string };
+              inviteCode = invite.code;
+              inviteUrl  = `https://discord.gg/${inviteCode}`;
+
+              // DB保存（レスポンスのクリティカルパス）
+              await sb('/personal_invites', {
+                method: 'POST',
+                headers: { Prefer: 'return=representation' },
+                body: JSON.stringify({
+                  guild_id: gId, user_id: userId, username, display_name: displayName,
+                  invite_code: inviteCode, invite_url: inviteUrl, channel_id: targetChannelId,
+                }),
+              });
+
+              // DM送信はレスポンス後にバックグラウンドで実行（タイムアウト防止）
+              ctx.waitUntil(
+                (async () => {
+                  try {
+                    const dmChResp = await fetch('https://discord.com/api/v10/users/@me/channels', {
+                      method: 'POST',
+                      headers: { Authorization: `Bot ${env.DISCORD_BOT_TOKEN}`, 'Content-Type': 'application/json' },
+                      body: JSON.stringify({ recipient_id: userId }),
+                    });
+                    if (!dmChResp.ok) return;
+                    const dmCh = await dmChResp.json() as { id: string };
+                    await fetch(`https://discord.com/api/v10/channels/${dmCh.id}/messages`, {
+                      method: 'POST',
+                      headers: { Authorization: `Bot ${env.DISCORD_BOT_TOKEN}`, 'Content-Type': 'application/json' },
+                      body: JSON.stringify({
+                        content: `🔗 **あなた専用の招待リンクを発行しました！**\n\n${inviteUrl}\n\nこのリンクを使って友達をサーバーに招待してください。このリンクはあなただけのものです。`,
+                      }),
+                    });
+                  } catch (_) { /* DM失敗は無視 */ }
+                })()
+              );
+            }
+
+            const message = isNew
+              ? `✅ **あなた専用の招待リンクを発行しました！**\n\n${inviteUrl}\n\n※ このメッセージはあなたにだけ表示されています。DMにも送信しました。`
+              : `🔗 **あなたの招待リンクはこちらです**\n\n${inviteUrl}\n\n※ このメッセージはあなたにだけ表示されています。`;
+
+            return jsonResponse({ type: 4, data: { content: message, flags: 64 } });
+          } catch (err) {
+            console.error('[personal_invite] unhandled error:', err);
+            return jsonResponse({ type: 4, data: { content: '❌ エラーが発生しました。もう一度お試しください。', flags: 64 } });
           }
-
-          const isNew = existing.length === 0;
-          const message = isNew
-            ? `✅ **あなた専用の招待リンクを発行しました！**\n\n${inviteUrl}\n\n※ このメッセージはあなたにだけ表示されています。`
-            : `🔗 **あなたの招待リンクはこちらです**\n\n${inviteUrl}\n\n※ このメッセージはあなたにだけ表示されています。`;
-
-          return jsonResponse({ type: 4, data: { content: message, flags: 64 } });
         }
 
         // ── チケット開設ボタン ticket_open_{panelId} ──────────────────
@@ -1588,8 +1600,6 @@ export default {
         headers: { 'Content-Type': 'application/json', 'Access-Control-Allow-Origin': '*' },
       });
     }
-
-    const sb = makeSupabaseFetch(env);
 
     // ── 認証パネル CRUD ──────────────────────────────────────────
 
@@ -4164,16 +4174,22 @@ export default {
     // POST /bot/invite-tracker/settings
     if (url.pathname === '/bot/invite-tracker/settings' && request.method === 'POST') {
       const body = await request.json() as any;
+      // iOS sends snake_case (convertToSnakeCase), fallback to camelCase just in case
+      const guildId            = body.guild_id              ?? body.guildId;
+      const isEnabled          = body.is_enabled            ?? body.isEnabled;
+      const logChannelId       = body.log_channel_id        ?? body.logChannelId        ?? null;
+      const notifyOnJoin       = body.notify_on_join        ?? body.notifyOnJoin        ?? true;
+      const notifyOnLeave      = body.notify_on_leave       ?? body.notifyOnLeave       ?? true;
+      const fakeThreshold      = body.fake_invite_threshold_hours ?? body.fakeInviteThresholdHours ?? 24;
       const payload = {
-        guild_id: body.guildId, is_enabled: body.isEnabled,
-        log_channel_id: body.logChannelId, notify_on_join: body.notifyOnJoin,
-        notify_on_leave: body.notifyOnLeave, fake_invite_threshold_hours: body.fakeInviteThresholdHours,
+        guild_id: guildId, is_enabled: isEnabled,
+        log_channel_id: logChannelId, notify_on_join: notifyOnJoin,
+        notify_on_leave: notifyOnLeave, fake_invite_threshold_hours: fakeThreshold,
       };
-      const resp = await sb(`/invite_tracker_settings?guild_id=eq.${body.guildId}`, {
+      const resp = await sb(`/invite_tracker_settings?guild_id=eq.${guildId}`, {
         method: 'PATCH', headers: { Prefer: 'return=representation' }, body: JSON.stringify(payload),
       });
       if (!resp.ok) {
-        // Insert if not found
         const insResp = await sb('/invite_tracker_settings', {
           method: 'POST', headers: { Prefer: 'return=representation' }, body: JSON.stringify(payload),
         });
@@ -4203,14 +4219,19 @@ export default {
     // POST /bot/invite-tracker/campaigns
     if (url.pathname === '/bot/invite-tracker/campaigns' && request.method === 'POST') {
       const body = await request.json() as any;
+      // iOS sends snake_case, fallback to camelCase
+      const guildId     = body.guild_id     ?? body.guildId;
+      const inviteCode  = body.invite_code  ?? body.inviteCode  ?? null;
+      const targetCount = body.target_count ?? body.targetCount ?? null;
+      const endsAt      = body.ends_at      ?? body.endsAt      ?? null;
       const resp = await sb('/invite_campaigns', {
         method: 'POST',
         headers: { Prefer: 'return=representation' },
         body: JSON.stringify({
-          guild_id: body.guildId, name: body.name, description: body.description ?? null,
-          invite_code: body.inviteCode ?? null, target_count: body.targetCount ?? null,
+          guild_id: guildId, name: body.name, description: body.description ?? null,
+          invite_code: inviteCode, target_count: targetCount,
           current_count: 0, starts_at: new Date().toISOString(),
-          ends_at: body.endsAt ?? null, is_active: true,
+          ends_at: endsAt, is_active: true,
         }),
       });
       if (!resp.ok) return new Response(await resp.text(), { status: resp.status });
@@ -4235,8 +4256,11 @@ export default {
 
     // POST /bot/invite-tracker/panel  → Discordチャンネルにボタンを送信してパネル登録
     if (url.pathname === '/bot/invite-tracker/panel' && request.method === 'POST') {
-      const body = await request.json() as { guildId: string; channelId: string; channelName: string };
-      const { guildId: gId, channelId, channelName } = body;
+      const body = await request.json() as any;
+      // iOS sends snake_case (convertToSnakeCase), fallback to camelCase
+      const gId         = body.guild_id    ?? body.guildId;
+      const channelId   = body.channel_id  ?? body.channelId;
+      const channelName = body.channel_name ?? body.channelName;
 
       // Discord にメッセージ + ボタンを送信
       const msgResp = await fetch(`https://discord.com/api/v10/channels/${channelId}/messages`, {
