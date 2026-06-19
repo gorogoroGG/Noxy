@@ -81,6 +81,21 @@ async function handleReactionVerify(interaction: ButtonInteraction, panel: Verif
   });
 }
 
+// OAuth2: Worker の OAuth2 認証ページへ誘導
+async function handleOAuth2Verify(interaction: ButtonInteraction, panel: VerifyPanelRow): Promise<void> {
+  const oauthUrl = `${WORKER_URL}/oauth2/start?panel_id=${panel.id}&user_id=${interaction.user.id}&guild_id=${interaction.guildId!}`;
+  const btn = new ButtonBuilder().setLabel('🔐 OAuth2認証を行う').setStyle(ButtonStyle.Link).setURL(oauthUrl);
+  await interaction.editReply({
+    embeds: [{
+      title: '🔐 OAuth2認証を開始します',
+      description: '下のボタンからブラウザを開き、Discord認証を完了してください。\n\n' +
+        '認証によりロールが付与され、万が一の際のサーバー復旧にも利用できるようになります。',
+      color: 0x5865f2,
+    }],
+    components: [new ActionRowBuilder<ButtonBuilder>().addComponents(btn)],
+  });
+}
+
 // 手動認証: リクエスト作成 + 管理者通知
 async function handleManualVerify(interaction: ButtonInteraction, panel: VerifyPanelRow): Promise<void> {
   const user = interaction.user;
@@ -239,6 +254,7 @@ client.on(Events.InteractionCreate, async (interaction: Interaction) => {
       case 'button':    await handleButtonVerify(btn, panel); break;
       case 'reaction':  await handleReactionVerify(btn, panel); break;
       case 'manual':    await handleManualVerify(btn, panel); break;
+      case 'oauth2':    await handleOAuth2Verify(btn, panel); break;
       default: await btn.editReply('❌ 不明な認証タイプです。');
     }
   } catch (e) {

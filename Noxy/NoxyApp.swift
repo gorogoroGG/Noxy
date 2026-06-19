@@ -11,10 +11,13 @@ struct NoxyApp: App {
 
 struct RootView: View {
     @State private var services: ServiceContainer
+    @State private var demoServices: ServiceContainer
     @State private var authManager: AuthManager
     @State private var appState = AppState()
     @State private var showSplash    = true
     @State private var bootFinished  = false
+    @State private var showDemoUpsell = false
+    @State private var demoUpsellAction = ""
     @AppStorage("hasSeenOnboarding") private var hasSeenOnboarding = false
     @AppStorage("colorScheme") private var colorSchemePref = "システム"
 
@@ -31,8 +34,9 @@ struct RootView: View {
         KeychainHelper.migrateFromUserDefaults()
 
         let svc = ServiceContainer.live()
-        _services    = State(initialValue: svc)
-        _authManager = State(initialValue: AuthManager(services: svc))
+        _services     = State(initialValue: svc)
+        _demoServices = State(initialValue: ServiceContainer.mock())
+        _authManager  = State(initialValue: AuthManager(services: svc))
     }
 
     var body: some View {
@@ -44,10 +48,20 @@ struct RootView: View {
             }
         }
         .animation(.easeInOut(duration: 0.3), value: authManager.isLoggedIn)
-        .environment(\.services, services)
+        .environment(\.services, appState.isDemoMode ? demoServices : services)
         .environment(authManager)
         .environment(appState)
         .preferredColorScheme(preferredScheme)
+        .onReceive(NotificationCenter.default.publisher(for: .mockExternalAction)) { notif in
+            guard appState.isDemoMode else { return }
+            demoUpsellAction = notif.object as? String ?? ""
+            showDemoUpsell = true
+        }
+        .sheet(isPresented: $showDemoUpsell) {
+            DemoUpsellModal(actionName: demoUpsellAction) {
+                showDemoUpsell = false
+            }
+        }
     }
 
     // 起動直後は常にスプラッシュを最前面に表示する。

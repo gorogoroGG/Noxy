@@ -173,6 +173,16 @@ struct VerifyPanelListView: View {
                 )
                 .padding(.horizontal, .spacing16)
 
+                AuthModeIntroCard(
+                    icon: "lock.shield.fill",
+                    iconColor: Color.accentIndigo,
+                    title: "OAuth2認証",
+                    subtitle: "サーバー復旧対象",
+                    description: "Discord公式認証を行います。認証したメンバーは、サーバー破壊時の復旧時に新サーバーへ自動参加できます。",
+                    useCase: "重要なコミュニティ・災害復旧を見据えた運営"
+                )
+                .padding(.horizontal, .spacing16)
+
                 AccentButton(title: "認証パネルを作成") {
                     showCreate = true
                 }

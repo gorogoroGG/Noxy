@@ -25,6 +25,7 @@ final class ServiceContainer {
     let subscription:       any SubscriptionServiceProtocol
     let verify:             any VerifyServiceProtocol
     let inviteTracker:      any InviteTrackerServiceProtocol
+    let disasterRecovery:   any DisasterRecoveryServiceProtocol
 
     private init(
         embeds:            any EmbedServiceProtocol,
@@ -46,7 +47,8 @@ final class ServiceContainer {
         statChannels:      any StatChannelServiceProtocol,
         subscription:      any SubscriptionServiceProtocol,
         verify:            any VerifyServiceProtocol,
-        inviteTracker:     any InviteTrackerServiceProtocol
+        inviteTracker:     any InviteTrackerServiceProtocol,
+        disasterRecovery:  any DisasterRecoveryServiceProtocol
     ) {
         self.embeds = embeds
         self.guilds = guilds
@@ -68,6 +70,7 @@ final class ServiceContainer {
         self.subscription = subscription
         self.verify = verify
         self.inviteTracker = inviteTracker
+        self.disasterRecovery = disasterRecovery
     }
 
     /// モック用（プレビュー・テスト）
@@ -92,7 +95,8 @@ final class ServiceContainer {
             statChannels:      WorkerStatChannelService(),
             subscription:      MockSubscriptionService(),
             verify:            MockVerifyService(),
-            inviteTracker:     MockInviteTrackerService()
+            inviteTracker:     MockInviteTrackerService(),
+            disasterRecovery:  MockDisasterRecoveryService()
         )
     }
 
@@ -118,7 +122,8 @@ final class ServiceContainer {
             statChannels:      WorkerStatChannelService(),
             subscription:      WorkerSubscriptionService(),
             verify:            WorkerVerifyService(),
-            inviteTracker:     WorkerInviteTrackerService()
+            inviteTracker:     WorkerInviteTrackerService(),
+            disasterRecovery:  WorkerDisasterRecoveryService()
         )
     }
 }

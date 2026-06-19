@@ -20,8 +20,17 @@ final class AppState {
     /// サブスクリプション状態（MainTabView がロード後に書き込む）
     var subscriptionStatus: SubscriptionStatus = .inactive
 
-    /// Pro プランが有効かどうか
-    var isPro: Bool { subscriptionStatus.isActive }
+    /// 現在選択中のサーバーが Pro 有効化済みかどうか
+    /// - アカウントに有効なサブスクリプションがあり、かつ
+    ///   選択サーバーがスロットで有効化されている（無制限プランは全サーバーOK）
+    var isPro: Bool {
+        guard subscriptionStatus.isActive else { return false }
+        guard !subscriptionStatus.isUnlimited else { return true }
+        return subscriptionStatus.activatedGuildIds.contains(selectedGuildId)
+    }
+
+    /// デモモード = 選択中のサーバーがスロット未有効化（サービスをモックに切り替える）
+    var isDemoMode: Bool { !isPro }
 
     /// Bot のオンライン状態（nil = まだ確認中）
     var botStatus: BotStatus? = nil
@@ -67,7 +76,7 @@ final class AppState {
         case vcNotificationSettings
         case tempChannelSettings, tempChannelActive, tempVCSources
         case orders, slashCommands
-        case inviteLeaderboard, inviteCampaigns
+        case inviteLeaderboard
     }
 
     private var guildDataCache: [String: Any] = [:]
@@ -113,7 +122,7 @@ final class AppState {
                      .autoResponses, .statChannels, .verifyPanels, .verifyRequests,
                      .greeting, .tempChannelSettings, .tempChannelActive,
                      .tempVCSources, .orders, .slashCommands,
-                     .inviteLeaderboard, .inviteCampaigns] {
+                     .inviteLeaderboard] {
             guildDataCache.removeValue(forKey: guildDataKey(kind, guildId))
         }
     }

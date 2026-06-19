@@ -12,34 +12,77 @@ struct PersonalInviteLinksView: View {
     @State private var showRevokeAlert = false
 
     var body: some View {
-        List {
-            if isLoading {
-                ForEach(0..<5, id: \.self) { _ in
-                    PersonalInviteRowSkeleton()
-                }
-            } else if filtered.isEmpty {
-                ContentUnavailableView(
-                    searchText.isEmpty ? "リンクなし" : "見つかりません",
-                    systemImage: searchText.isEmpty ? "link.badge.plus" : "magnifyingglass",
-                    description: Text(searchText.isEmpty
-                                      ? "まだ誰も招待リンクを作成していません"
-                                      : "「\(searchText)」に一致するメンバーはいません")
-                )
-                .listRowBackground(Color.clear)
-            } else {
-                Section {
-                    ForEach(filtered) { link in
-                        PersonalInviteRow(link: link) {
-                            linkToRevoke = link
-                            showRevokeAlert = true
+        ZStack {
+            Theme.Color.bg.ignoresSafeArea()
+
+            Group {
+                if isLoading {
+                    ScrollView {
+                        LazyVStack(spacing: 0) {
+                            Card(padding: 0) {
+                                ForEach(0..<5, id: \.self) { i in
+                                    PersonalInviteRowSkeleton()
+                                        .padding(.horizontal, Theme.Spacing.md)
+                                        .padding(.vertical, Theme.Spacing.sm)
+                                    if i < 4 {
+                                        Divider().background(Theme.Color.line).padding(.leading, Theme.Spacing.md)
+                                    }
+                                }
+                            }
+                        }
+                        .padding(.horizontal, Theme.Spacing.md)
+                        .padding(.vertical, Theme.Spacing.sm)
+                    }
+                } else if filtered.isEmpty {
+                    VStack(spacing: Theme.Spacing.md) {
+                        Image(systemName: searchText.isEmpty ? "link.badge.plus" : "magnifyingglass")
+                            .font(.system(size: 40))
+                            .foregroundStyle(Theme.Color.textTertiary)
+                        VStack(spacing: Theme.Spacing.xs) {
+                            Text(searchText.isEmpty ? "リンクなし" : "見つかりません")
+                                .font(Theme.Font.title3)
+                                .foregroundStyle(Theme.Color.textPrimary)
+                            Text(searchText.isEmpty
+                                 ? "まだ誰も招待リンクを作成していません"
+                                 : "「\(searchText)」に一致するメンバーはいません")
+                                .font(Theme.Font.bodySmall)
+                                .foregroundStyle(Theme.Color.textSecondary)
+                                .multilineTextAlignment(.center)
                         }
                     }
-                } header: {
-                    Text("\(filtered.count)件")
+                    .frame(maxWidth: .infinity, maxHeight: .infinity)
+                } else {
+                    ScrollView {
+                        LazyVStack(spacing: Theme.Spacing.md) {
+                            HStack {
+                                Text("\(filtered.count)件")
+                                    .font(Theme.Font.caption2)
+                                    .fontWeight(.semibold)
+                                    .foregroundStyle(Theme.Color.textTertiary)
+                                    .textCase(.uppercase)
+                                Spacer()
+                            }
+
+                            Card(padding: 0) {
+                                ForEach(Array(filtered.enumerated()), id: \.element.id) { idx, link in
+                                    PersonalInviteRow(link: link) {
+                                        linkToRevoke = link
+                                        showRevokeAlert = true
+                                    }
+                                    .padding(.horizontal, Theme.Spacing.md)
+                                    .padding(.vertical, Theme.Spacing.sm)
+                                    if idx < filtered.count - 1 {
+                                        Divider().background(Theme.Color.line).padding(.leading, Theme.Spacing.md)
+                                    }
+                                }
+                            }
+                        }
+                        .padding(.horizontal, Theme.Spacing.md)
+                        .padding(.vertical, Theme.Spacing.sm)
+                    }
                 }
             }
         }
-        .listStyle(.insetGrouped)
         .navigationTitle("個人招待リンク")
         .navigationBarTitleDisplayMode(.large)
         .searchable(text: $searchText, prompt: "メンバーで検索")
@@ -89,63 +132,61 @@ private struct PersonalInviteRow: View {
     @State private var isCopied = false
 
     var body: some View {
-        HStack(spacing: .spacing12) {
+        HStack(spacing: Theme.Spacing.sm) {
             AvatarCircle(displayName: link.displayName, size: 38)
 
-            VStack(alignment: .leading, spacing: 3) {
+            VStack(alignment: .leading, spacing: 2) {
                 Text(link.displayName)
-                    .font(.system(size: 14, weight: .semibold))
-                    .foregroundStyle(Color.textPrimary)
-                HStack(spacing: .spacing4) {
+                    .font(Theme.Font.bodyMedium)
+                    .foregroundStyle(Theme.Color.textPrimary)
+                HStack(spacing: Theme.Spacing.xs) {
                     Image(systemName: "link")
-                        .font(.system(size: 10))
-                        .foregroundStyle(Color.accentPurple)
+                        .font(Theme.Font.caption2)
+                        .foregroundStyle(Theme.Color.accent)
                     Text("discord.gg/\(link.inviteCode)")
                         .font(.system(size: 11, design: .monospaced))
-                        .foregroundStyle(Color.accentPurple)
+                        .foregroundStyle(Theme.Color.accent)
                 }
                 Text(link.createdAt.formatted(date: .abbreviated, time: .shortened) + "に作成")
-                    .font(.system(size: 9.5))
-                    .foregroundStyle(Color.textTertiary)
+                    .font(Theme.Font.caption2)
+                    .foregroundStyle(Theme.Color.textTertiary)
             }
 
             Spacer()
 
-            VStack(spacing: .spacing6) {
+            VStack(spacing: Theme.Spacing.sm) {
                 Button {
                     UIPasteboard.general.string = link.inviteUrl
                     isCopied = true
                     DispatchQueue.main.asyncAfter(deadline: .now() + 1.5) { isCopied = false }
                 } label: {
                     Image(systemName: isCopied ? "checkmark" : "doc.on.doc")
-                        .font(.system(size: 13))
-                        .foregroundStyle(isCopied ? Color.accentGreen : Color.textTertiary)
+                        .font(Theme.Font.caption)
+                        .foregroundStyle(isCopied ? Theme.Color.statusOK : Theme.Color.textTertiary)
                 }
                 .buttonStyle(.plain)
 
                 Button(role: .destructive) { onRevoke() } label: {
                     Image(systemName: "trash")
-                        .font(.system(size: 12))
-                        .foregroundStyle(Color.red.opacity(0.6))
+                        .font(Theme.Font.caption)
+                        .foregroundStyle(Theme.Color.statusBad.opacity(0.7))
                 }
                 .buttonStyle(.plain)
             }
         }
-        .padding(.vertical, .spacing4)
     }
 }
 
 private struct PersonalInviteRowSkeleton: View {
     var body: some View {
-        HStack(spacing: .spacing12) {
-            Circle().fill(Color.textTertiary.opacity(0.1)).frame(width: 38, height: 38)
+        HStack(spacing: Theme.Spacing.sm) {
+            Circle().fill(Theme.Color.textTertiary.opacity(0.1)).frame(width: 38, height: 38)
             VStack(alignment: .leading, spacing: 6) {
-                RoundedRectangle(cornerRadius: 3).fill(Color.textTertiary.opacity(0.1)).frame(width: 90, height: 12)
-                RoundedRectangle(cornerRadius: 3).fill(Color.textTertiary.opacity(0.1)).frame(width: 150, height: 10)
-                RoundedRectangle(cornerRadius: 3).fill(Color.textTertiary.opacity(0.1)).frame(width: 120, height: 9)
+                RoundedRectangle(cornerRadius: 3).fill(Theme.Color.textTertiary.opacity(0.1)).frame(width: 90, height: 12)
+                RoundedRectangle(cornerRadius: 3).fill(Theme.Color.textTertiary.opacity(0.1)).frame(width: 150, height: 10)
+                RoundedRectangle(cornerRadius: 3).fill(Theme.Color.textTertiary.opacity(0.1)).frame(width: 120, height: 9)
             }
         }
-        .padding(.vertical, .spacing4)
         .redacted(reason: .placeholder)
     }
 }

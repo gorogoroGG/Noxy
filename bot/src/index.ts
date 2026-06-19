@@ -15,6 +15,7 @@ import './events/verifyInteraction';
 import './events/voiceState';
 import './events/waitingRoomInteraction';
 import './events/guildCreate';
+import './events/guildDelete';
 
 const token = process.env.DISCORD_BOT_TOKEN;
 if (!token) {

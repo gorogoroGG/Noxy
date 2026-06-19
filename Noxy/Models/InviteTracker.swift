@@ -83,31 +83,6 @@ struct InviteEventEntry: Codable, Identifiable, Sendable {
     var id: String { userId }
 }
 
-// MARK: - Campaign
-
-struct InviteCampaign: Codable, Identifiable, Sendable {
-    let id: String
-    let guildId: String
-    let name: String
-    let description: String?
-    let inviteCode: String?
-    let targetCount: Int?
-    let currentCount: Int
-    let startsAt: Date
-    let endsAt: Date?
-    let isActive: Bool
-    let createdAt: Date
-
-    var progressRatio: Double {
-        guard let target = targetCount, target > 0 else { return 0 }
-        return min(Double(currentCount) / Double(target), 1.0)
-    }
-    var isExpired: Bool {
-        guard let end = endsAt else { return false }
-        return end < Date()
-    }
-}
-
 // MARK: - Settings
 
 struct InviteTrackerSettings: Codable, Sendable {

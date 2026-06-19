@@ -12,6 +12,8 @@ crons = [
 
 # 環境変数（deploy 時に wrangler secret put で設定する）
 # DISCORD_BOT_TOKEN    – Discord Bot のトークン
+# DISCORD_CLIENT_ID    – Discord アプリケーションの Client ID
+# DISCORD_CLIENT_SECRET – Discord OAuth2 Client Secret（災害復旧用 guilds.join 認証に必要）
 # SUPABASE_URL         – Supabase プロジェクトの URL
 # SUPABASE_SERVICE_KEY – Supabase の service_role key（管理用）
 # WORKER_API_SECRET    – API 認証シークレット（iOS アプリ側の DiscordConfig.workerAPISecret と一致させる）
@@ -19,6 +21,8 @@ crons = [
 #   未設定の場合はローカル開発用として認証スキップ
 # SUPABASE_ANON_KEY    – Supabase の anon/public key（課金 JWT 検証に必要）
 #   設定方法: wrangler secret put SUPABASE_ANON_KEY
+# TOKEN_ENCRYPTION_KEY – OAuth2アクセストークン暗号化用のAES-GCMキー
+#   設定方法: wrangler secret put TOKEN_ENCRYPTION_KEY
 [vars]
 # ここには機密以外の設定だけ書く（空でもOK）
 

@@ -1,5 +1,15 @@
 import Foundation
 
+extension NSNotification.Name {
+    /// MockService が外部アクション（Discord への送信・メンバー操作等）を実行したときに post する。
+    /// RootView がデモモード中のみリッスンし、アップセルモーダルを表示する。
+    static let mockExternalAction = NSNotification.Name("com.noxy.mockExternalAction")
+}
+
+private func notifyDemoAction(_ actionName: String) {
+    NotificationCenter.default.post(name: .mockExternalAction, object: actionName)
+}
+
 enum ServiceError: LocalizedError {
     case networkError
     case notFound
@@ -85,6 +95,7 @@ actor MockEmbedService: EmbedServiceProtocol {
 
     func send(embedId: String, guildId: String, channelId: String) async throws {
         try await mockDelay()
+        notifyDemoAction("埋め込みメッセージを Discord に送信")
     }
 }
 
@@ -129,19 +140,23 @@ actor MockMemberService: MemberServiceProtocol {
     func kick(memberId: String, guildId: String, reason: String?) async throws {
         try await mockDelay()
         members.removeAll { $0.id == memberId && $0.guildId == guildId }
+        notifyDemoAction("メンバーをキック")
     }
 
     func ban(memberId: String, guildId: String, reason: String?) async throws {
         try await mockDelay()
         members.removeAll { $0.id == memberId && $0.guildId == guildId }
+        notifyDemoAction("メンバーを BAN")
     }
 
     func timeout(memberId: String, guildId: String, until: Date) async throws {
         try await mockDelay()
+        notifyDemoAction("メンバーをタイムアウト")
     }
 
     func sendDM(memberId: String, message: String) async throws {
         try await mockDelay()
+        notifyDemoAction("メンバーに DM を送信")
     }
 
     func addRole(memberId: String, guildId: String, roleId: String) async throws {
@@ -161,6 +176,7 @@ actor MockMemberService: MemberServiceProtocol {
                              communicationDisabledUntil: updated.communicationDisabledUntil, status: updated.status)
             members[idx] = updated
         }
+        notifyDemoAction("メンバーにロールを付与")
     }
 
     func removeRole(memberId: String, guildId: String, roleId: String) async throws {
@@ -178,6 +194,7 @@ actor MockMemberService: MemberServiceProtocol {
                          isDeaf: updated.isDeaf, isMute: updated.isMute, flags: updated.flags,
                          communicationDisabledUntil: updated.communicationDisabledUntil, status: updated.status)
         members[idx] = updated
+        notifyDemoAction("メンバーからロールを削除")
     }
 }
 
@@ -284,6 +301,7 @@ actor MockTicketService: TicketServiceProtocol {
     func deletePanel(id: String) async throws { try await mockDelay() }
     func deployPanel(id: String, channelId: String) async throws -> TicketPanel {
         try await mockDelay()
+        notifyDemoAction("チケットパネルを Discord チャンネルに設置")
         return TicketPanel.blank(guildId: "g003")
     }
 }
@@ -410,6 +428,7 @@ actor MockBotService: BotServiceProtocol {
 
     func restart() async throws {
         try await Task.sleep(for: .seconds(1))
+        notifyDemoAction("Bot を再起動")
     }
 
     func fetchCommands() async throws -> [SlashCommand] {
@@ -619,6 +638,7 @@ actor MockVerifyService: VerifyServiceProtocol {
         guard let idx = panels.firstIndex(where: { $0.id == id }) else { throw ServiceError.notFound }
         panels[idx].channelId = channelId
         panels[idx].messageId = "mock-msg-\(UUID().uuidString.prefix(8))"
+        notifyDemoAction("認証パネルを Discord チャンネルに設置")
         return panels[idx]
     }
     func resetPanel(id: String) async throws -> VerifyPanel {
@@ -788,11 +808,6 @@ actor MockInviteTrackerService: InviteTrackerServiceProtocol {
         ]
     )
 
-    nonisolated(unsafe) private var campaigns: [InviteCampaign] = [
-        InviteCampaign(id: "c1", guildId: "g001", name: "夏の招待キャンペーン", description: "友達を呼んでサーバーを盛り上げよう！", inviteCode: "noxy-summer", targetCount: 100, currentCount: 67, startsAt: Date().addingTimeInterval(-60 * 60 * 24 * 7), endsAt: Date().addingTimeInterval(60 * 60 * 24 * 7), isActive: true, createdAt: Date().addingTimeInterval(-60 * 60 * 24 * 7)),
-        InviteCampaign(id: "c2", guildId: "g001", name: "コミュニティ拡大月間", description: nil, inviteCode: nil, targetCount: 50, currentCount: 50, startsAt: Date().addingTimeInterval(-60 * 60 * 24 * 30), endsAt: Date().addingTimeInterval(-60 * 60 * 24 * 1), isActive: false, createdAt: Date().addingTimeInterval(-60 * 60 * 24 * 30)),
-    ]
-
     nonisolated(unsafe) private var settings = InviteTrackerSettings(
         guildId: "g001", isEnabled: true, logChannelId: nil,
         notifyOnJoin: true, notifyOnLeave: false,
@@ -850,24 +865,6 @@ actor MockInviteTrackerService: InviteTrackerServiceProtocol {
         try await mockDelay(); settings = s; return s
     }
 
-    func fetchCampaigns(guildId: String) async throws -> [InviteCampaign] {
-        try await mockDelay(); return campaigns
-    }
-
-    func createCampaign(guildId: String, name: String, description: String?,
-                        inviteCode: String?, targetCount: Int?, endsAt: Date?) async throws -> InviteCampaign {
-        try await mockDelay()
-        let c = InviteCampaign(id: UUID().uuidString, guildId: guildId, name: name,
-                               description: description, inviteCode: inviteCode,
-                               targetCount: targetCount, currentCount: 0,
-                               startsAt: Date(), endsAt: endsAt, isActive: true, createdAt: Date())
-        campaigns.append(c); return c
-    }
-
-    func deleteCampaign(id: String) async throws {
-        try await mockDelay(); campaigns.removeAll { $0.id == id }
-    }
-
     // MARK: - Invite Panel
 
     nonisolated(unsafe) var panels: [InvitePanel] = [
@@ -891,7 +888,9 @@ actor MockInviteTrackerService: InviteTrackerServiceProtocol {
         try await mockDelay()
         let panel = InvitePanel(id: UUID().uuidString, guildId: guildId, channelId: channelId,
                                 channelName: channelName, messageId: "new_msg", createdAt: Date())
-        panels.append(panel); return panel
+        panels.append(panel)
+        notifyDemoAction("招待パネルを Discord チャンネルに設置")
+        return panel
     }
 
     func fetchInvitePanels(guildId: String) async throws -> [InvitePanel] {
@@ -908,5 +907,54 @@ actor MockInviteTrackerService: InviteTrackerServiceProtocol {
 
     func revokePersonalInviteLink(id: String) async throws {
         try await mockDelay(); personalInvites.removeAll { $0.id == id }
+    }
+}
+
+// MARK: - Disaster Recovery
+
+actor MockDisasterRecoveryService: DisasterRecoveryServiceProtocol {
+    func fetchDeletedGuilds() async throws -> [DeletedGuild] {
+        try await mockDelay()
+        return [
+            DeletedGuild(guildId: "g999", ownerId: "u001", guildName: "削除されたサーバー", deletedAt: Date().addingTimeInterval(-86400), notified: true)
+        ]
+    }
+
+    func fetchEligibleUsers(sourceGuildId: String) async throws -> [RecoveryEligibleUser] {
+        try await mockDelay()
+        return [
+            RecoveryEligibleUser(guildId: sourceGuildId, userId: "u001", username: "taro_san", avatarUrl: nil, authorizedAt: Date().addingTimeInterval(-86400 * 2)),
+            RecoveryEligibleUser(guildId: sourceGuildId, userId: "u002", username: "hanako", avatarUrl: nil, authorizedAt: Date().addingTimeInterval(-86400)),
+        ]
+    }
+
+    func fetchMemberCounts(guildIds: [String]) async throws -> [String: Int] {
+        try await mockDelay()
+        return Dictionary(uniqueKeysWithValues: guildIds.enumerated().map { ($1, ($0 + 1) * 3) })
+    }
+
+    func checkMembership(destGuildId: String, userIds: [String]) async throws -> [String] {
+        try await mockDelay()
+        // モック: u001 はすでに参加済み
+        return userIds.filter { $0 == "u001" }
+    }
+
+    func executeRecovery(sourceGuildId: String, destinationGuildId: String, selectedUserIds: [String]) async throws -> RecoveryJob {
+        try await mockDelay()
+        notifyDemoAction("サーバー復旧を実行")
+        return RecoveryJob(id: UUID().uuidString, sourceGuildId: sourceGuildId, destinationGuildId: destinationGuildId,
+                           status: .running, totalCount: selectedUserIds.count, successCount: 0, failCount: 0, createdAt: Date(), completedAt: nil)
+    }
+
+    func fetchJobs(sourceGuildId: String) async throws -> [RecoveryJob] {
+        try await mockDelay()
+        return []
+    }
+
+    func fetchJobDetail(jobId: String) async throws -> RecoveryJobDetail {
+        try await mockDelay()
+        return RecoveryJobDetail(id: jobId, sourceGuildId: "g999", destinationGuildId: "g001",
+                                 status: .completed, totalCount: 2, successCount: 2, failCount: 0,
+                                 createdAt: Date(), completedAt: Date(), results: [])
     }
 }

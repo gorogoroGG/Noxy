@@ -13,27 +13,38 @@ struct InvitePanelSetupView: View {
     @State private var isDeploying = false
     @State private var error: String?
 
-    private let previewTitle = "🔗 あなた専用の招待リンク"
-    private let previewBody  = "ボタンを押すと、あなただけの招待リンクが発行されます。友達をサーバーに招待しよう！"
+    private let previewTitle  = "🔗 あなた専用の招待リンク"
+    private let previewBody   = "ボタンを押すと、あなただけの招待リンクが発行されます。友達をサーバーに招待しよう！"
     private let previewButton = "招待リンクを取得する"
 
     var body: some View {
         NavigationStack {
-            Form {
-                channelSection
-                previewSection
-                noteSection
+            ScrollView {
+                LazyVStack(spacing: Theme.Spacing.md) {
+                    channelSection
+                    previewSection
+                    noteSection
+                }
+                .padding(.horizontal, Theme.Spacing.md)
+                .padding(.vertical, Theme.Spacing.sm)
             }
+            .background(Theme.Color.bg)
             .navigationTitle("招待パネルを設置")
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
                 ToolbarItem(placement: .cancellationAction) {
                     Button("キャンセル") { dismiss() }
+                        .foregroundStyle(Theme.Color.textSecondary)
                 }
                 ToolbarItem(placement: .confirmationAction) {
-                    Button("設置する") { Task { await deploy() } }
-                        .disabled(selectedChannel == nil || isDeploying)
-                        .fontWeight(.semibold)
+                    if isDeploying {
+                        ProgressView()
+                    } else {
+                        Button("設置する") { Task { await deploy() } }
+                            .disabled(selectedChannel == nil)
+                            .fontWeight(.semibold)
+                            .foregroundStyle(selectedChannel != nil ? Theme.Color.accent : Theme.Color.textTertiary)
+                    }
                 }
             }
         }
@@ -46,14 +57,15 @@ struct InvitePanelSetupView: View {
     // MARK: - Sections
 
     private var channelSection: some View {
-        Section {
+        FormSection("設置先チャンネル", icon: "number") {
             if isLoadingChannels {
-                HStack {
+                HStack(spacing: Theme.Spacing.sm) {
                     ProgressView()
                     Text("チャンネルを読み込み中...")
-                        .font(.system(size: 13))
-                        .foregroundStyle(Color.textTertiary)
+                        .font(Theme.Font.caption)
+                        .foregroundStyle(Theme.Color.textTertiary)
                 }
+                .padding(.vertical, Theme.Spacing.xs)
             } else {
                 Picker("チャンネル", selection: $selectedChannel) {
                     Text("選択してください").tag(Optional<Channel>.none)
@@ -61,70 +73,66 @@ struct InvitePanelSetupView: View {
                         Label(ch.name, systemImage: "number").tag(Optional(ch))
                     }
                 }
+                .tint(Theme.Color.accent)
+                Text("テキストチャンネルのみ選択できます")
+                    .font(Theme.Font.caption)
+                    .foregroundStyle(Theme.Color.textTertiary)
             }
-        } header: {
-            Text("設置先チャンネル")
-        } footer: {
-            Text("テキストチャンネルのみ選択できます")
         }
     }
 
     private var previewSection: some View {
-        Section("Discordに投稿されるメッセージ") {
-            VStack(alignment: .leading, spacing: .spacing12) {
-                HStack(spacing: .spacing10) {
-                    RoundedRectangle(cornerRadius: 4)
-                        .fill(Color.accentPurple)
+        FormSection("投稿プレビュー", icon: "eye") {
+            VStack(alignment: .leading, spacing: Theme.Spacing.sm) {
+                HStack(alignment: .top, spacing: Theme.Spacing.sm) {
+                    RoundedRectangle(cornerRadius: 3)
+                        .fill(Theme.Color.accent)
                         .frame(width: 4)
-                    VStack(alignment: .leading, spacing: 4) {
+                    VStack(alignment: .leading, spacing: 3) {
                         Text(previewTitle)
-                            .font(.system(size: 13, weight: .bold))
-                            .foregroundStyle(Color.textPrimary)
+                            .font(Theme.Font.bodyMedium)
+                            .foregroundStyle(Theme.Color.textPrimary)
                         Text(previewBody)
-                            .font(.system(size: 12))
-                            .foregroundStyle(Color.textSecondary)
+                            .font(Theme.Font.caption)
+                            .foregroundStyle(Theme.Color.textSecondary)
                     }
                 }
 
-                HStack {
+                Button { } label: {
                     Text(previewButton)
-                        .font(.system(size: 12, weight: .semibold))
+                        .font(Theme.Font.caption)
+                        .fontWeight(.semibold)
                         .foregroundStyle(.white)
-                        .padding(.horizontal, .spacing12)
-                        .padding(.vertical, .spacing8)
-                        .background(Color.accentPurple)
-                        .clipShape(RoundedRectangle(cornerRadius: 6))
-                    Spacer()
+                        .padding(.horizontal, Theme.Spacing.md)
+                        .padding(.vertical, Theme.Spacing.xs)
+                        .background(Theme.Color.accent, in: RoundedRectangle(cornerRadius: Theme.Radius.chip))
                 }
+                .disabled(true)
+                .buttonStyle(.plain)
             }
-            .padding(.vertical, .spacing4)
-            .listRowBackground(Theme.Color.surfaceRaised)
         }
     }
 
     private var noteSection: some View {
-        Section {
-            VStack(alignment: .leading, spacing: .spacing8) {
-                noteRow(icon: "person.badge.plus", text: "ボタンを押したメンバーに専用の招待リンクが発行されます")
-                noteRow(icon: "eye.slash", text: "リンクはそのメンバーにだけ表示されます（Ephemeral）")
-                noteRow(icon: "envelope", text: "リンクはDMにも自動送信されます")
-                noteRow(icon: "1.circle", text: "1人につき1リンクで、再押しすると既存リンクが表示されます")
+        FormSection("このパネルについて", icon: "info.circle") {
+            VStack(alignment: .leading, spacing: Theme.Spacing.sm) {
+                noteRow(icon: "person.badge.plus",  text: "ボタンを押したメンバーに専用の招待リンクが発行されます")
+                noteRow(icon: "eye.slash",           text: "リンクはそのメンバーにだけ表示されます（Ephemeral）")
+                noteRow(icon: "envelope",            text: "リンクはDMにも自動送信されます")
+                noteRow(icon: "1.circle",            text: "1人につき1リンクで、再押しすると既存リンクが表示されます")
             }
-            .padding(.vertical, .spacing4)
-        } header: {
-            Text("このパネルについて")
         }
     }
 
     private func noteRow(icon: String, text: String) -> some View {
-        HStack(alignment: .top, spacing: .spacing8) {
+        HStack(alignment: .top, spacing: Theme.Spacing.sm) {
             Image(systemName: icon)
-                .font(.system(size: 12))
-                .foregroundStyle(Color.accentPurple)
+                .font(Theme.Font.caption)
+                .foregroundStyle(Theme.Color.accent)
                 .frame(width: 18)
             Text(text)
-                .font(.system(size: 12))
-                .foregroundStyle(Color.textSecondary)
+                .font(Theme.Font.caption)
+                .foregroundStyle(Theme.Color.textSecondary)
         }
     }
 
@@ -149,7 +157,7 @@ struct InvitePanelSetupView: View {
             onDeploy(panel)
             dismiss()
         } else {
-            error = "パネルの設置に失敗しました。Botがチャンネルへの送信権限を持っているか確認してください。"
+            error = "パネルの設置に失敗しました。BotがチャンネルへのSend Messages権限を持っているか確認してください。"
         }
         isDeploying = false
     }

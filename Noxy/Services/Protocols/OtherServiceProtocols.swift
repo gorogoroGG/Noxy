@@ -72,10 +72,6 @@ protocol InviteTrackerServiceProtocol: Sendable {
     func fetchTree(guildId: String, userId: String) async throws -> InviteTreeNode
     func fetchSettings(guildId: String) async throws -> InviteTrackerSettings
     func saveSettings(_ settings: InviteTrackerSettings) async throws -> InviteTrackerSettings
-    func fetchCampaigns(guildId: String) async throws -> [InviteCampaign]
-    func createCampaign(guildId: String, name: String, description: String?,
-                        inviteCode: String?, targetCount: Int?, endsAt: Date?) async throws -> InviteCampaign
-    func deleteCampaign(id: String) async throws
     // Invite Panel
     func deployInvitePanel(guildId: String, channelId: String, channelName: String) async throws -> InvitePanel
     func fetchInvitePanels(guildId: String) async throws -> [InvitePanel]

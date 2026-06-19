@@ -23,25 +23,6 @@ struct WorkerInviteTrackerService: InviteTrackerServiceProtocol {
         try await client.post("/bot/invite-tracker/settings", body: settings)
     }
 
-    func fetchCampaigns(guildId: String) async throws -> [InviteCampaign] {
-        try await client.get("/bot/invite-tracker/campaigns?guild_id=\(guildId)")
-    }
-
-    func createCampaign(guildId: String, name: String, description: String?,
-                        inviteCode: String?, targetCount: Int?, endsAt: Date?) async throws -> InviteCampaign {
-        struct Body: Encodable {
-            let guildId: String; let name: String; let description: String?
-            let inviteCode: String?; let targetCount: Int?; let endsAt: Date?
-        }
-        return try await client.post("/bot/invite-tracker/campaigns",
-                                     body: Body(guildId: guildId, name: name, description: description,
-                                                inviteCode: inviteCode, targetCount: targetCount, endsAt: endsAt))
-    }
-
-    func deleteCampaign(id: String) async throws {
-        try await client.delete("/bot/invite-tracker/campaigns/\(id)")
-    }
-
     // MARK: - Invite Panel
 
     func deployInvitePanel(guildId: String, channelId: String, channelName: String) async throws -> InvitePanel {

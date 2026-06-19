@@ -68,8 +68,16 @@ struct MainTabView: View {
         .animation(.easeInOut(duration: 0.3), value: appState.isBotNotInAnyGuild)
         .animation(.easeInOut(duration: 0.3), value: appState.isBotOffline)
         .task(id: appState.needsReload) { await loadInitialData() }
-        // 選択サーバーが決まる/切り替わるたびに、全データをスプラッシュ裏で先読みする
-        .task(id: appState.selectedGuildId) { await prefetchGuildData(appState.selectedGuildId) }
+        // 選択サーバーが変わったとき、またはスロット有効化で isDemoMode が切り替わったとき、
+        // 正しいサービス（mock/live）でデータを再先読みする
+        .task(id: "\(appState.selectedGuildId)/\(appState.isDemoMode)") {
+            await prefetchGuildData(appState.selectedGuildId)
+        }
+        #if DEBUG
+        .onChange(of: DebugSettings.shared.isProMode) { _, _ in
+            Task { await refreshSubscriptionStatus() }
+        }
+        #endif
         .onChange(of: scenePhase) { _, phase in
             guard phase == .active else { return }
             if appState.selectedGuild == nil, !appState.selectedGuildId.isEmpty {
@@ -129,9 +137,11 @@ struct MainTabView: View {
     private func loadInitialData() async {
         let userId = KeychainHelper.load(forKey: "discord_user_id") ?? ""
 
+        // サブスクリプション・ギルド取得は isDemoMode に依存しないよう常にライブサービスを直接使用する。
+        // （環境の services は初期状態で demoServices のため、ここで使うと常に .inactive になる循環依存が生じる）
         async let botGuildsTask      = DiscordService().fetchBotGuilds()
-        async let userGuildsTask     = services.guilds.fetchAll()
-        async let subscriptionTask   = services.subscription.fetchStatus(discordUserId: userId)
+        async let userGuildsTask     = DiscordService().fetchAll()
+        async let subscriptionTask   = WorkerSubscriptionService().fetchStatus(discordUserId: userId)
         async let botStatusTask      = services.bot.fetchStatus()
 
         let botGuilds = (try? await botGuildsTask) ?? []
@@ -231,6 +241,13 @@ struct MainTabView: View {
               let match = guilds.first(where: { $0.id == appState.selectedGuildId }) else { return }
         appState.guilds        = guilds
         appState.selectedGuild = match
+    }
+
+    @MainActor
+    private func refreshSubscriptionStatus() async {
+        let userId = KeychainHelper.load(forKey: "discord_user_id") ?? ""
+        let status = (try? await WorkerSubscriptionService().fetchStatus(discordUserId: userId)) ?? .inactive
+        withAnimation { appState.subscriptionStatus = status }
     }
 
     private func startBotPolling() async {

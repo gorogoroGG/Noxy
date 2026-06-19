@@ -232,6 +232,19 @@ struct VerifyPanelEditView: View {
         } header: {
             SectionLabel(title: "認証方法")
                 .padding(.horizontal, .spacing16)
+        } footer: {
+            if verifyType == .oauth2 {
+                HStack(spacing: .spacing8) {
+                    Image(systemName: "exclamationmark.shield.fill")
+                        .font(Theme.Font.caption)
+                        .foregroundStyle(Color.accentIndigo)
+                    Text("サーバー復旧を有効にしたい場合はこちらを選択してください。認証済みメンバーは復旧時に自動参加の対象となります。")
+                        .font(Theme.Font.caption)
+                        .foregroundStyle(Color.accentIndigo)
+                        .fixedSize(horizontal: false, vertical: true)
+                }
+                .padding(.horizontal, .spacing16)
+            }
         }
     }
 
@@ -508,7 +521,7 @@ struct VerifyPanelEditView: View {
                     .foregroundStyle(Theme.Color.textTertiary)
                     .padding(.horizontal, .spacing16)
             }
-        case .captcha, .button:
+        case .captcha, .button, .oauth2:
             EmptyView()
         }
     }

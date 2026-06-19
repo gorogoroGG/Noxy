@@ -19,6 +19,7 @@ struct SubscriptionView: View {
     @State private var errorMessage: String? = nil
     @State private var toast: ToastMessage?  = nil
     @State private var billingPeriod: BillingPeriod = .monthly
+    @State private var splashMessage: String? = nil
 
     private var status: SubscriptionStatus { appState.subscriptionStatus }
 
@@ -55,6 +56,31 @@ struct SubscriptionView: View {
         .task { await load() }
         .refreshable { await load() }
         .toast($toast)
+        .overlay {
+            if let splashMessage {
+                splashView(message: splashMessage)
+            }
+        }
+    }
+
+    private func splashView(message: String) -> some View {
+        ZStack {
+            Theme.Color.bg.opacity(0.92)
+                .ignoresSafeArea()
+            VStack(spacing: Theme.Spacing.md) {
+                ProgressView()
+                    .scaleEffect(1.3)
+                    .tint(Theme.Color.accent)
+                Text(message)
+                    .font(Theme.Font.bodyMedium)
+                    .foregroundStyle(Theme.Color.textPrimary)
+                    .multilineTextAlignment(.center)
+            }
+            .padding(Theme.Spacing.xl)
+            .background(Theme.Color.surfaceRaised)
+            .clipShape(RoundedRectangle(cornerRadius: Theme.Radius.card))
+            .shadow(color: .black.opacity(0.2), radius: 20, x: 0, y: 8)
+        }
     }
 
     // MARK: - Header
@@ -328,13 +354,18 @@ struct SubscriptionView: View {
 
     // MARK: - Actions
 
+    // サブスクリプション管理はアカウント全体に影響するため、選択サーバーの Pro 状態に
+    // 関わらず常にライブサービスを直接使用する（isDemoMode の影響を受けない）
+    private let liveSubscription = WorkerSubscriptionService()
+    private let liveGuilds       = DiscordService()
+
     private func load() async {
         isLoading = true
         errorMessage = nil
         let userId  = KeychainHelper.load(forKey: "discord_user_id") ?? ""
-        async let statusTask   = services.subscription.fetchStatus(discordUserId: userId)
-        async let guildsTask   = services.guilds.fetchAll()
-        async let botIdsTask   = services.guilds.fetchBotGuildIds()
+        async let statusTask   = liveSubscription.fetchStatus(discordUserId: userId)
+        async let guildsTask   = liveGuilds.fetchAll()
+        async let botIdsTask   = liveGuilds.fetchBotGuildIds()
         async let productsTask = StoreKit.Product.products(for: SubscriptionProduct.catalog.map(\.id))
 
         let newStatus   = (try? await statusTask)   ?? .inactive
@@ -353,7 +384,7 @@ struct SubscriptionView: View {
     private func purchase(productId: String) async {
         isPurchasing = true; errorMessage = nil
         do {
-            let s = try await services.subscription.purchase(productId: productId)
+            let s = try await liveSubscription.purchase(productId: productId)
             appState.subscriptionStatus = s
             toast = ToastMessage(type: .success, message: "購入完了")
         } catch SubscriptionError.cancelled { }
@@ -365,7 +396,7 @@ struct SubscriptionView: View {
     private func restore() async {
         isPurchasing = true; errorMessage = nil
         do {
-            let s = try await services.subscription.restore()
+            let s = try await liveSubscription.restore()
             appState.subscriptionStatus = s
             toast = ToastMessage(type: .success, message: "購入を復元しました")
         } catch { errorMessage = "復元に失敗しました" }
@@ -373,19 +404,22 @@ struct SubscriptionView: View {
     }
 
     private func toggleActivation(guild: Guild, activate: Bool) async {
-        isActivating = guild.id; errorMessage = nil
+        isActivating = guild.id
+        errorMessage = nil
+        splashMessage = activate ? "「\(guild.name)」を有効化しています..." : "「\(guild.name)」の有効化を解除しています..."
         do {
             if activate {
-                try await services.subscription.activateServer(guildId: guild.id)
-                toast = ToastMessage(type: .success, message: "\(guild.name) を有効化しました")
+                try await liveSubscription.activateServer(guildId: guild.id)
             } else {
-                try await services.subscription.deactivateServer(guildId: guild.id)
-                toast = ToastMessage(type: .info, message: "\(guild.name) の有効化を解除しました")
+                try await liveSubscription.deactivateServer(guildId: guild.id)
             }
-            let s = try await services.subscription.fetchStatus(discordUserId: KeychainHelper.load(forKey: "discord_user_id") ?? "")
-            appState.subscriptionStatus = s
-        } catch { errorMessage = error.localizedDescription }
+            await load()
+            toast = ToastMessage(type: .success, message: activate ? "\(guild.name) を有効化しました" : "\(guild.name) の有効化を解除しました")
+        } catch {
+            errorMessage = error.localizedDescription
+        }
         isActivating = nil
+        splashMessage = nil
     }
 }
 

@@ -35,7 +35,16 @@ final class DebugSettings {
                 UserDefaults.standard.set(false, forKey: "__debug_pro_mode")
             }
         } catch {
-            lastError = error.localizedDescription
+            var details = "\(type(of: error)): \(error.localizedDescription)"
+            if let urlError = error as? URLError {
+                details += "\nCode: \(urlError.code.rawValue)"
+                if let url = urlError.failingURL { details += "\nURL: \(url.absoluteString)" }
+                details += "\nDomain: \(urlError.errorUserInfo[NSURLErrorFailingURLStringErrorKey] as? String ?? "-")"
+            }
+            if let debugErr = error as? DebugError {
+                details += "\nDebugError: \(debugErr.errorDescription ?? "-")"
+            }
+            lastError = details
         }
         isWorking = false
     }
@@ -74,9 +83,11 @@ final class DebugSettings {
             purchasedSlots: slots,
             productId:      "jp.noxyapp.stat.\(slots)server"
         ))
-        let (_, response) = try await URLSession.shared.data(for: req)
-        guard let http = response as? HTTPURLResponse, (200..<300).contains(http.statusCode) else {
-            throw DebugError.networkError
+        let (data, response) = try await URLSession.shared.data(for: req)
+        let http = response as? HTTPURLResponse
+        guard let http, (200..<300).contains(http.statusCode) else {
+            let body = String(data: data, encoding: .utf8) ?? ""
+            throw DebugError.workerError(status: http?.statusCode ?? 0, body: body)
         }
     }
 
@@ -110,17 +121,25 @@ final class DebugSettings {
             purchasedSlots: 0,
             productId:      nil
         ))
-        let (_, response) = try await URLSession.shared.data(for: req)
-        guard let http = response as? HTTPURLResponse, (200..<300).contains(http.statusCode) else {
-            throw DebugError.networkError
+        let (data, response) = try await URLSession.shared.data(for: req)
+        let http = response as? HTTPURLResponse
+        guard let http, (200..<300).contains(http.statusCode) else {
+            let body = String(data: data, encoding: .utf8) ?? ""
+            throw DebugError.workerError(status: http?.statusCode ?? 0, body: body)
         }
     }
 
     // MARK: - Supabase ユーザー ID 取得
 
     private func fetchSupabaseUserId() async throws -> String {
-        let jwt = KeychainHelper.load(forKey: "supabase_access_token") ?? ""
+        var jwt = KeychainHelper.load(forKey: "supabase_access_token") ?? ""
         guard !jwt.isEmpty else { throw DebugError.notLoggedIn }
+
+        // 期限切れの場合はリフレッシュを試みる
+        if !(await isSupabaseTokenValid(jwt)) {
+            jwt = (await refreshSupabaseToken()) ?? ""
+            guard !jwt.isEmpty else { throw DebugError.notLoggedIn }
+        }
 
         let baseURL = SupabaseConfig.baseURL
         guard let url = URL(string: "\(baseURL)/auth/v1/user") else { throw DebugError.networkError }
@@ -137,6 +156,43 @@ final class DebugSettings {
         return userResp.id
     }
 
+    private func isSupabaseTokenValid(_ token: String) async -> Bool {
+        let baseURL = SupabaseConfig.baseURL
+        guard let url = URL(string: "\(baseURL)/auth/v1/user") else { return false }
+        var req = URLRequest(url: url)
+        req.setValue("Bearer \(token)", forHTTPHeaderField: "Authorization")
+        req.setValue(SupabaseConfig.anonKey, forHTTPHeaderField: "apikey")
+        guard let (_, response) = try? await URLSession.shared.data(for: req),
+              let http = response as? HTTPURLResponse else { return false }
+        return http.statusCode == 200
+    }
+
+    private func refreshSupabaseToken() async -> String? {
+        guard let refreshToken = KeychainHelper.load(forKey: "supabase_refresh_token"), !refreshToken.isEmpty else {
+            return nil
+        }
+        struct RefreshBody: Encodable { let refresh_token: String }
+        struct RefreshResp: Decodable {
+            let access_token: String
+            let refresh_token: String
+        }
+        let baseURL = SupabaseConfig.baseURL
+        guard let url = URL(string: "\(baseURL)/auth/v1/token?grant_type=refresh_token") else { return nil }
+        var req = URLRequest(url: url)
+        req.httpMethod = "POST"
+        req.setValue("application/json", forHTTPHeaderField: "Content-Type")
+        req.setValue(SupabaseConfig.anonKey, forHTTPHeaderField: "apikey")
+        req.httpBody = try? JSONEncoder().encode(RefreshBody(refresh_token: refreshToken))
+        guard let (data, response) = try? await URLSession.shared.data(for: req),
+              let http = response as? HTTPURLResponse, http.statusCode == 200,
+              let resp = try? JSONDecoder().decode(RefreshResp.self, from: data) else {
+            return nil
+        }
+        KeychainHelper.save(resp.access_token, forKey: "supabase_access_token")
+        KeychainHelper.save(resp.refresh_token, forKey: "supabase_refresh_token")
+        return resp.access_token
+    }
+
     // MARK: - リセット
 
     func resetAll() {
@@ -149,11 +205,14 @@ final class DebugSettings {
 enum DebugError: LocalizedError {
     case notLoggedIn
     case networkError
+    case workerError(status: Int, body: String)
 
     var errorDescription: String? {
         switch self {
         case .notLoggedIn: return "Discordにログインしていません"
         case .networkError: return "ネットワークエラー"
+        case .workerError(let status, let body):
+            return "Workerエラー (\(status)): \(body.isEmpty ? "詳細不明" : body)"
         }
     }
 }

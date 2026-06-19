@@ -6,6 +6,7 @@ import SwiftUI
 
 struct ServerActivationView: View {
     @Environment(\.services) private var services
+    @Environment(AppState.self) private var appState
 
     @State private var subStatus:    SubscriptionStatus = .inactive
     @State private var ownerGuilds:  [Guild]            = []
@@ -14,6 +15,7 @@ struct ServerActivationView: View {
     @State private var processingId: String?             = nil  // 処理中のサーバーID
     @State private var errorMessage: String?             = nil
     @State private var toast:        String?             = nil
+    @State private var splashMessage: String?            = nil  // 全画面スプラッシュ用メッセージ
 
     var body: some View {
         Group {
@@ -38,8 +40,33 @@ struct ServerActivationView: View {
             }
         }
         .animation(.easeInOut(duration: 0.2), value: toast)
+        .overlay {
+            if let splashMessage {
+                splashView(message: splashMessage)
+            }
+        }
         .task { await load() }
         .refreshable { await load() }
+    }
+
+    private func splashView(message: String) -> some View {
+        ZStack {
+            Theme.Color.bg.opacity(0.92)
+                .ignoresSafeArea()
+            VStack(spacing: Theme.Spacing.md) {
+                ProgressView()
+                    .scaleEffect(1.3)
+                    .tint(Theme.Color.accent)
+                Text(message)
+                    .font(Theme.Font.bodyMedium)
+                    .foregroundStyle(Theme.Color.textPrimary)
+                    .multilineTextAlignment(.center)
+            }
+            .padding(Theme.Spacing.xl)
+            .background(Theme.Color.surfaceRaised)
+            .clipShape(RoundedRectangle(cornerRadius: Theme.Radius.card))
+            .shadow(color: .black.opacity(0.2), radius: 20, x: 0, y: 8)
+        }
     }
 
     // MARK: - Main Content
@@ -179,17 +206,20 @@ struct ServerActivationView: View {
 
     // MARK: - Actions
 
+    // サブスクリプション管理はアカウント全体に影響するため、常にライブサービスを直接使用する
+    private let liveSubscription = WorkerSubscriptionService()
+    private let liveGuilds       = DiscordService()
+
     private func load() async {
         isLoading = true
         errorMessage = nil
         let userId = KeychainHelper.load(forKey: "discord_user_id") ?? ""
-        async let statusTask = services.subscription.fetchStatus(discordUserId: userId)
-        async let guildsTask = services.guilds.fetchAll()
-        async let botIdsTask = services.guilds.fetchBotGuildIds()
+        async let statusTask = liveSubscription.fetchStatus(discordUserId: userId)
+        async let guildsTask = liveGuilds.fetchAll()
+        async let botIdsTask = liveGuilds.fetchBotGuildIds()
         subStatus   = (try? await statusTask) ?? .inactive
         let all     = (try? await guildsTask)  ?? []
         botGuildIds = (try? await botIdsTask)  ?? []
-        // ボット導入済み + オーナーまたは管理者権限を持つサーバーのみ
         ownerGuilds = all.filter {
             botGuildIds.contains($0.id) && ($0.userRole == .owner || $0.userRole == .admin)
         }
@@ -197,23 +227,26 @@ struct ServerActivationView: View {
     }
 
     private func toggle(guild: Guild, activate: Bool) async {
-        processingId  = guild.id
-        errorMessage  = nil
+        processingId   = guild.id
+        errorMessage   = nil
+        splashMessage  = activate ? "「\(guild.name)」を有効化しています..." : "「\(guild.name)」の有効化を解除しています..."
         do {
             if activate {
-                try await services.subscription.activateServer(guildId: guild.id)
-                withAnimation { toast = "「\(guild.name)」を有効化しました" }
+                try await liveSubscription.activateServer(guildId: guild.id)
             } else {
-                try await services.subscription.deactivateServer(guildId: guild.id)
-                withAnimation { toast = "「\(guild.name)」の有効化を解除しました" }
+                try await liveSubscription.deactivateServer(guildId: guild.id)
             }
-            // ステータスを再取得してスロット数を更新
-            let userId = KeychainHelper.load(forKey: "discord_user_id") ?? ""
-            subStatus = (try? await services.subscription.fetchStatus(discordUserId: userId)) ?? subStatus
+            // 状態を再取得して画面を更新し、appState の isDemoMode も連動させる
+            await load()
+            appState.subscriptionStatus = subStatus
+            withAnimation {
+                toast = activate ? "「\(guild.name)」を有効化しました" : "「\(guild.name)」の有効化を解除しました"
+            }
         } catch {
             errorMessage = error.localizedDescription
         }
-        processingId = nil
+        processingId  = nil
+        splashMessage = nil
     }
 
     private func toastView(_ message: String) -> some View {
@@ -303,6 +336,7 @@ private struct ActivationRow: View {
     NavigationStack {
         ServerActivationView()
             .environment(\.services, ServiceContainer.live())
+            .environment(AppState())
     }
 }
 
@@ -310,6 +344,7 @@ private struct ActivationRow: View {
     NavigationStack {
         ServerActivationView()
             .environment(\.services, ServiceContainer.live())
+            .environment(AppState())
     }
     .preferredColorScheme(.dark)
 }
@@ -318,6 +353,7 @@ private struct ActivationRow: View {
     NavigationStack {
         ServerActivationView()
             .environment(\.services, ServiceContainer.live())
+            .environment(AppState())
     }
     .preferredColorScheme(.light)
 }

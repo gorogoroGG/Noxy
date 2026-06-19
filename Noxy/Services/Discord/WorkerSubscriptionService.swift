@@ -96,16 +96,36 @@ struct WorkerSubscriptionService: SubscriptionServiceProtocol {
     func deactivateServer(guildId: String) async throws {
         let userId = KeychainHelper.load(forKey: "discord_user_id") ?? ""
         let jwt    = KeychainHelper.load(forKey: "supabase_access_token") ?? ""
+        guard !userId.isEmpty else { throw ServiceError.unauthorized }
         guard let url = URL(string:
             "\(DiscordConfig.workerURL)/billing/activate/\(guildId)?discord_user_id=\(userId)"
         ) else { throw ServiceError.networkError }
 
         var req = URLRequest(url: url, timeoutInterval: 15)
         req.httpMethod = "DELETE"
-        if !jwt.isEmpty { req.setValue("Bearer \(jwt)", forHTTPHeaderField: "Authorization") }
-        let (_, response) = try await URLSession.shared.data(for: req)
-        guard let http = response as? HTTPURLResponse, (200..<300).contains(http.statusCode) else {
+        // 全体的な API 認証ブロックで Authorization: Bearer が必要。
+        // 有効化解除エンドポイント自身も Authorization（または X-Supabase-Jwt）から JWT を取得する。
+        if !jwt.isEmpty {
+            req.setValue("Bearer \(jwt)", forHTTPHeaderField: "Authorization")
+            req.setValue(jwt, forHTTPHeaderField: "X-Supabase-Jwt")
+        }
+        let (data, response) = try await URLSession.shared.data(for: req)
+        guard let http = response as? HTTPURLResponse else {
             throw ServiceError.networkError
+        }
+        switch http.statusCode {
+        case 200..<300:
+            return
+        case 401:
+            struct ErrResp: Decodable { let error: String }
+            let msg = (try? JSONDecoder().decode(ErrResp.self, from: data))?.error
+                ?? (String(data: data, encoding: .utf8) ?? "")
+            throw ServiceError.unauthorizedWithDetail(msg)
+        default:
+            struct ErrResp: Decodable { let error: String }
+            let msg = (try? JSONDecoder().decode(ErrResp.self, from: data))?.error
+                ?? (String(data: data, encoding: .utf8) ?? "")
+            throw ServiceError.workerError(status: http.statusCode, message: msg)
         }
     }
 

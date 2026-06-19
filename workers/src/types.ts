@@ -5,7 +5,9 @@ export interface Env {
   SUPABASE_SERVICE_KEY: string;
   DISCORD_BOT_TOKEN: string;
   DISCORD_CLIENT_ID: string;
+  DISCORD_CLIENT_SECRET: string; // Discord OAuth2 client secret
   WORKER_API_SECRET: string; // #1: 認証シークレット (wrangler secret put WORKER_API_SECRET)
+  TOKEN_ENCRYPTION_KEY: string; // AES-GCM key for OAuth tokens (wrangler secret put TOKEN_ENCRYPTION_KEY)
 }
 
 // ── Embed ─────────────────────────────────────────────────────

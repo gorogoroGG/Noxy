@@ -175,6 +175,295 @@ function verifyErrorPage(message: string): Response {
     { headers: { 'Content-Type': 'text/html; charset=utf-8' } });
 }
 
+function oauth2ResultPage(success: boolean, message: string): Response {
+  const color = success ? '#10b981' : '#ef4444';
+  const icon = success ? '✅' : '❌';
+  const title = success ? '認証完了' : 'エラー';
+  return new Response(`<!DOCTYPE html><html lang="ja"><head><meta charset="UTF-8"><meta name="viewport" content="width=device-width, initial-scale=1.0"><title>${title}</title>
+<style>body{font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;background:#1a1b2e;min-height:100vh;display:flex;align-items:center;justify-content:center;padding:16px}
+.card{background:#2a2b3d;border-radius:16px;padding:32px 28px;max-width:400px;width:100%;text-align:center;color:#fff;box-shadow:0 8px 32px rgba(0,0,0,0.4);border:1px solid rgba(255,255,255,0.06)}
+.icon{font-size:48px;margin-bottom:16px}h2{margin:0 0 12px;font-size:22px}.msg{color:#9ca3af;font-size:14px;line-height:1.6;margin-bottom:20px}.accent{width:100%;height:3px;border-radius:2px;background:${color};margin-bottom:24px}button{background:${color};color:#fff;border:none;border-radius:10px;padding:12px 24px;font-size:15px;font-weight:600;cursor:pointer}</style></head>
+<body><div class="card"><div class="accent"></div><div class="icon">${icon}</div><h2>${title}</h2><p class="msg">${message}</p><button onclick="window.close()">閉じる</button></div></body></html>`,
+    { headers: { 'Content-Type': 'text/html; charset=utf-8' } });
+}
+
+// ── OAuth2 トークン暗号化 ─────────────────────────────────────
+
+async function deriveAESKey(secret: string): Promise<CryptoKey> {
+  const enc = new TextEncoder();
+  const raw = enc.encode(secret);
+  const keyBytes = raw.length === 32 ? raw : new Uint8Array(await crypto.subtle.digest('SHA-256', raw));
+  return crypto.subtle.importKey('raw', keyBytes, { name: 'AES-GCM' }, false, ['encrypt', 'decrypt']);
+}
+
+async function encryptToken(plaintext: string, secret: string): Promise<string> {
+  const iv = crypto.getRandomValues(new Uint8Array(12));
+  const key = await deriveAESKey(secret);
+  const enc = new TextEncoder();
+  const ciphertext = await crypto.subtle.encrypt({ name: 'AES-GCM', iv }, key, enc.encode(plaintext));
+  const combined = new Uint8Array(iv.length + (ciphertext as ArrayBuffer).byteLength);
+  combined.set(iv);
+  combined.set(new Uint8Array(ciphertext as ArrayBuffer), iv.length);
+  return btoa(String.fromCharCode(...combined));
+}
+
+async function decryptToken(ciphertextB64: string, secret: string): Promise<string | null> {
+  try {
+    const data = Uint8Array.from(atob(ciphertextB64), c => c.charCodeAt(0));
+    const iv = data.slice(0, 12);
+    const ciphertext = data.slice(12);
+    const key = await deriveAESKey(secret);
+    const decrypted = await crypto.subtle.decrypt({ name: 'AES-GCM', iv }, key, ciphertext);
+    return new TextDecoder().decode(decrypted);
+  } catch {
+    return null;
+  }
+}
+
+// ── Discord OAuth2 ヘルパー ───────────────────────────────────
+
+function getOAuthRedirectUri(request: Request): string {
+  const url = new URL(request.url);
+  return `${url.protocol}//${url.host}/oauth2/callback`;
+}
+
+function getDiscordOAuthURL(clientId: string, redirectUri: string, state: string): string {
+  const params = new URLSearchParams({
+    client_id: clientId,
+    redirect_uri: redirectUri,
+    response_type: 'code',
+    scope: 'identify guilds.join',
+    state,
+    prompt: 'consent',
+  });
+  return `https://discord.com/api/oauth2/authorize?${params.toString()}`;
+}
+
+async function exchangeDiscordCode(code: string, redirectUri: string, env: Env): Promise<{ access_token: string; refresh_token?: string; expires_in: number } | null> {
+  const resp = await fetch('https://discord.com/api/v10/oauth2/token', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+    body: new URLSearchParams({
+      client_id: env.DISCORD_CLIENT_ID,
+      client_secret: env.DISCORD_CLIENT_SECRET,
+      grant_type: 'authorization_code',
+      code,
+      redirect_uri: redirectUri,
+    }),
+  });
+  if (!resp.ok) {
+    console.error('[OAuth2] token exchange failed:', resp.status, await resp.text());
+    return null;
+  }
+  const data = await resp.json() as any;
+  return { access_token: data.access_token, refresh_token: data.refresh_token, expires_in: data.expires_in };
+}
+
+async function refreshDiscordToken(refreshToken: string, env: Env): Promise<{ access_token: string; refresh_token?: string; expires_in: number } | null> {
+  const resp = await fetch('https://discord.com/api/v10/oauth2/token', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+    body: new URLSearchParams({
+      client_id: env.DISCORD_CLIENT_ID,
+      client_secret: env.DISCORD_CLIENT_SECRET,
+      grant_type: 'refresh_token',
+      refresh_token: refreshToken,
+    }),
+  });
+  if (!resp.ok) {
+    console.error('[OAuth2] refresh failed:', resp.status, await resp.text());
+    return null;
+  }
+  const data = await resp.json() as any;
+  return { access_token: data.access_token, refresh_token: data.refresh_token, expires_in: data.expires_in };
+}
+
+async function fetchDiscordUserInfo(accessToken: string): Promise<{ id: string; username: string; avatar?: string } | null> {
+  const resp = await fetch('https://discord.com/api/v10/users/@me', {
+    headers: { Authorization: `Bearer ${accessToken}` },
+  });
+  if (!resp.ok) return null;
+  const data = await resp.json() as any;
+  return { id: data.id, username: data.username, avatar: data.avatar };
+}
+
+async function addGuildMember(guildId: string, userId: string, accessToken: string, env: Env): Promise<{ ok: boolean; error?: string }> {
+  const resp = await fetch(`https://discord.com/api/v10/guilds/${guildId}/members/${userId}`, {
+    method: 'PUT',
+    headers: {
+      Authorization: `Bot ${env.DISCORD_BOT_TOKEN}`,
+      'Content-Type': 'application/json',
+    },
+    body: JSON.stringify({ access_token: accessToken }),
+  });
+  if (resp.ok || resp.status === 204) return { ok: true };
+  const errText = await resp.text();
+  return { ok: false, error: `${resp.status}: ${errText}` };
+}
+
+async function refreshMemberTokenIfNeeded(
+  member: Record<string, unknown>,
+  env: Env,
+  sb: (path: string, options?: RequestInit) => Promise<Response>
+): Promise<string | null> {
+  const encryptedAccess = member['access_token_encrypted'] as string;
+  const encryptedRefresh = member['refresh_token_encrypted'] as string | null;
+  if (!encryptedAccess) return null;
+
+  let accessToken = await decryptToken(encryptedAccess, env.TOKEN_ENCRYPTION_KEY);
+  if (!accessToken) return null;
+
+  // Discord access tokens for guilds.join typically last 7 days.
+  // We attempt refresh if authorized more than 6 days ago.
+  const authorizedAt = new Date((member['authorized_at'] as string) ?? Date.now()).getTime();
+  const shouldRefresh = Date.now() - authorizedAt > 6 * 24 * 60 * 60 * 1000;
+
+  if (shouldRefresh && encryptedRefresh) {
+    const refreshToken = await decryptToken(encryptedRefresh, env.TOKEN_ENCRYPTION_KEY);
+    if (refreshToken) {
+      const refreshed = await refreshDiscordToken(refreshToken, env);
+      if (refreshed) {
+        accessToken = refreshed.access_token;
+        const newEncryptedAccess = await encryptToken(refreshed.access_token, env.TOKEN_ENCRYPTION_KEY);
+        const newEncryptedRefresh = refreshed.refresh_token
+          ? await encryptToken(refreshed.refresh_token, env.TOKEN_ENCRYPTION_KEY)
+          : encryptedRefresh;
+        await sb(`/oauth2_verified_members?guild_id=eq.${member['guild_id']}&user_id=eq.${member['user_id']}`, {
+          method: 'PATCH',
+          body: JSON.stringify({
+            access_token_encrypted: newEncryptedAccess,
+            refresh_token_encrypted: newEncryptedRefresh,
+            updated_at: new Date().toISOString(),
+          }),
+        });
+      }
+    }
+  }
+
+  return accessToken;
+}
+
+async function runRecoveryJob(jobId: string, env: Env, selectedUserIds?: string[], initiatedByDiscordId?: string): Promise<void> {
+  const sb = makeSupabaseFetch(env);
+
+  const jobResp = await sb(`/recovery_jobs?id=eq.${jobId}`);
+  if (!jobResp.ok) return;
+  const jobs = await jobResp.json() as Record<string, unknown>[];
+  if (!jobs.length) return;
+  const job = jobs[0];
+
+  const sourceGuildId = job['source_guild_id'] as string;
+  const destinationGuildId = job['destination_guild_id'] as string;
+
+  const membersResp = await sb(`/oauth2_verified_members?guild_id=eq.${sourceGuildId}`);
+  if (!membersResp.ok) {
+    await sb(`/recovery_jobs?id=eq.${jobId}`, {
+      method: 'PATCH',
+      body: JSON.stringify({ status: 'failed', completed_at: new Date().toISOString() }),
+    });
+    return;
+  }
+  const allMembers = await membersResp.json() as Record<string, unknown>[];
+  const members = selectedUserIds?.length
+    ? allMembers.filter(m => selectedUserIds.includes(m['user_id'] as string))
+    : allMembers;
+
+  await sb(`/recovery_jobs?id=eq.${jobId}`, {
+    method: 'PATCH',
+    body: JSON.stringify({ total_count: members.length }),
+  });
+
+  let successCount = 0;
+  let failCount = 0;
+
+  for (const member of members) {
+    const userId = member['user_id'] as string;
+    const username = (member['username'] as string) ?? '';
+    const accessToken = await refreshMemberTokenIfNeeded(member, env, sb);
+
+    if (!accessToken) {
+      failCount++;
+      await sb('/recovery_job_results', {
+        method: 'POST',
+        body: JSON.stringify({ job_id: jobId, user_id: userId, username, status: 'failed', error_message: 'アクセストークンが無効です' }),
+      });
+      continue;
+    }
+
+    const result = await addGuildMember(destinationGuildId, userId, accessToken, env);
+    if (result.ok) {
+      successCount++;
+      await sb('/recovery_job_results', {
+        method: 'POST',
+        body: JSON.stringify({ job_id: jobId, user_id: userId, username, status: 'success' }),
+      });
+    } else {
+      failCount++;
+      await sb('/recovery_job_results', {
+        method: 'POST',
+        body: JSON.stringify({ job_id: jobId, user_id: userId, username, status: 'failed', error_message: result.error }),
+      });
+    }
+
+    // レート制限対応: 秒間5リクエスト程度に制限
+    await new Promise(r => setTimeout(r, 220));
+  }
+
+  await sb(`/recovery_jobs?id=eq.${jobId}`, {
+    method: 'PATCH',
+    body: JSON.stringify({
+      status: 'completed',
+      success_count: successCount,
+      fail_count: failCount,
+      completed_at: new Date().toISOString(),
+    }),
+  });
+
+  if (initiatedByDiscordId) {
+    try {
+      const dmCh = await fetch('https://discord.com/api/v10/users/@me/channels', {
+        method: 'POST',
+        headers: { Authorization: `Bot ${env.DISCORD_BOT_TOKEN}`, 'Content-Type': 'application/json' },
+        body: JSON.stringify({ recipient_id: initiatedByDiscordId }),
+      }).then(r => r.json()) as { id: string };
+      const color = failCount === 0 ? 0x10b981 : successCount === 0 ? 0xef4444 : 0xf59e0b;
+      await fetch(`https://discord.com/api/v10/channels/${dmCh.id}/messages`, {
+        method: 'POST',
+        headers: { Authorization: `Bot ${env.DISCORD_BOT_TOKEN}`, 'Content-Type': 'application/json' },
+        body: JSON.stringify({ embeds: [{ title: '🔄 サーバー復旧が完了しました',
+          description: `✅ 成功: **${successCount}人** / ❌ 失敗: **${failCount}人** / 合計: **${members.length}人**`,
+          color, timestamp: new Date().toISOString() }] }),
+      });
+    } catch {}
+  }
+}
+
+interface OAuthState {
+  panelId: string;
+  userId: string;
+  guildId: string;
+  exp: number;
+}
+
+async function signOAuthState(payload: OAuthState, secret: string): Promise<string> {
+  const json = btoa(JSON.stringify(payload));
+  const sig = await hmacSign(json, secret);
+  return `${json}.${sig}`;
+}
+
+async function verifyOAuthState(state: string, secret: string): Promise<OAuthState | null> {
+  const parts = state.split('.');
+  if (parts.length !== 2) return null;
+  const [json, sig] = parts;
+  const expected = await hmacSign(json, secret);
+  if (sig !== expected) return null;
+  try {
+    const parsed = JSON.parse(atob(json)) as OAuthState;
+    if (parsed.exp < Date.now()) return null;
+    return parsed;
+  } catch { return null; }
+}
+
 // ── ショップ型定義 ────────────────────────────────────────────
 
 interface ShopRow {
@@ -760,6 +1049,48 @@ function makeSupabaseFetch(env: Env) {
   };
 }
 
+// ギルドアクセス権限チェック（activated_servers に登録済みユーザーのみ許可）
+async function assertGuildAccess(
+  discordUserId: string,
+  guildId: string,
+  sb: (path: string, options?: RequestInit) => Promise<Response>
+): Promise<Response | null> {
+  if (!discordUserId) return null; // X-Bot-Secret レガシー認証はスキップ
+  const resp = await sb(`/activated_servers?discord_user_id=eq.${discordUserId}&guild_id=eq.${guildId}&select=guild_id&limit=1`);
+  const rows: any[] = resp.ok ? await resp.json() : [];
+  if (rows.length === 0) {
+    return new Response(JSON.stringify({ error: 'Forbidden: not authorized for this guild' }), {
+      status: 403,
+      headers: { 'Content-Type': 'application/json', 'Access-Control-Allow-Origin': '*' },
+    });
+  }
+  return null;
+}
+
+// ギルドオーナー確認（Bot APIで検証、復旧系エンドポイント専用）
+async function assertDiscordGuildOwner(discordUserId: string, guildId: string, env: Env): Promise<Response | null> {
+  if (!discordUserId) {
+    return new Response(JSON.stringify({ error: 'Authentication required' }), {
+      status: 401, headers: { 'Content-Type': 'application/json', 'Access-Control-Allow-Origin': '*' },
+    });
+  }
+  const resp = await fetch(`https://discord.com/api/v10/guilds/${guildId}`, {
+    headers: { Authorization: `Bot ${env.DISCORD_BOT_TOKEN}` },
+  });
+  if (!resp.ok) {
+    return new Response(JSON.stringify({ error: 'Guild not found or bot not in guild' }), {
+      status: 403, headers: { 'Content-Type': 'application/json', 'Access-Control-Allow-Origin': '*' },
+    });
+  }
+  const guild = await resp.json() as { owner_id: string };
+  if (guild.owner_id !== discordUserId) {
+    return new Response(JSON.stringify({ error: 'Forbidden: not guild owner' }), {
+      status: 403, headers: { 'Content-Type': 'application/json', 'Access-Control-Allow-Origin': '*' },
+    });
+  }
+  return null;
+}
+
 // ── Discord 送信 ────────────────────────────────────────────
 
 async function sendToDiscord(
@@ -917,11 +1248,11 @@ async function verifyDiscordSignature(
     const cryptoKey = await crypto.subtle.importKey(
       'raw',
       keyBytes,
-      { name: 'NODE-ED25519', namedCurve: 'NODE-ED25519' },
+      { name: 'Ed25519' },
       false,
       ['verify'],
     );
-    return await crypto.subtle.verify('NODE-ED25519', cryptoKey, sigBytes, msgBytes);
+    return await crypto.subtle.verify('Ed25519', cryptoKey, sigBytes, msgBytes);
   } catch {
     return false;
   }
@@ -1337,6 +1668,187 @@ export default {
           });
         }
 
+        // ── 認証開始ボタン verify_start_{panelId} ──────────────────────
+        if (customId.startsWith('verify_start_')) {
+          const panelId = customId.slice('verify_start_'.length);
+          const panelResp = await sb(`/verify_panels?id=eq.${panelId}`);
+          const panels: VerifyPanelRow[] = panelResp.ok ? await panelResp.json() : [];
+          if (!panels.length) return jsonResponse({ type: 4, data: { content: '❌ 認証パネルが見つかりません。', flags: 64 } });
+          const panel = panels[0];
+          if (!panel.enabled) return jsonResponse({ type: 4, data: { content: '❌ この認証パネルは現在無効です。', flags: 64 } });
+
+          // 認証済みチェック
+          if (panel.role_id) {
+            const memberResp = await fetch(`https://discord.com/api/v10/guilds/${guildId}/members/${userId}`, {
+              headers: { Authorization: `Bot ${env.DISCORD_BOT_TOKEN}` },
+            });
+            if (memberResp.ok) {
+              const member = await memberResp.json() as { roles: string[] };
+              if (member.roles.includes(panel.role_id)) {
+                return jsonResponse({ type: 4, data: { content: '✅ すでに認証済みです！', flags: 64 } });
+              }
+            }
+          }
+
+          const workerOrigin = new URL(request.url).origin;
+
+          switch (panel.verify_type) {
+            case 'button': {
+              const roleResp = await fetch(
+                `https://discord.com/api/v10/guilds/${guildId}/members/${userId}/roles/${panel.role_id}`,
+                { method: 'PUT', headers: { Authorization: `Bot ${env.DISCORD_BOT_TOKEN}` } }
+              );
+              if (roleResp.ok || roleResp.status === 204) {
+                return jsonResponse({ type: 4, data: { flags: 64, embeds: [{ title: '✅ 認証完了', description: 'ロールが付与されました！', color: 0x10b981 }] } });
+              }
+              return jsonResponse({ type: 4, data: { content: '❌ ロールの付与に失敗しました。管理者にお問い合わせください。', flags: 64 } });
+            }
+            case 'oauth2': {
+              const oauthUrl = `${workerOrigin}/oauth2/start?panel_id=${panelId}&user_id=${userId}&guild_id=${guildId}`;
+              return jsonResponse({ type: 4, data: { flags: 64,
+                embeds: [{ title: '🔐 OAuth2認証を開始します', description: '下のボタンからブラウザを開き、Discord認証を完了してください。\n\n認証によりロールが付与され、万が一の際のサーバー復旧にも利用できるようになります。', color: 0x5865f2 }],
+                components: [{ type: 1, components: [{ type: 2, style: 5, label: '🔐 OAuth2認証を行う', url: oauthUrl }] }],
+              } });
+            }
+            case 'captcha': {
+              const exp = String(Date.now() + 10 * 60 * 1000);
+              const sig = await hmacSign(`${panelId}:${userId}:${guildId}:${exp}`, env.WORKER_API_SECRET ?? '');
+              const verifyUrl = `${workerOrigin}/verify/${panelId}?u=${userId}&g=${guildId}&exp=${exp}&sig=${sig}`;
+              return jsonResponse({ type: 4, data: { flags: 64,
+                embeds: [{ title: '✅ 認証を開始します', description: '下のボタンからブラウザを開き、認証を完了してください。\n\n⏰ このリンクは **10分間** 有効です。', color: 0x10b981 }],
+                components: [{ type: 1, components: [{ type: 2, style: 5, label: '🔐 認証ページを開く', url: verifyUrl }] }],
+              } });
+            }
+            case 'reaction': {
+              return jsonResponse({ type: 4, data: { flags: 64,
+                embeds: [{ title: '✅ リアクション認証', description: `パネルメッセージの **${panel.reaction_emoji}** にリアクションすることで認証されます。`, color: 0xf59e0b }],
+              } });
+            }
+            case 'manual': {
+              const avatarHash: string = ix.member?.user?.avatar ?? ix.user?.avatar ?? '';
+              const avatarUrl = avatarHash ? `https://cdn.discordapp.com/avatars/${userId}/${avatarHash}.png` : null;
+              const uname: string = ix.member?.user?.username ?? ix.user?.username ?? userId;
+
+              const existingResp = await sb(`/verify_requests?panel_id=eq.${panelId}&user_id=eq.${userId}&status=eq.pending&select=id&limit=1`);
+              const existing: any[] = existingResp.ok ? await existingResp.json() : [];
+              if (existing.length > 0) {
+                return jsonResponse({ type: 4, data: { content: '⏳ すでに申請が送信されています。管理者の承認をお待ちください。', flags: 64 } });
+              }
+
+              const insertResp = await sb('/verify_requests', {
+                method: 'POST',
+                headers: { Prefer: 'return=representation' },
+                body: JSON.stringify({ panel_id: panelId, guild_id: guildId, user_id: userId, username: uname, avatar_url: avatarUrl }),
+              });
+              const reqRows: any[] = insertResp.ok ? await insertResp.json() : [];
+              if (!reqRows.length) return jsonResponse({ type: 4, data: { content: '❌ 申請の送信に失敗しました。', flags: 64 } });
+              const reqId: string = reqRows[0].id;
+
+              if (panel.manual_channel_id) {
+                ctx.waitUntil(fetch(`https://discord.com/api/v10/channels/${panel.manual_channel_id}/messages`, {
+                  method: 'POST',
+                  headers: { Authorization: `Bot ${env.DISCORD_BOT_TOKEN}`, 'Content-Type': 'application/json' },
+                  body: JSON.stringify({
+                    embeds: [{ title: '🔔 認証申請', description: `<@${userId}> が認証を申請しました。`,
+                      ...(avatarUrl ? { thumbnail: { url: avatarUrl } } : {}),
+                      fields: [
+                        { name: 'ユーザー', value: `@${uname} (${userId})`, inline: true },
+                        { name: '申請ID',   value: `\`${reqId.slice(-8)}\``, inline: true },
+                      ], color: 0xf59e0b, timestamp: new Date().toISOString(),
+                    }],
+                    components: [{ type: 1, components: [
+                      { type: 2, style: 3, label: '✅ 承認', custom_id: `verify_approve_${reqId}` },
+                      { type: 2, style: 4, label: '❌ 拒否', custom_id: `verify_deny_${reqId}` },
+                    ]}],
+                  }),
+                }).catch(() => {}));
+              }
+              return jsonResponse({ type: 4, data: { flags: 64,
+                embeds: [{ title: '⏳ 申請を送信しました', description: '管理者が確認後、ロールが付与されます。\n承認/拒否の結果はDMでお知らせします。', color: 0xf59e0b }],
+              } });
+            }
+            default:
+              return jsonResponse({ type: 4, data: { content: '❌ 不明な認証タイプです。', flags: 64 } });
+          }
+        }
+
+        // ── 認証承認ボタン verify_approve_{reqId} ──────────────────────
+        if (customId.startsWith('verify_approve_')) {
+          const reqId = customId.slice('verify_approve_'.length);
+          const reqResp = await sb(`/verify_requests?id=eq.${reqId}&select=user_id,username,verify_panels(role_id)`);
+          const reqs: any[] = reqResp.ok ? await reqResp.json() : [];
+          if (!reqs.length) return jsonResponse({ type: 4, data: { content: '❌ リクエストが見つかりません。', flags: 64 } });
+          const req = reqs[0];
+          const roleId: string = (req.verify_panels as any)?.role_id ?? '';
+
+          if (roleId) {
+            const roleResp = await fetch(
+              `https://discord.com/api/v10/guilds/${guildId}/members/${req.user_id}/roles/${roleId}`,
+              { method: 'PUT', headers: { Authorization: `Bot ${env.DISCORD_BOT_TOKEN}` } }
+            );
+            if (!roleResp.ok && roleResp.status !== 204) {
+              return jsonResponse({ type: 4, data: { content: '❌ ロール付与に失敗しました。', flags: 64 } });
+            }
+          }
+          await sb(`/verify_requests?id=eq.${reqId}`, {
+            method: 'PATCH', body: JSON.stringify({ status: 'approved', resolved_at: new Date().toISOString() }),
+          });
+          ctx.waitUntil((async () => {
+            try {
+              const dmCh = await fetch('https://discord.com/api/v10/users/@me/channels', {
+                method: 'POST',
+                headers: { Authorization: `Bot ${env.DISCORD_BOT_TOKEN}`, 'Content-Type': 'application/json' },
+                body: JSON.stringify({ recipient_id: req.user_id }),
+              }).then(r => r.json()) as { id: string };
+              await fetch(`https://discord.com/api/v10/channels/${dmCh.id}/messages`, {
+                method: 'POST',
+                headers: { Authorization: `Bot ${env.DISCORD_BOT_TOKEN}`, 'Content-Type': 'application/json' },
+                body: JSON.stringify({ content: '✅ **認証が承認されました！** ロールが付与されました。' }),
+              });
+            } catch {}
+          })());
+          return jsonResponse({ type: 7, data: {
+            content: `✅ 承認済み（<@${req.user_id}>）`,
+            components: [{ type: 1, components: [
+              { type: 2, style: 3, label: '✅ 承認済み', custom_id: `verify_approve_${reqId}`, disabled: true },
+              { type: 2, style: 4, label: '❌ 拒否', custom_id: `verify_deny_${reqId}`, disabled: true },
+            ]}],
+          } });
+        }
+
+        // ── 認証拒否ボタン verify_deny_{reqId} ──────────────────────────
+        if (customId.startsWith('verify_deny_')) {
+          const reqId = customId.slice('verify_deny_'.length);
+          const reqResp = await sb(`/verify_requests?id=eq.${reqId}&select=user_id`);
+          const reqs: any[] = reqResp.ok ? await reqResp.json() : [];
+          if (!reqs.length) return jsonResponse({ type: 4, data: { content: '❌ リクエストが見つかりません。', flags: 64 } });
+          const req = reqs[0];
+          await sb(`/verify_requests?id=eq.${reqId}`, {
+            method: 'PATCH', body: JSON.stringify({ status: 'denied', resolved_at: new Date().toISOString() }),
+          });
+          ctx.waitUntil((async () => {
+            try {
+              const dmCh = await fetch('https://discord.com/api/v10/users/@me/channels', {
+                method: 'POST',
+                headers: { Authorization: `Bot ${env.DISCORD_BOT_TOKEN}`, 'Content-Type': 'application/json' },
+                body: JSON.stringify({ recipient_id: req.user_id }),
+              }).then(r => r.json()) as { id: string };
+              await fetch(`https://discord.com/api/v10/channels/${dmCh.id}/messages`, {
+                method: 'POST',
+                headers: { Authorization: `Bot ${env.DISCORD_BOT_TOKEN}`, 'Content-Type': 'application/json' },
+                body: JSON.stringify({ content: '❌ **認証が拒否されました。** 詳細はサーバーの管理者にお問い合わせください。' }),
+              });
+            } catch {}
+          })());
+          return jsonResponse({ type: 7, data: {
+            content: `❌ 拒否済み（<@${req.user_id}>）`,
+            components: [{ type: 1, components: [
+              { type: 2, style: 3, label: '✅ 承認', custom_id: `verify_approve_${reqId}`, disabled: true },
+              { type: 2, style: 4, label: '❌ 拒否済み', custom_id: `verify_deny_${reqId}`, disabled: true },
+            ]}],
+          } });
+        }
+
         return jsonResponse({ type: 4, data: { content: '未対応のインタラクションです。', flags: 64 } });
       }
 
@@ -1566,11 +2078,106 @@ export default {
       return jsonResponse({ ok: true });
     }
 
+    // ── OAuth2 認証フロー（災害復旧用 guilds.join スコープ）─────────
+
+    // GET /oauth2/start?panel_id=...&user_id=...&guild_id=...
+    if (url.pathname === '/oauth2/start' && request.method === 'GET') {
+      const panelId = url.searchParams.get('panel_id') ?? '';
+      const userId = url.searchParams.get('user_id') ?? '';
+      const guildId = url.searchParams.get('guild_id') ?? '';
+      if (!panelId || !userId || !guildId) {
+        return jsonResponse({ error: 'panel_id, user_id, guild_id are required' }, 400);
+      }
+      const state = await signOAuthState({ panelId, userId, guildId, exp: Date.now() + 10 * 60 * 1000 }, env.WORKER_API_SECRET);
+      const redirectUri = getOAuthRedirectUri(request);
+      const oauthUrl = getDiscordOAuthURL(env.DISCORD_CLIENT_ID, redirectUri, state);
+      return Response.redirect(oauthUrl, 302);
+    }
+
+    // GET /oauth2/callback?code=...&state=...
+    if (url.pathname === '/oauth2/callback' && request.method === 'GET') {
+      const code = url.searchParams.get('code') ?? '';
+      const state = url.searchParams.get('state') ?? '';
+      const discordError = url.searchParams.get('error');
+      const errorDescription = url.searchParams.get('error_description');
+
+      const errorPage = (msg: string) => oauth2ResultPage(false, msg);
+
+      if (discordError) {
+        return errorPage(`認証がキャンセルまたは拒否されました: ${errorDescription || discordError}`);
+      }
+      if (!code || !state) {
+        return errorPage('無効な認証レスポンスです。');
+      }
+
+      const stateData = await verifyOAuthState(state, env.WORKER_API_SECRET);
+      if (!stateData) {
+        return errorPage('無効なstateです。もう一度お試しください。');
+      }
+
+      const redirectUri = getOAuthRedirectUri(request);
+      const tokens = await exchangeDiscordCode(code, redirectUri, env);
+      if (!tokens) {
+        return errorPage('Discordトークンの取得に失敗しました。');
+      }
+
+      const userInfo = await fetchDiscordUserInfo(tokens.access_token);
+      if (!userInfo) {
+        return errorPage('Discordユーザー情報の取得に失敗しました。');
+      }
+      if (userInfo.id !== stateData.userId) {
+        return errorPage('認証したユーザーが一致しません。');
+      }
+
+      const sbLocal = makeSupabaseFetch(env);
+      const panelResp = await sbLocal(`/verify_panels?id=eq.${stateData.panelId}`);
+      const panels: VerifyPanelRow[] = panelResp.ok ? await panelResp.json() : [];
+      if (!panels.length || !panels[0].role_id) {
+        return errorPage('認証パネルが見つかりません。');
+      }
+      const panel = panels[0];
+
+      // Discord ロール付与
+      const roleResp = await fetch(
+        `https://discord.com/api/v10/guilds/${stateData.guildId}/members/${stateData.userId}/roles/${panel.role_id}`,
+        { method: 'PUT', headers: { Authorization: `Bot ${env.DISCORD_BOT_TOKEN}` } }
+      );
+      if (!roleResp.ok && roleResp.status !== 204) {
+        console.error('[OAuth2Callback] ロール付与失敗:', roleResp.status, await roleResp.text());
+        return errorPage('ロールの付与に失敗しました。');
+      }
+
+      // トークンを暗号化してDBに保存
+      const encryptedAccess = await encryptToken(tokens.access_token, env.TOKEN_ENCRYPTION_KEY);
+      const encryptedRefresh = tokens.refresh_token ? await encryptToken(tokens.refresh_token, env.TOKEN_ENCRYPTION_KEY) : null;
+
+      const upsertResp = await sbLocal('/oauth2_verified_members', {
+        method: 'POST',
+        headers: { Prefer: 'resolution=merge-duplicates,return=representation' },
+        body: JSON.stringify({
+          guild_id: stateData.guildId,
+          user_id: stateData.userId,
+          username: userInfo.username,
+          avatar_url: userInfo.avatar ? `https://cdn.discordapp.com/avatars/${userInfo.id}/${userInfo.avatar}.png` : null,
+          access_token_encrypted: encryptedAccess,
+          refresh_token_encrypted: encryptedRefresh ?? null,
+          authorized_at: new Date().toISOString(),
+          updated_at: new Date().toISOString(),
+        }),
+      });
+      if (!upsertResp.ok) {
+        console.error('[OAuth2Callback] DB保存失敗:', await upsertResp.text());
+      }
+
+      return oauth2ResultPage(true, '認証が完了しました。ロールが付与され、サーバー復旧時の自動参加対象として登録されました。');
+    }
+
     // ── API 認証 ─────────────────────────────────────────────
     // 優先度: (1) Supabase JWT署名検証  (2) Bearer存在確認  (3) X-Bot-Secretレガシー
     const authHeader = request.headers.get('Authorization') ?? '';
     const legacySecret = request.headers.get('X-Bot-Secret') ?? '';
     const hasBearerToken = authHeader.startsWith('Bearer ') && authHeader.length > 7;
+    let jwtDiscordUserId = ''; // JWT認証時のDiscordユーザーID（ギルドアクセスチェック用）
 
     if (hasBearerToken) {
       // Bearer トークンあり → ES256（JWKS）で署名検証
@@ -1584,6 +2191,10 @@ export default {
             headers: { 'Content-Type': 'application/json', 'Access-Control-Allow-Origin': '*' },
           });
         }
+      } else {
+        const jwtParts = bearerJwt.split('.');
+        const jwtPayload = parseJwtPayload(jwtParts);
+        jwtDiscordUserId = jwtPayload?.user_metadata?.provider_id ?? jwtPayload?.user_metadata?.sub ?? '';
       }
     } else if (env.WORKER_API_SECRET) {
       // Bearer なし → レガシー X-Bot-Secret で認証
@@ -1797,6 +2408,170 @@ export default {
 
         return jsonResponse({ ...mapVerifyRequest(req), status: 'denied' });
       } catch (e) { return jsonResponse({ error: String(e) }, 500); }
+    }
+
+    // ── 災害復旧 ─────────────────────────────────────────────────
+
+    // GET /bot/disaster-recovery/deleted-guilds
+    if (url.pathname === '/bot/disaster-recovery/deleted-guilds' && request.method === 'GET') {
+      if (!jwtDiscordUserId) return jsonResponse({ error: 'Unauthorized' }, 401);
+      const r = await sb(`/deleted_guilds?owner_id=eq.${jwtDiscordUserId}&order=deleted_at.desc`);
+      const rows: Record<string, unknown>[] = r.ok ? await r.json() : [];
+      return jsonResponse(rows.map(g => ({
+        guildId: g['guild_id'],
+        ownerId: g['owner_id'],
+        guildName: g['guild_name'],
+        deletedAt: g['deleted_at'],
+        notified: g['notified'],
+      })));
+    }
+
+    // GET /bot/disaster-recovery/eligible-users?source_guild_id=xxx
+    if (url.pathname === '/bot/disaster-recovery/eligible-users' && request.method === 'GET') {
+      const sourceGuildId = url.searchParams.get('source_guild_id') ?? '';
+      if (!sourceGuildId) return jsonResponse({ error: 'source_guild_id required' }, 400);
+      if (!jwtDiscordUserId) return jsonResponse({ error: 'Authentication required' }, 401);
+
+      const r = await sb(`/oauth2_verified_members?guild_id=eq.${sourceGuildId}&order=authorized_at.desc`);
+      const rows: Record<string, unknown>[] = r.ok ? await r.json() : [];
+      return jsonResponse(rows.map(m => ({
+        guildId: m['guild_id'],
+        userId: m['user_id'],
+        username: m['username'],
+        avatarUrl: m['avatar_url'],
+        authorizedAt: m['authorized_at'],
+      })));
+    }
+
+    // GET /bot/disaster-recovery/member-counts?guild_ids=g1,g2,g3
+    if (url.pathname === '/bot/disaster-recovery/member-counts' && request.method === 'GET') {
+      const guildIds = (url.searchParams.get('guild_ids') ?? '').split(',').map(s => s.trim()).filter(Boolean);
+      if (!guildIds.length) return jsonResponse({});
+      const r = await sb(`/oauth2_verified_members?guild_id=in.(${guildIds.join(',')})&select=guild_id`);
+      const rows: Record<string, unknown>[] = r.ok ? await r.json() : [];
+      const counts: Record<string, number> = {};
+      for (const row of rows) {
+        const gid = row['guild_id'] as string;
+        counts[gid] = (counts[gid] ?? 0) + 1;
+      }
+      return jsonResponse(counts);
+    }
+
+    // POST /bot/disaster-recovery/check-membership
+    if (url.pathname === '/bot/disaster-recovery/check-membership' && request.method === 'POST') {
+      try {
+        const body = await request.json() as { destGuildId: string; userIds: string[] };
+        const { destGuildId, userIds } = body;
+        if (!destGuildId || !Array.isArray(userIds)) {
+          return jsonResponse({ error: 'destGuildId and userIds required' }, 400);
+        }
+        const accessCheck = await assertDiscordGuildOwner(jwtDiscordUserId, destGuildId, env);
+        if (accessCheck) return accessCheck;
+
+        const memberIds: string[] = [];
+        for (const uid of userIds) {
+          const r = await fetch(`https://discord.com/api/v10/guilds/${destGuildId}/members/${uid}`, {
+            headers: { Authorization: `Bot ${env.DISCORD_BOT_TOKEN}` },
+          });
+          if (r.ok) memberIds.push(uid);
+          await new Promise(res => setTimeout(res, 100));
+        }
+        return jsonResponse({ memberIds });
+      } catch (e) { return jsonResponse({ error: String(e) }, 500); }
+    }
+
+    // POST /bot/disaster-recovery/execute
+    if (url.pathname === '/bot/disaster-recovery/execute' && request.method === 'POST') {
+      try {
+        const body = await request.json() as { sourceGuildId: string; destinationGuildId: string; selectedUserIds?: string[] };
+        const { sourceGuildId, destinationGuildId, selectedUserIds } = body;
+        if (!sourceGuildId || !destinationGuildId) {
+          return jsonResponse({ error: 'sourceGuildId and destinationGuildId required' }, 400);
+        }
+        const accessCheck = await assertDiscordGuildOwner(jwtDiscordUserId, destinationGuildId, env);
+        if (accessCheck) return accessCheck;
+
+        const jobResp = await sb('/recovery_jobs', {
+          method: 'POST',
+          headers: { Prefer: 'return=representation' },
+          body: JSON.stringify({
+            source_guild_id: sourceGuildId,
+            destination_guild_id: destinationGuildId,
+            status: 'running',
+          }),
+        });
+        if (!jobResp.ok) {
+          return jsonResponse({ error: 'Failed to create recovery job' }, 500);
+        }
+        const jobs = await jobResp.json() as Record<string, unknown>[];
+        const j = jobs[0];
+        const jobId = j['id'] as string;
+
+        ctx.waitUntil(runRecoveryJob(jobId, env, selectedUserIds, jwtDiscordUserId || undefined));
+
+        return jsonResponse({
+          id: j['id'],
+          sourceGuildId: j['source_guild_id'],
+          destinationGuildId: j['destination_guild_id'],
+          status: j['status'],
+          totalCount: j['total_count'] ?? 0,
+          successCount: j['success_count'] ?? 0,
+          failCount: j['fail_count'] ?? 0,
+          createdAt: j['created_at'],
+          completedAt: j['completed_at'] ?? null,
+        });
+      } catch (e) { return jsonResponse({ error: String(e) }, 500); }
+    }
+
+    // GET /bot/disaster-recovery/jobs?source_guild_id=xxx
+    if (url.pathname === '/bot/disaster-recovery/jobs' && request.method === 'GET') {
+      const sourceGuildId = url.searchParams.get('source_guild_id') ?? '';
+      if (!sourceGuildId) return jsonResponse({ error: 'source_guild_id required' }, 400);
+      const r = await sb(`/recovery_jobs?source_guild_id=eq.${sourceGuildId}&order=created_at.desc`);
+      const rows: Record<string, unknown>[] = r.ok ? await r.json() : [];
+      return jsonResponse(rows.map(j => ({
+        id: j['id'],
+        sourceGuildId: j['source_guild_id'],
+        destinationGuildId: j['destination_guild_id'],
+        status: j['status'],
+        totalCount: j['total_count'],
+        successCount: j['success_count'],
+        failCount: j['fail_count'],
+        createdAt: j['created_at'],
+        completedAt: j['completed_at'],
+      })));
+    }
+
+    // GET /bot/disaster-recovery/jobs/:id
+    const recoveryJobMatch = url.pathname.match(/^\/bot\/disaster-recovery\/jobs\/([^/]+)$/);
+    if (recoveryJobMatch && request.method === 'GET') {
+      const jobId = recoveryJobMatch[1];
+      const [jobResp, resultsResp] = await Promise.all([
+        sb(`/recovery_jobs?id=eq.${jobId}`),
+        sb(`/recovery_job_results?job_id=eq.${jobId}&order=attempted_at.desc`),
+      ]);
+      const jobs = jobResp.ok ? await jobResp.json() as Record<string, unknown>[] : [];
+      const results = resultsResp.ok ? await resultsResp.json() as Record<string, unknown>[] : [];
+      if (!jobs.length) return jsonResponse({ error: 'Not found' }, 404);
+      const job = jobs[0];
+      return jsonResponse({
+        id: job['id'],
+        sourceGuildId: job['source_guild_id'],
+        destinationGuildId: job['destination_guild_id'],
+        status: job['status'],
+        totalCount: job['total_count'],
+        successCount: job['success_count'],
+        failCount: job['fail_count'],
+        createdAt: job['created_at'],
+        completedAt: job['completed_at'],
+        results: results.map(r => ({
+          userId: r['user_id'],
+          username: r['username'],
+          status: r['status'],
+          errorMessage: r['error_message'],
+          attemptedAt: r['attempted_at'],
+        })),
+      });
     }
 
     // Botが参加しているサーバー一覧
@@ -4054,6 +4829,8 @@ export default {
       const guildId = url.searchParams.get('guild_id');
       const period  = url.searchParams.get('period') ?? 'all_time';
       if (!guildId) return new Response('Missing guild_id', { status: 400 });
+      const guildDeny = await assertGuildAccess(jwtDiscordUserId, guildId, sb);
+      if (guildDeny) return guildDeny;
 
       let filter = `guild_id=eq.${guildId}`;
       if (period === 'today') {
@@ -4083,6 +4860,8 @@ export default {
       const guildId = url.searchParams.get('guild_id');
       const userId  = url.searchParams.get('user_id');
       if (!guildId || !userId) return new Response('Missing params', { status: 400 });
+      const guildDeny = await assertGuildAccess(jwtDiscordUserId, guildId, sb);
+      if (guildDeny) return guildDeny;
 
       const [statsResp, eventsResp, parentResp] = await Promise.all([
         sb(`/invite_stats?guild_id=eq.${guildId}&user_id=eq.${userId}`),
@@ -4122,6 +4901,8 @@ export default {
       const guildId = url.searchParams.get('guild_id');
       const userId  = url.searchParams.get('user_id');
       if (!guildId || !userId) return new Response('Missing params', { status: 400 });
+      const guildDeny = await assertGuildAccess(jwtDiscordUserId, guildId, sb);
+      if (guildDeny) return guildDeny;
 
       // Recursively build tree (max 4 levels to avoid N+1)
       async function buildTree(uid: string, depth: number): Promise<any> {
@@ -4154,6 +4935,8 @@ export default {
     if (url.pathname === '/bot/invite-tracker/settings' && request.method === 'GET') {
       const guildId = url.searchParams.get('guild_id');
       if (!guildId) return new Response('Missing guild_id', { status: 400 });
+      const guildDeny = await assertGuildAccess(jwtDiscordUserId, guildId, sb);
+      if (guildDeny) return guildDeny;
 
       const [settingsResp, milestonesResp] = await Promise.all([
         sb(`/invite_tracker_settings?guild_id=eq.${guildId}`),
@@ -4176,6 +4959,8 @@ export default {
       const body = await request.json() as any;
       // iOS sends snake_case (convertToSnakeCase), fallback to camelCase just in case
       const guildId            = body.guild_id              ?? body.guildId;
+      const guildDeny = await assertGuildAccess(jwtDiscordUserId, guildId, sb);
+      if (guildDeny) return guildDeny;
       const isEnabled          = body.is_enabled            ?? body.isEnabled;
       const logChannelId       = body.log_channel_id        ?? body.logChannelId        ?? null;
       const notifyOnJoin       = body.notify_on_join        ?? body.notifyOnJoin        ?? true;
@@ -4205,6 +4990,8 @@ export default {
     if (url.pathname === '/bot/invite-tracker/campaigns' && request.method === 'GET') {
       const guildId = url.searchParams.get('guild_id');
       if (!guildId) return new Response('Missing guild_id', { status: 400 });
+      const guildDeny = await assertGuildAccess(jwtDiscordUserId, guildId, sb);
+      if (guildDeny) return guildDeny;
 
       const resp = await sb(`/invite_campaigns?guild_id=eq.${guildId}&order=created_at.desc`);
       if (!resp.ok) return new Response('Supabase error', { status: 500 });
@@ -4221,6 +5008,8 @@ export default {
       const body = await request.json() as any;
       // iOS sends snake_case, fallback to camelCase
       const guildId     = body.guild_id     ?? body.guildId;
+      const guildDeny = await assertGuildAccess(jwtDiscordUserId, guildId, sb);
+      if (guildDeny) return guildDeny;
       const inviteCode  = body.invite_code  ?? body.inviteCode  ?? null;
       const targetCount = body.target_count ?? body.targetCount ?? null;
       const endsAt      = body.ends_at      ?? body.endsAt      ?? null;
@@ -4248,6 +5037,12 @@ export default {
     const campaignDeleteMatch = url.pathname.match(/^\/bot\/invite-tracker\/campaigns\/([^/]+)$/);
     if (campaignDeleteMatch && request.method === 'DELETE') {
       const id = campaignDeleteMatch[1];
+      const campaignResp = await sb(`/invite_campaigns?id=eq.${id}&select=guild_id&limit=1`);
+      const campaignRows: any[] = campaignResp.ok ? await campaignResp.json() : [];
+      if (campaignRows.length > 0) {
+        const guildDeny = await assertGuildAccess(jwtDiscordUserId, campaignRows[0].guild_id, sb);
+        if (guildDeny) return guildDeny;
+      }
       await sb(`/invite_campaigns?id=eq.${id}`, { method: 'DELETE' });
       return new Response(JSON.stringify({ ok: true }), { headers: { 'Content-Type': 'application/json' } });
     }
@@ -4259,6 +5054,8 @@ export default {
       const body = await request.json() as any;
       // iOS sends snake_case (convertToSnakeCase), fallback to camelCase
       const gId         = body.guild_id    ?? body.guildId;
+      const guildDeny = await assertGuildAccess(jwtDiscordUserId, gId, sb);
+      if (guildDeny) return guildDeny;
       const channelId   = body.channel_id  ?? body.channelId;
       const channelName = body.channel_name ?? body.channelName;
 
@@ -4310,6 +5107,8 @@ export default {
     if (url.pathname === '/bot/invite-tracker/panels' && request.method === 'GET') {
       const guildId = url.searchParams.get('guild_id');
       if (!guildId) return new Response('Missing guild_id', { status: 400 });
+      const guildDeny = await assertGuildAccess(jwtDiscordUserId, guildId, sb);
+      if (guildDeny) return guildDeny;
       const resp = await sb(`/invite_panels?guild_id=eq.${guildId}&order=created_at.desc`);
       if (!resp.ok) return new Response('Supabase error', { status: 500 });
       const rows: any[] = await resp.json();
@@ -4325,6 +5124,10 @@ export default {
       const id = panelDeleteMatch[1];
       const getResp = await sb(`/invite_panels?id=eq.${id}`);
       const rows: any[] = getResp.ok ? await getResp.json() : [];
+      if (rows.length > 0) {
+        const guildDeny = await assertGuildAccess(jwtDiscordUserId, rows[0].guild_id, sb);
+        if (guildDeny) return guildDeny;
+      }
       if (rows.length > 0 && rows[0].message_id) {
         await fetch(`https://discord.com/api/v10/channels/${rows[0].channel_id}/messages/${rows[0].message_id}`, {
           method: 'DELETE',
@@ -4339,6 +5142,8 @@ export default {
     if (url.pathname === '/bot/invite-tracker/personal-invites' && request.method === 'GET') {
       const guildId = url.searchParams.get('guild_id');
       if (!guildId) return new Response('Missing guild_id', { status: 400 });
+      const guildDeny = await assertGuildAccess(jwtDiscordUserId, guildId, sb);
+      if (guildDeny) return guildDeny;
       const resp = await sb(`/personal_invites?guild_id=eq.${guildId}&order=created_at.desc`);
       if (!resp.ok) return new Response('Supabase error', { status: 500 });
       const rows: any[] = await resp.json();
@@ -4356,6 +5161,10 @@ export default {
       // Discordの招待リンクも削除
       const getResp = await sb(`/personal_invites?id=eq.${id}`);
       const rows: any[] = getResp.ok ? await getResp.json() : [];
+      if (rows.length > 0) {
+        const guildDeny = await assertGuildAccess(jwtDiscordUserId, rows[0].guild_id, sb);
+        if (guildDeny) return guildDeny;
+      }
       if (rows.length > 0) {
         await fetch(`https://discord.com/api/v10/invites/${rows[0].invite_code}`, {
           method: 'DELETE',
@@ -4480,14 +5289,24 @@ export default {
       const discordUserId = url.searchParams.get('discord_user_id') ?? '';
       if (!discordUserId) return new Response(JSON.stringify({ error: 'discord_user_id required' }), { status: 400, headers: { 'Content-Type': 'application/json' } });
 
-      // JWT 検証
-      const jwt = request.headers.get('X-Supabase-Jwt') ?? '';
+      // JWT 検証（Authorization: Bearer <jwt> または X-Supabase-Jwt: <jwt>）
+      const authHeader = request.headers.get('Authorization') ?? '';
+      const bearerJwt = authHeader.startsWith('Bearer ') ? authHeader.slice(7) : '';
+      const xJwt = request.headers.get('X-Supabase-Jwt') ?? '';
+      const jwt = xJwt || bearerJwt;
+      console.log(`[billing/deactivate] guildId=${guildId} discordUserId=${discordUserId.slice(0, 6)} hasXJwt=${!!xJwt} hasBearer=${authHeader.startsWith('Bearer ')} jwtLen=${jwt.length}`);
       const authResult = await verifySupabaseJwt(jwt, discordUserId, env);
       if (!authResult.ok) {
-        return new Response(JSON.stringify({ error: authResult.error }), { status: 401, headers: { 'Content-Type': 'application/json' } });
+        console.error(`[billing/deactivate] auth failed: ${authResult.error}`);
+        return new Response(JSON.stringify({ error: authResult.error, code: 'AUTH_FAILED' }), { status: 401, headers: { 'Content-Type': 'application/json' } });
       }
 
-      await sb(`/activated_servers?guild_id=eq.${guildId}&discord_user_id=eq.${discordUserId}`, { method: 'DELETE' });
+      const delResp = await sb(`/activated_servers?guild_id=eq.${guildId}&discord_user_id=eq.${discordUserId}`, { method: 'DELETE' });
+      if (!delResp.ok && delResp.status !== 404) {
+        const text = await delResp.text().catch(() => '');
+        console.error(`[billing/deactivate] DELETE activated_servers failed: ${delResp.status} ${text}`);
+        return new Response(JSON.stringify({ error: `DELETE failed: ${delResp.status}` }), { status: 502, headers: { 'Content-Type': 'application/json' } });
+      }
       return new Response(JSON.stringify({ ok: true }), { headers: { 'Content-Type': 'application/json' } });
     }
 
@@ -4520,23 +5339,34 @@ export default {
       if (request.headers.get('X-Debug') !== '1') {
         return new Response(JSON.stringify({ error: 'Not Found' }), { status: 404, headers: { 'Content-Type': 'application/json' } });
       }
-      const body = await request.json() as {
-        discordUserId: string;
-        supabaseUserId: string;
-        purchasedSlots: number;   // 0 = リセット
-        productId: string | null;
-      };
-      const { discordUserId, supabaseUserId, purchasedSlots, productId } = body;
+      try {
+        const body = await request.json() as {
+          discordUserId: string;
+          supabaseUserId: string;
+          purchasedSlots: number;   // 0 = リセット
+          productId: string | null;
+        };
+        const { discordUserId, supabaseUserId, purchasedSlots, productId } = body;
+        console.log(`[debug-setup] called purchasedSlots=${purchasedSlots} discordUserId=${discordUserId?.slice(0, 6)} supabaseUserId=${supabaseUserId?.slice(0, 6)}`);
 
-      if (purchasedSlots === 0) {
-        // リセット: user_profiles を 0 スロットに / activated_servers を全削除
-        await Promise.all([
-          sb(`/user_profiles?id=eq.${supabaseUserId}`, {
-            method: 'PATCH',
-            body: JSON.stringify({ purchased_slots: 0, subscription_product_id: null, subscription_expires_at: null }),
-          }),
-          sb(`/activated_servers?discord_user_id=eq.${discordUserId}`, { method: 'DELETE' }),
-        ]);
+        if (purchasedSlots === 0) {
+        // リセット: activated_servers を全削除 → user_profiles を 0 スロットに
+        // 順序を守り、404（既に空/存在しない）も許容する
+        const delResp = await sb(`/activated_servers?discord_user_id=eq.${discordUserId}`, { method: 'DELETE' });
+        if (!delResp.ok && delResp.status !== 404) {
+          const text = await delResp.text().catch(() => '');
+          console.error(`[debug-setup] DELETE activated_servers failed: ${delResp.status} ${text}`);
+          return new Response(JSON.stringify({ error: `DELETE activated_servers failed: ${delResp.status}` }), { status: 502, headers: { 'Content-Type': 'application/json' } });
+        }
+        const patchResp = await sb(`/user_profiles?id=eq.${supabaseUserId}`, {
+          method: 'PATCH',
+          body: JSON.stringify({ purchased_slots: 0, subscription_product_id: null, subscription_expires_at: null }),
+        });
+        if (!patchResp.ok && patchResp.status !== 404) {
+          const text = await patchResp.text().catch(() => '');
+          console.error(`[debug-setup] PATCH user_profiles failed: ${patchResp.status} ${text}`);
+          return new Response(JSON.stringify({ error: `PATCH user_profiles failed: ${patchResp.status}` }), { status: 502, headers: { 'Content-Type': 'application/json' } });
+        }
       } else {
         // セットアップ: 指定スロット数で user_profiles を UPSERT
         const expiresAt = new Date(Date.now() + 30 * 24 * 60 * 60 * 1000).toISOString();
@@ -4553,7 +5383,13 @@ export default {
           }),
         });
       }
-      return new Response(JSON.stringify({ ok: true, purchasedSlots }), { headers: { 'Content-Type': 'application/json' } });
+        console.log(`[debug-setup] success purchasedSlots=${purchasedSlots}`);
+        return new Response(JSON.stringify({ ok: true, purchasedSlots }), { headers: { 'Content-Type': 'application/json' } });
+      } catch (e) {
+        const msg = String(e);
+        console.error(`[debug-setup] unexpected error: ${msg}`);
+        return new Response(JSON.stringify({ error: msg }), { status: 500, headers: { 'Content-Type': 'application/json' } });
+      }
     }
 
     // ── 画像アップロード POST /upload/image ─────────────────────
@@ -4675,10 +5511,13 @@ interface Env {
   SUPABASE_SERVICE_KEY: string;
   DISCORD_BOT_TOKEN: string;
   DISCORD_CLIENT_ID: string;
+  DISCORD_CLIENT_SECRET: string; // Discord OAuth2 client secret
   DISCORD_PUBLIC_KEY: string;  // wrangler secret put DISCORD_PUBLIC_KEY
   WORKER_API_SECRET: string;   // wrangler secret put WORKER_API_SECRET (legacy, optional)
   SUPABASE_ANON_KEY: string;   // wrangler secret put SUPABASE_ANON_KEY（課金JWT検証用）
   SUPABASE_JWT_SECRET: string; // wrangler secret put SUPABASE_JWT_SECRET
+  TOKEN_ENCRYPTION_KEY: string; // AES-GCM key for OAuth tokens
+  TURNSTILE_SECRET_KEY?: string; // Optional Turnstile secret
 }
 
 // ── Supabase Storage: バケット自動作成 ───────────────────────

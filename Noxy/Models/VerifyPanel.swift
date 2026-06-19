@@ -7,6 +7,7 @@ enum VerifyType: String, Codable, CaseIterable {
     case reaction = "reaction"  // 絵文字リアクション
     case manual   = "manual"    // 管理者が手動承認
     case button   = "button"    // ワンクリック即時
+    case oauth2   = "oauth2"    // Discord OAuth2（サーバー復旧対象）
 
     var label: String {
         switch self {
@@ -14,6 +15,7 @@ enum VerifyType: String, Codable, CaseIterable {
         case .reaction: "リアクション"
         case .manual:   "手動認証"
         case .button:   "ワンクリック"
+        case .oauth2:   "OAuth2認証"
         }
     }
 
@@ -23,15 +25,17 @@ enum VerifyType: String, Codable, CaseIterable {
         case .reaction: "hand.thumbsup.fill"
         case .manual:   "person.badge.clock.fill"
         case .button:   "hand.tap.fill"
+        case .oauth2:   "lock.shield.fill"
         }
     }
 
     var description: String {
         switch self {
         case .captcha:  "Webページで CAPTCHA を完了することで認証します。ボット対策として最も強力です。"
-        case .reaction: "指定した絵文字にリアクションすることで認証します。操作が簡単でDiscordらしい体験です。"
+        case .reaction: "指定した絵文字にリアクションすることで認証されます。操作が簡単でDiscordらしい体験です。"
         case .manual:   "ユーザーの申請を管理者が確認・承認します。完全な制御が可能ですが対応が必要です。"
         case .button:   "ボタンをクリックするだけで即時認証します。最も操作が簡単ですがボット対策はありません。"
+        case .oauth2:   "Discord公式認証を行います。サーバー復旧時にメンバーを自動参加させる対象となります。"
         }
     }
 
@@ -41,6 +45,7 @@ enum VerifyType: String, Codable, CaseIterable {
         case .reaction: Theme.Color.statusWarn
         case .manual:   Theme.Color.accent
         case .button:   Theme.Color.statusOK
+        case .oauth2:   Color.accentIndigo
         }
     }
 }

@@ -181,7 +181,7 @@ struct GuildPickerSheet: View {
         defer { isRefreshing = false }
         let previousBotGuildIds = Set(appState.botGuilds.map(\.id))
         let botGuilds = (try? await DiscordService().fetchBotGuilds()) ?? []
-        let fetchedGuilds = (try? await services.guilds.fetchAll()) ?? []
+        let fetchedGuilds = (try? await DiscordService().fetchAll()) ?? []
         appState.botGuilds = botGuilds
         if !fetchedGuilds.isEmpty { appState.guilds = fetchedGuilds }
         let newBotGuildIds = Set(botGuilds.map(\.id))

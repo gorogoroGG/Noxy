@@ -177,7 +177,10 @@ struct MoreTabView: View {
     private func loadSubStatus() async {
         let userId = KeychainHelper.load(forKey: "discord_user_id") ?? ""
         guard !userId.isEmpty else { return }
-        subStatus = (try? await services.subscription.fetchStatus(discordUserId: userId)) ?? .inactive
+        // isDemoMode に関わらず常にライブサービスを直接使用する
+        let newStatus = (try? await WorkerSubscriptionService().fetchStatus(discordUserId: userId)) ?? .inactive
+        subStatus = newStatus
+        appState.subscriptionStatus = newStatus
     }
 
     private var settingsSection: some View {
@@ -244,8 +247,17 @@ struct MoreTabView: View {
     }
 
     private var dataSection: some View {
-        FormSection("データ", icon: "externaldrive") {
+        FormSection("データ・復旧", icon: "externaldrive") {
             VStack(spacing: 0) {
+                NavigationLink {
+                    ServerRecoveryView()
+                } label: {
+                    SettingsRow(icon: "arrow.triangle.2.circlepath", title: "サーバー復旧", tint: Theme.Color.accent)
+                }
+                .buttonStyle(.plain)
+
+                Divider().background(Theme.Color.line)
+
                 Button {
                     // TODO: キャッシュ削除
                 } label: {
@@ -373,11 +385,14 @@ struct MoreTabView: View {
                             .frame(width: 28)
                     }
                     Toggle(
-                        debug.isProMode ? "Pro モード ON（3スロット）" : "Pro モード OFF",
+                        subStatus.isActive ? "Pro モード ON（3スロット）" : "Pro モード OFF",
                         isOn: Binding(
-                            get: { debug.isProMode },
+                            get: { subStatus.isActive },
                             set: { newVal in
-                                Task { await debug.setProMode(newVal) }
+                                Task {
+                                    await debug.setProMode(newVal)
+                                    await loadSubStatus()
+                                }
                             }
                         )
                     )
@@ -392,6 +407,29 @@ struct MoreTabView: View {
                         .font(Theme.Font.caption)
                         .foregroundStyle(Theme.Color.statusBad)
                         .padding(.vertical, Theme.Spacing.sm)
+                }
+
+                if subStatus.isActive {
+                    Divider().background(Theme.Color.line)
+                    NavigationLink {
+                        ServerActivationView()
+                    } label: {
+                        HStack(spacing: Theme.Spacing.sm) {
+                            Image(systemName: "server.rack")
+                                .foregroundStyle(Theme.Color.textSecondary)
+                                .frame(width: 28)
+                            Text("スロットを有効にする")
+                                .font(Theme.Font.body)
+                                .foregroundStyle(Theme.Color.textPrimary)
+                            Spacer()
+                            Image(systemName: "chevron.right")
+                                .font(Theme.Font.caption)
+                                .foregroundStyle(Theme.Color.textTertiary)
+                        }
+                        .padding(.vertical, Theme.Spacing.sm)
+                        .contentShape(Rectangle())
+                    }
+                    .buttonStyle(.plain)
                 }
 
                 Divider().background(Theme.Color.line)
